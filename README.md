@@ -20,7 +20,7 @@
   </div>
   <br>
 
-# Python-Template
+# WHIP: Walking Hexapod Intellegence Platform
 
 ## How to Run:
 
