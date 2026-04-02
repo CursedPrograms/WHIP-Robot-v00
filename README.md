@@ -22,6 +22,14 @@
 
 # WHIP: Walking Hexapod Intellegence Platform
 
+## Hardware Configuration
+- **Controller**: ESP32-based microcontroller
+- **Servos**: 6 high-torque servos for leg control
+- **Sensors**: Camera, microphone, distance sensors
+- **Communication**: WiFi, Bluetooth, UART serial
+- **Power**: Rechargeable battery system
+- **Expansion**: GPIO pins for additional sensors and modules
+
 ## How to Run:
 
 ### Install Requirements
