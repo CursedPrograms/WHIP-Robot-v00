@@ -22,6 +22,8 @@
 
 # WHIP: Walking Hexapod Intellegence Platform
 
+Based On MiniHexa by HiWonder: https://github.com/Hiwonder/MiniHexa/
+
 ## Hardware Configuration
 - **Controller**: ESP32-based microcontroller
 - **Servos**: 6 high-torque servos for leg control
