@@ -22,6 +22,11 @@
 
 # WHIP: Walking Hexapod Intellegence Platform
 
+- [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v00)
+- [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
+- [NORA-Robot-v00](https://github.com/CursedPrograms/NORA-Robot-v00)
+- [ComCentre](https://github.com/CursedPrograms/ComCentre)
+
 Based On MiniHexa by HiWonder: https://github.com/Hiwonder/MiniHexa/
 
 - Arduino IDE
