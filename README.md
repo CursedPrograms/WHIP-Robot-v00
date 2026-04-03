@@ -24,6 +24,8 @@
 
 Based On MiniHexa by HiWonder: https://github.com/Hiwonder/MiniHexa/
 
+- Arduino IDE
+
 ## Hardware Configuration
 - **Controller**: ESP32-based microcontroller
 - **Servos**: 6 high-torque servos for leg control
@@ -72,6 +74,12 @@ Unix-like systems (Linux/macOS):
 ```bash
 
 ```
+
+### Related Technologies
+- [MicroPython](https://micropython.org/) - Python for Microcontrollers
+- [Arduino](https://www.arduino.cc/) - Open-Source Electronics Platform
+- [Scratch](https://scratch.mit.edu/) - Visual Programming Language
+- [ESP32](https://www.espressif.com/en/products/socs/esp32) - Microcontroller Platform
 
 <br>
 <div align="center">
