@@ -33,14 +33,26 @@
 
 ### Prerequisite Hardware
 
+#### **Chassis**
 - **18DOF hexapod chassis**
-- **32 channel esp32 servo board**
-- **PS2 Controller + Receiver**
-- **3s 21700 batteries**
+
+#### **Microcontrollers**
+- **ESP32 Servo Controller Board**
 - **Arduino UNO**
-- **Ultrasonic Sensor** (HC-SR04)
-- **XL4016**
-- **18 180 Degree MG995 Servos**
+
+#### User Controllers
+- **PS2 Controller + Receiver**
+- **PC, Android, iPhone**  (any device with Wi-Fi and a web browser)
+
+#### **Motors & Drivers**
+- **18 × MG995 180° Servo Motors**
+
+#### Power Delivery
+- **XL4016 DC-DC Buck Converter**
+- **3s 21700 batteries**
+
+#### **Sensors and Peripherals**
+- **Ultrasonic Sensor** (HC-SR04 or compatible)
 
 ### Libraries:
 
