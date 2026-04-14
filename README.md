@@ -26,32 +26,29 @@
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
 - [NORA-Robot-v00](https://github.com/CursedPrograms/NORA-Robot-v00)
 - [ComCentre](https://github.com/CursedPrograms/ComCentre)
-
-Based On MiniHexa by HiWonder: https://github.com/Hiwonder/MiniHexa/
+- [RIFT](https://github.com/CursedPrograms/RIFT)
 
 - Arduino IDE
+- 18 DOF hexapod chassis
+- 32 channel esp32 servo board
+- PS2 Controller + Receiver
+- 3s 21700 batteries
+- Arduino UNO
+- Ultrasonic Sensor (HC-SR04)
+- XL4016
+- 18 180 Degree MG995 Servos
 
 ## Hardware Configuration
-- **Controller**: ESP32-based microcontroller
-- **Servos**: 6 high-torque servos for leg control
-- **Sensors**: Camera, microphone, distance sensors
-- **Communication**: WiFi, Bluetooth, UART serial
-- **Power**: Rechargeable battery system
-- **Expansion**: GPIO pins for additional sensors and modules
 
 ## How to Run:
 
 ### Install Requirements
 
-Using Python directly:
-
 ```bash
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
-Or run: 
-- `install_requirements.bat`
-
-  
   <br>
 
 ### Run main.py
