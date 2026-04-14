@@ -1,6 +1,6 @@
 {
     "Config": {
-      "AppName": "TemplateProject",
+      "AppName": "WHIP",
       "Description": "",
       "ProjectStructure": {
         "MainScript": "main.py",
