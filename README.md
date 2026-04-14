@@ -20,7 +20,7 @@
 </div>
 <br>
 
-# WHIP: Walking Hexapod Intellegence Platform
+# WHIP: Walking Hexapod Intelligence Platform
 
 - [KIDA-Robot-v00](https://github.com/CursedPrograms/KIDA-Robot-v00)
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
