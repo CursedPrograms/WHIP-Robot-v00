@@ -28,40 +28,43 @@
 - [DREAM](https://github.com/CursedPrograms/DREAM)
 - [RIFT](https://github.com/CursedPrograms/RIFT)
 
-### Prerequisite Software
+## Prerequisites
+
+### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
 
-### Prerequisite Hardware
+### Hardware
 
-#### **Chassis**
-- **18DOF hexapod chassis**
+#### Chassis
+- 18DOF hexapod chassis
 
-#### **Microcontrollers**
-- **ESP32 Servo Controller Board**
-- **Arduino UNO**
+#### Microcontrollers
+- ESP32 Servo Controller Board
+- Arduino UNO
 
 #### User Controllers
-- **PS2 Controller + Receiver**
-- **PC, Android, iPhone**  (any device with Wi-Fi and a web browser)
+- PS2 Controller + Receiver
+- PC, Android, iPhone  (any device with Wi-Fi and a web browser)
 
-#### **Motors & Drivers**
-- **18 × MG995 180° Servo Motors**
+#### Motors & Drivers
+- 18 × MG995 180° Servo Motors
 
 #### Power Delivery
-- **XL4016 DC-DC Buck Converter**
-- **3s 21700 batteries**
+- XL4016 DC-DC Buck Converter
+- 3s 21700 batteries
 
-#### **Sensors and Peripherals**
-- **Ultrasonic Sensor** (HC-SR04 or compatible)
+#### Sensors and Peripherals
+- Ultrasonic Sensor (HC-SR04 or compatible)
 
 ### Libraries:
 
-- **Wire.h**
-- **Adafruit_PWMServoDriver.h**
-- **PS2X_lib.h**
+- Wire.h
+- Adafruit_PWMServoDriver.h
+- PS2X_lib.h
 
 ### Network Setup:
 
+#### Connect to NORA:
 - ap_ssid     = "NORA";
 - ap_password = "12345678";
 
