@@ -25,10 +25,14 @@
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v00)
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
 - [NORA-Robot-v00](https://github.com/CursedPrograms/NORA-Robot-v00)
-- [ComCentre](https://github.com/CursedPrograms/ComCentre)
+- [DREAM](https://github.com/CursedPrograms/DREAM)
 - [RIFT](https://github.com/CursedPrograms/RIFT)
 
+### Prerequisite Software
 - Arduino IDE
+
+### Prerequisite Hardware
+
 - 18 DOF hexapod chassis
 - 32 channel esp32 servo board
 - PS2 Controller + Receiver
@@ -49,7 +53,7 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
-  <br>
+<br>
 
 ### Run main.py
 
@@ -58,31 +62,6 @@ Using Python directly:
 ```bash
 python main.py
 ```
-
-Using provided scripts:
-
-Windows:
-- `.\run.bat`
-or
-- `.\run.ps1`
-
-Unix-like systems (Linux/macOS):
-- `.\run.sh`
-
-  <br>
-
-## Requirements:
-
-```bash
-
-```
-
-### Related Technologies
-- [MicroPython](https://micropython.org/) - Python for Microcontrollers
-- [Arduino](https://www.arduino.cc/) - Open-Source Electronics Platform
-- [Scratch](https://scratch.mit.edu/) - Visual Programming Language
-- [ESP32](https://www.espressif.com/en/products/socs/esp32) - Microcontroller Platform
-
 <br>
 <div align="center">
 © Cursed Entertainment 202*
