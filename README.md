@@ -33,14 +33,25 @@
 
 ### Prerequisite Hardware
 
-- 18 DOF hexapod chassis
-- 32 channel esp32 servo board
-- PS2 Controller + Receiver
-- 3s 21700 batteries
-- Arduino UNO
-- Ultrasonic Sensor (HC-SR04)
-- XL4016
-- 18 180 Degree MG995 Servos
+- **18DOF hexapod chassis**
+- **32 channel esp32 servo board**
+- **PS2 Controller + Receiver**
+- **3s 21700 batteries**
+- **Arduino UNO**
+- **Ultrasonic Sensor** (HC-SR04)
+- **XL4016**
+- **18 180 Degree MG995 Servos**
+
+# Libraries:
+
+- **Wire.h**
+- **Adafruit_PWMServoDriver.h**
+- **PS2X_lib.h**
+
+# Network Setup:
+
+- ap_ssid     = "NORA";
+- ap_password = "12345678";
 
 ## Hardware Configuration
 
@@ -64,7 +75,7 @@ python main.py
 ```
 <br>
 <div align="center">
-© Cursed Entertainment 202*
+© Cursed Entertainment 2026
 </div>
 <br>
 <div align="center">
