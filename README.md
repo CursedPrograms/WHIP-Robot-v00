@@ -22,7 +22,7 @@
 
 # WHIP: Walking Hexapod Intellegence Platform
 
-- [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v00)
+- [KIDA-Robot-v00](https://github.com/CursedPrograms/KIDA-Robot-v00)
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
 - [NORA-Robot-v00](https://github.com/CursedPrograms/NORA-Robot-v00)
 - [DREAM](https://github.com/CursedPrograms/DREAM)
@@ -42,18 +42,18 @@
 - **XL4016**
 - **18 180 Degree MG995 Servos**
 
-# Libraries:
+### Libraries:
 
 - **Wire.h**
 - **Adafruit_PWMServoDriver.h**
 - **PS2X_lib.h**
 
-# Network Setup:
+### Network Setup:
 
 - ap_ssid     = "NORA";
 - ap_password = "12345678";
 
-## Hardware Configuration
+### Hardware Configuration
 
 ## How to Run:
 
@@ -63,15 +63,6 @@
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-```
-<br>
-
-### Run main.py
-
-Using Python directly:
-
-```bash
-python main.py
 ```
 <br>
 <div align="center">
