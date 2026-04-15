@@ -70,6 +70,10 @@
 ---
 
 # Schematics
+
+<details>
+<summary><b>View Power Distribution Wiring</b></summary>
+
 ### Power Schematic
 ```
 3S 21700 BATTERIES ──────► XL4016 12.6V ──────► XL4016 Output 6V
@@ -79,9 +83,14 @@ XL4016 Output 6V:
 ├── + ──────► Arduino UNO +
 └── – ──────► Arduino UNO - 
 ```
-
+<details>
 > [!TIP]
 > **Pro-Tip:** Be sure to set the XL4016 output to 6V before connecting your components.
+
+## ⚡ Technical Pinouts
+
+<details>
+<summary><b>View ESP32 Servo Controller Configuration</b></summary>
 
 **ARDUINO (DEV0):**
 ```
@@ -108,7 +117,10 @@ Leg 6 = Back   Right → channels 15, 16, 17
 PS2 Reciever Connection
 ```
 
-**ARDUINO (DEV0):**
+<details>
+<summary><b>View UNO Sensor Array Wiring</b></summary>
+
+**ARDUINO (DEV1):**
 ```
 USB-C (DEV1) ──────► USB-C (DEV0) - Serial Communication + Power
 ```
@@ -128,6 +140,9 @@ TRIG ─────► D7
 ECHO ─────► D6
 ```
 
+<details>
+<summary><b>View Sensor Wiring</b></summary>
+
 #### Sensors
 - MPU6050 (Gyro + Accelerometer)
 ```
@@ -143,6 +158,8 @@ GND  ─────► GND
 TRIG ─────► D7
 ECHO ─────► D6
 ```
+<details>
+
 > [!TIP]
 > **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
 ---
