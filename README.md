@@ -22,9 +22,6 @@
 
 # WHIP: Walking Hexapod Intelligence Platform
 
-> [!IMPORTANT]
-> WHIP is an advanced 18-DOF hexapod robotics platform featuring terrain-adaptive gait transitions, IMU-based stabilization, and high-torque MG995 motion control.
-
 ## Related Projects
 
 - [KIDA-Robot-v00](https://github.com/CursedPrograms/KIDA-Robot-v00)
