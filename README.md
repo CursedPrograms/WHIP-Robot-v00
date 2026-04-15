@@ -33,6 +33,16 @@
 - [DREAM](https://github.com/CursedPrograms/DREAM)
 - [RIFT](https://github.com/CursedPrograms/RIFT)
 
+
+## 📖 Overview
+WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing high-torque servo control and real-time IMU feedback to navigate complex environments. By offloading leg kinematics to a dedicated servo controller, WHIP achieves fluid, insect-like motion while maintaining a low-latency connection for remote operations.
+
+### Core Features
+- [x] 18-DOF Kinematics: Full articulation for complex terrain adaptation and specialized gaits.
+- [x] Adaptive Gait Selection: Real-time transitioning between Tripod, Wave, and Ripple gaits based on terrain.
+- [x] IMU Stabilization: MPU6050 integration to prevent tipping and maintain Center of Gravity (CoG).
+- [x] Dual-Processor Logic: Distributed processing between ESP32 (Communications) and Arduino (Sensor/Motion Hub).
+
 ---
 
 ## Prerequisites
