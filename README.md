@@ -28,40 +28,54 @@
 - [DREAM](https://github.com/CursedPrograms/DREAM)
 - [RIFT](https://github.com/CursedPrograms/RIFT)
 
+---
+
 ## Prerequisites
+
 
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
 
 ### Hardware
 
-#### Chassis
-- 18DOF hexapod chassis
+### Microcontrollers
+| **Component** | **Details** |
+|-----------|---------|
+| Microcontroller 0 | ESP32 Servo Controller Board | Dev0 |
+| Microcontroller 1 | Arduino UNO | Dev1 |
 
-#### Microcontrollers
-- ESP32 Servo Controller Board
-- Arduino UNO
+### Chassis & Motion
+| **Component** | **Details** |
+|-----------|---------|
+| Chassis | 18DOF hexapod chassis |
+| Motors | 18 × MG995 180° Servo Motors |
 
-#### User Controllers
-- PS2 Controller + Receiver
-- PC, Android, iPhone  (any device with Wi-Fi and a web browser)
+### User Controllers
+| **Component** | **Details** |
+|-----------|---------|
+| Interface | PC, Android, iPhone |
+| Controller | PS2 Controller + Receiver |
 
-#### Motors & Drivers
-- 18 × MG995 180° Servo Motors
+### Power System
+| **Component** | **Details** |
+|-----------|---------|
+| Battery | 3s 21700 (12.6V in series) |
+| Voltage Regulator | XL4016 DC-DC Buck Converter (12V → 6V) |
 
-#### Power Delivery
-- XL4016 DC-DC Buck Converter
-- 3s 21700 batteries
+### Sensors
+| **Component** | **Details** |
+|-----------|---------|
+| Ultrasonic Sensors | HC-SR04 |
 
-#### Sensors and Peripherals
-- Ultrasonic Sensor (HC-SR04 or compatible)
+---
 
-### Libraries:
+#### Libraries:
 
 - Wire.h
 - Adafruit_PWMServoDriver.h
 - PS2X_lib.h
 
+---
 ### Network Setup:
 
 #### Connect to NORA:
@@ -69,7 +83,7 @@
 - ap_password = "12345678";
 
 ### Hardware Configuration
-
+---
 ## How to Run:
 
 ### Install Requirements
@@ -79,6 +93,9 @@ python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+---
+
 <br>
 <div align="center">
 © Cursed Entertainment 2026
