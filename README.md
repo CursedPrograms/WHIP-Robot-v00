@@ -32,7 +32,6 @@
 
 ## Prerequisites
 
-
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
 
@@ -150,6 +149,58 @@ ECHO ─────► D6
 
 #### Connect to [RIFT](https://github.com/CursedPrograms/RIFT):
 - autoconnect on rift: localhost:5000, dream: localhost:5001 or whip: localhost:5006
+
+---
+
+# Gaits
+
+Because **WHIP** has 18-DOF, it can transition between these gaits depending on the speed required or the unevenness of the terrain detected by your **MPU6050**.
+
+### 1. Tripod Gait (The "Standard")
+This is the most common and fastest stable gait for hexapods.
+* **Logic:** 3 legs move at once while the other 3 stay on the ground, forming a stable triangle (tripod).
+* **Pattern:** `{L1, R2, L3}` move together, then `{R1, L2, R3}` move together.
+* **Best For:** Fast movement on flat surfaces.
+
+### 2. Wave Gait (The "Crawler")
+The most stable but slowest gait.
+* **Logic:** Only one leg moves at a time while the other 5 remain on the ground. The "wave" ripples from the back leg to the front.
+* **Pattern:** `L3` → `L2` → `L1` → `R3` → `R2` → `R1`
+* **Best For:** Maximum stability on extremely treacherous or unknown terrain.
+
+### 3. Ripple Gait (The "Intermediate")
+A middle ground between Wave and Tripod.
+* **Logic:** Two legs move at a time, while four stay on the ground.
+* **Pattern:** `{L3, R1}` → `{L2, R3}` → `{L1, R2}`
+* **Best For:** Smooth, fluid motion at moderate speeds; looks the most "lifelike" or insect-like.
+
+### 4. Quadruped-Style (Amble) Gait
+* **Logic:** Two legs are lifted, but they are not opposite (unlike the Ripple).
+* **Behavior:** It creates a slight "swaggering" motion. Often used if one side of the robot's motor driver is overheating and needs to distribute load differently.
+
+---
+
+## Specialized Gaits for 18-DOF Platforms
+Since you have an ESP32 and an IMU (MPU6050), you can implement these advanced logical behaviors:
+
+| Gait Name | Logic / Behavior | Use Case |
+| :--- | :--- | :--- |
+| **Metachronal** | A sequential wave that looks like a "Mexican Wave." | Moving through tight corridors. |
+| **Rotational** | Legs move in a circular pattern around the center axis. | Turning 360° in place without changing the footprint. |
+| **Sidewinding** | Lateral movement without changing the robot's heading. | Strafing to avoid an obstacle detected by the HC-SR04. |
+| **Stair/Climb** | High-clearance lifting of the "Tibia" (lower leg). | Navigating steps or large debris. |
+
+---
+
+## 💡 The "Brain" Logic for Gaits
+For WHIP, you should logically implement a **Gait Selector** in your Python or ESP32 code:
+
+* **Default:** Tripod Gait (Speed).
+* **Obstacle Detected (< 20cm):** Transition to Sidewind or Rotational.
+* **Tilt Detected (> 10° via MPU6050):** Transition to Wave Gait (Safety/Stability).
+
+> [!TIP]
+> **Pro-Tip:** When programming these in `Adafruit_PWMServoDriver.h`, remember that "lifting" the leg (the Femur servo) must always be coordinated with "extending" the leg (the Coxa servo) to maintain the **Center of Gravity (CoG)**. If the CoG exits the tripod triangle, WHIP will tip!
 
 ---
 
