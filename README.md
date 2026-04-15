@@ -84,7 +84,7 @@ XL4016 Output 6V:
 └── – ──────► Arduino UNO - 
 ```
 </details>
-<details>
+
 > [!TIP]
 > **Pro-Tip:** Be sure to set the XL4016 output to 6V before connecting your components.
 
