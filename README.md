@@ -112,9 +112,10 @@ XL4016 Output 6V:
 └── – ──────► Arduino UNO - 
 ```
 
+</details>
+
 > [!TIP]
 > **Pro-Tip:** Be sure to set the XL4016 output to 6V before connecting your components.
-</details>
 
 <details>
 <summary><b>View ESP32 Servo Controller Configuration</b></summary>
@@ -192,6 +193,9 @@ ECHO ─────► D6
 ---
 ## 🌐 Connectivity & Controls
 
+<details>
+<summary><b>Connectivity & Controls</b></summary>
+
 ### Network Configuration
 | Parameter | Value |
 | :--- | :--- |
@@ -201,6 +205,8 @@ ECHO ─────► D6
 ### RIFT Integration
 To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure WHIP is active on:
 * `localhost:5006`
+
+</details>
 
 ---
 
