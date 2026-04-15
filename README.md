@@ -78,12 +78,17 @@
 ---
 ### Network Setup:
 
-#### Connect to NORA:
+#### Connect to [NORA-Robot-v00](https://github.com/CursedPrograms/NORA-Robot-v00):
 - ap_ssid     = "NORA";
 - ap_password = "12345678";
 
-### Hardware Configuration
+#### Connect to [RIFT](https://github.com/CursedPrograms/RIFT):
+- autoconnect on rift: localhost:5000, dream: localhost:5001 or whip: localhost:5006
+
 ---
+
+### Hardware Configuration
+
 ## How to Run:
 
 ### Install Requirements
