@@ -166,14 +166,17 @@ ECHO ─────► D6
 </details>
 
 ---
-### Network Setup:
+## 🌐 Connectivity & Controls
 
-#### Connect to [NORA-Robot-v00](https://github.com/CursedPrograms/NORA-Robot-v00):
-- ap_ssid     = "NORA";
-- ap_password = "12345678";
+### Network Configuration
+| Parameter | Value |
+| :--- | :--- |
+| **SSID** | `NORA` |
+| **Password** | `12345678` |
 
-#### Connect to [RIFT](https://github.com/CursedPrograms/RIFT):
-- autoconnect on rift: localhost:5000, dream: localhost:5001 or whip: localhost:5006
+### RIFT Integration
+To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure WHIP is active on:
+* `localhost:5006`
 
 ---
 
