@@ -83,6 +83,7 @@ XL4016 Output 6V:
 ├── + ──────► Arduino UNO +
 └── – ──────► Arduino UNO - 
 ```
+</details>
 <details>
 > [!TIP]
 > **Pro-Tip:** Be sure to set the XL4016 output to 6V before connecting your components.
@@ -116,7 +117,7 @@ Leg 6 = Back   Right → channels 15, 16, 17
 
 PS2 Reciever Connection
 ```
-
+</details>
 <details>
 <summary><b>View UNO Sensor Array Wiring</b></summary>
 
@@ -139,7 +140,7 @@ Ultrasonic Sensor (HC-SR04)
 TRIG ─────► D7
 ECHO ─────► D6
 ```
-
+</details>
 <details>
 <summary><b>View Sensor Wiring</b></summary>
 
@@ -158,7 +159,7 @@ GND  ─────► GND
 TRIG ─────► D7
 ECHO ─────► D6
 ```
-<details>
+</details>
 
 > [!TIP]
 > **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
