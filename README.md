@@ -22,6 +22,11 @@
 
 # WHIP: Walking Hexapod Intelligence Platform
 
+> [!IMPORTANT]
+> WHIP is an advanced 18-DOF hexapod robotics platform featuring terrain-adaptive gait transitions, IMU-based stabilization, and high-torque MG995 motion control.
+
+## Related Projects
+
 - [KIDA-Robot-v00](https://github.com/CursedPrograms/KIDA-Robot-v00)
 - [KIDA-Robot-v01](https://github.com/CursedPrograms/KIDA-Robot-v01)
 - [NORA-Robot-v00](https://github.com/CursedPrograms/NORA-Robot-v00)
@@ -69,7 +74,9 @@
 |-----------|---------|
 | Ultrasonic Sensors | HC-SR04 |
 | IMU SENSOR | MPU6050 |
+
 </details>
+
 ---
 
 # Schematics
