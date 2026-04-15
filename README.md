@@ -80,6 +80,9 @@ XL4016 Output 6V:
 └── – ──────► Arduino UNO - 
 ```
 
+> [!TIP]
+> **Pro-Tip:** Be sure to set the XL4016 output to 6V before connecting your components.
+
 **ARDUINO (DEV0):**
 ```
 USB-C (DEV0) ──────► USB-C (DEV1) - Serial Communication
@@ -140,6 +143,8 @@ GND  ─────► GND
 TRIG ─────► D7
 ECHO ─────► D6
 ```
+> [!TIP]
+> **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
 ---
 ### Network Setup:
 
@@ -193,7 +198,7 @@ Since you have an ESP32 and an IMU (MPU6050), you can implement these advanced l
 ---
 
 ## 💡 The "Brain" Logic for Gaits
-For WHIP, you should logically implement a **Gait Selector** in your Python or ESP32 code:
+**Gait Selector** 
 
 * **Default:** Tripod Gait (Speed).
 * **Obstacle Detected (< 20cm):** Transition to Sidewind or Rotational.
