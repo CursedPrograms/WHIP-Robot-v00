@@ -33,7 +33,7 @@
 ## 📖 Overview
 
 <details>
-<summary><b>View Overview</b></summary>
+<summary><b>Overview</b></summary>
 
 WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing high-torque servo control and real-time IMU feedback to navigate complex environments. By offloading leg kinematics to a dedicated servo controller, WHIP achieves fluid, insect-like motion while maintaining a low-latency connection for remote operations.
 
@@ -50,7 +50,7 @@ WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing
 ## Prerequisites
 
 <details>
-<summary><b>View Prerequisites</b></summary>
+<summary><b>Prerequisites</b></summary>
 
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
@@ -164,7 +164,7 @@ ECHO ─────► D6
 ```
 </details>
 <details>
-<summary><b>View Sensor Wiring</b></summary>
+<summary><b>Sensor Wiring</b></summary>
 
 #### Sensors
 - MPU6050 (Gyro + Accelerometer)
@@ -183,6 +183,7 @@ ECHO ─────► D6
 ```
 > [!TIP]
 > **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
+
 </details>
 
 ---
