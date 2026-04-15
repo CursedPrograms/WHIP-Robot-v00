@@ -60,21 +60,87 @@
 | **Component** | **Details** |
 |-----------|---------|
 | Battery | 3s 21700 (12.6V in series) |
-| Voltage Regulator | XL4016 DC-DC Buck Converter (12V → 6V) |
+| Voltage Regulator | XL4016 DC-DC Buck Converter (12.6V → 6V) |
 
 ### Sensors
 | **Component** | **Details** |
 |-----------|---------|
 | Ultrasonic Sensors | HC-SR04 |
+| IMU SENSOR | MPU6050 |
 
 ---
 
-#### Libraries:
+# Schematics
+### Power Schematic
+```
+3S 21700 BATTERIES ──────► XL4016 12.6V ──────► XL4016 Output 6V
+XL4016 Output 6V:
+├── + ──────► ESP32 Servo Controller Board +
+├── – ──────► ESP32 Servo Controller Board - 
+├── + ──────► Arduino UNO +
+└── – ──────► Arduino UNO - 
+```
 
+**ARDUINO (DEV0):**
+```
+USB-C (DEV0) ──────► USB-C (DEV1) - Serial Communication
+```
+#### Libraries:
+```
 - Wire.h
 - Adafruit_PWMServoDriver.h
 - PS2X_lib.h
+```
+```
+POWER:
+├── XL4016 6V ──────► 
+└── GND ─────► Common GND (modules)
 
+Leg 1 = Front  Left  → channels  0,  1,  2
+Leg 2 = Middle Left  → channels  3,  4,  5
+Leg 3 = Back   Left  → channels  6,  7,  8
+Leg 4 = Front  Right → channels  9, 10, 11
+Leg 5 = Middle Right → channels 12, 13, 14
+Leg 6 = Back   Right → channels 15, 16, 17
+
+PS2 Reciever Connection
+```
+
+**ARDUINO (DEV0):**
+```
+USB-C (DEV1) ──────► USB-C (DEV0) - Serial Communication + Power
+```
+#### Libraries:
+```
+- Wire.h
+- Adafruit_PWMServoDriver.h
+- PS2X_lib.h
+- MPU6050.h / I2Cdev.h
+```
+```
+MPU6050 (Gyro + Accelerometer)
+SDA  ─────► A4 (UNO)
+SCL  ─────► A5 (UNO)
+Ultrasonic Sensor (HC-SR04)
+TRIG ─────► D7
+ECHO ─────► D6
+```
+
+#### Sensors
+- MPU6050 (Gyro + Accelerometer)
+```
+VCC  ─────► 5V
+GND  ─────► GND
+SDA  ─────► A4 (UNO)
+SCL  ─────► A5 (UNO)
+```
+- Ultrasonic Sensor (HC-SR04)
+```
+VCC  ─────► 5V
+GND  ─────► GND
+TRIG ─────► D7
+ECHO ─────► D6
+```
 ---
 ### Network Setup:
 
