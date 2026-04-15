@@ -32,6 +32,9 @@
 
 ## Prerequisites
 
+<details>
+<summary><b>View Prerequisites</b></summary>
+
 ### Software
 - [Arduino IDE](https://docs.arduino.cc/software/ide/)
 
@@ -66,10 +69,11 @@
 |-----------|---------|
 | Ultrasonic Sensors | HC-SR04 |
 | IMU SENSOR | MPU6050 |
-
+</details>
 ---
 
 # Schematics
+## ⚡ Technical Pinouts
 
 <details>
 <summary><b>View Power Distribution Wiring</b></summary>
@@ -83,12 +87,10 @@ XL4016 Output 6V:
 ├── + ──────► Arduino UNO +
 └── – ──────► Arduino UNO - 
 ```
-</details>
 
 > [!TIP]
 > **Pro-Tip:** Be sure to set the XL4016 output to 6V before connecting your components.
-
-## ⚡ Technical Pinouts
+</details>
 
 <details>
 <summary><b>View ESP32 Servo Controller Configuration</b></summary>
@@ -159,10 +161,10 @@ GND  ─────► GND
 TRIG ─────► D7
 ECHO ─────► D6
 ```
-</details>
-
 > [!TIP]
 > **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
+</details>
+
 ---
 ### Network Setup:
 
@@ -175,6 +177,8 @@ ECHO ─────► D6
 
 ---
 
+<details>
+<summary><b>View Gait Info</b></summary>
 # Gaits
 
 Because **WHIP** has 18-DOF, it can transition between these gaits depending on the speed required or the unevenness of the terrain detected by your **MPU6050**.
@@ -224,6 +228,7 @@ Since you have an ESP32 and an IMU (MPU6050), you can implement these advanced l
 
 > [!TIP]
 > **Pro-Tip:** When programming these in `Adafruit_PWMServoDriver.h`, remember that "lifting" the leg (the Femur servo) must always be coordinated with "extending" the leg (the Coxa servo) to maintain the **Center of Gravity (CoG)**. If the CoG exits the tripod triangle, WHIP will tip!
+</details>
 
 ---
 
