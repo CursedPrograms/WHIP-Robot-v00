@@ -133,6 +133,38 @@ void printSensorReadings() {
   Serial.println(gyroZdps, 1);
 }
 
+void forward(){
+  
+  }
+
+  void backward(){
+  
+  }
+
+    void turnleft(){
+  
+  }
+
+      void turnright(){
+  
+  }
+    
+    void strafeleft(){
+  
+  }
+
+      void straferight(){
+  
+  }
+
+        void standUp(){
+  
+  }
+
+          void rest(){
+  
+  }
+
 void setup() {
   Serial.begin(9600);            // USB debug monitor
   controllerSerial.begin(9600);  // must match controller's UART baud rate
