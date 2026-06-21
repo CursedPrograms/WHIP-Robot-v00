@@ -38,16 +38,16 @@ const int MPU_ADDR = 0x68; // MPU6050 I2C address (AD0 pin low/unconnected)
 int16_t rawAccX, rawAccY, rawAccZ;
 int16_t rawGyroX, rawGyroY, rawGyroZ;
 
-const char REST_CMD[] =
-  "#1P734#2P2188#3P2500#4P500#5P2500#6P2500#7P500#8P2500#9P500"
-  "#24P2500#25P500#26P500#27P2500#28P500#29P500#30P2500#31P500#32P500"
-  "T500D500\r\n";
-
 const char STAND_UP_CMD[] =
-  "#1P1383#2P890#3P1490#4P786#5P890#6P1253#7P500#8P890#9P1851"
+  "#1P2500#2P1500#3P1500#4P1500#5P1500#6P1500#7P800#8P1500#9P1500"
   "#10P1500#11P1500#12P1500#13P1500#14P1500#15P1500#16P1500#17P1500#18P1500"
   "#19P1500#20P1500#21P1500#22P1500#23P1500"
-  "#24P2500#25P1851#26P1747#27P2240#28P1435#29P1019#30P1851#31P1305#32P1591"
+  "#24P2200#25P1500#26P1500#27P1500#28P1500#29P1500#30P500#31P1500#32P1500"
+  "T500D500\r\n";
+
+const char REST_CMD[] =
+  "#2P2500#3P2500#5P2500#6P2500#7P800#8P2500#9P2500"
+  "#25P500#26P500#28P500#29P500#31P500#32P500"
   "T500D500\r\n";
 
 const char STRETCH_CMD[] =
@@ -132,38 +132,6 @@ void printSensorReadings() {
   Serial.print(" Z:");
   Serial.println(gyroZdps, 1);
 }
-
-void forward(){
-  
-  }
-
-  void backward(){
-  
-  }
-
-    void turnleft(){
-  
-  }
-
-      void turnright(){
-  
-  }
-    
-    void strafeleft(){
-  
-  }
-
-      void straferight(){
-  
-  }
-
-        void standUp(){
-  
-  }
-
-          void rest(){
-  
-  }
 
 void setup() {
   Serial.begin(9600);            // USB debug monitor
