@@ -38,6 +38,7 @@ const int MPU_ADDR = 0x68; // MPU6050 I2C address (AD0 pin low/unconnected)
 int16_t rawAccX, rawAccY, rawAccZ;
 int16_t rawGyroX, rawGyroY, rawGyroZ;
 
+//This is correct
 const char STAND_UP_CMD[] =
   "#1P2500#2P1500#3P1500#4P1500#5P1500#6P1500#7P800#8P1500#9P1500"
   "#10P1500#11P1500#12P1500#13P1500#14P1500#15P1500#16P1500#17P1500#18P1500"
@@ -45,11 +46,13 @@ const char STAND_UP_CMD[] =
   "#24P2200#25P1500#26P1500#27P1500#28P1500#29P1500#30P500#31P1500#32P1500"
   "T500D500\r\n";
 
+//This is correct
 const char REST_CMD[] =
   "#2P2500#3P2500#5P2500#6P2500#7P800#8P2500#9P2500"
   "#25P500#26P500#28P500#29P500#31P500#32P500"
   "T500D500\r\n";
 
+//<remove all of this
 const char STRETCH_CMD[] =
   "#1P708#2P1643#3P630#4P526#5P1643#6P630#7P500#8P1643#9P630"
   "#24P2292#25P1201#26P2344#27P2240#28P1201#29P2344#30P2500#31P1201#32P2344"
@@ -145,7 +148,7 @@ void setup() {
   delay(2000); // let the controller finish booting
 
   sendPose(REST_CMD, "rest pose");
-  sendPose(STRETCH_CMD, "stretch pose");
+  // Move coxa & Tibia Femurs in position before femur
   sendPose(STAND_UP_CMD, "stand up pose");
 }
 
