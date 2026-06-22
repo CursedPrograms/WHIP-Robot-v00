@@ -1,331 +1,509 @@
 /*
   ================================================================================
-  HEXAPOD MASTER CONTROL ENGINE - KINEMATIC STANCE FIXED
+  HEXAPOD MASTER CONTROL — REST → STAND → WALK  |  IK + MPU6050 + AVOIDANCE
   ================================================================================
-  Features:
-    - Highly symmetrical chassis translation
-    - Pre-angled Femur & vertical Tibia standing offset calibration
-    - 45-degree corner leg coordinate rotation matrix
-    - Real-time ultrasonic obstacle avoidance
 
-Right
-    Resting pos for  Right back Coxas: 2000
-    Max forward pan for Right back Coxas: 1200
-     Max backward pan for Right back Coxas: 2500
-    Resting pos for  Right Front Coxas: 1000
-        Max forward pan for Right back Coxas: 1200
-     Max backward pan for Right back Coxas: 2500
+  STARTUP SEQUENCE:
+    1. REST     — IK-interpolated crouch to folded/resting pose
+    2. WAIT     — hold rest, MPU leveling active, 2 seconds
+    3. STAND    — IK-interpolated rise to standing home pose
+    4. WAIT     — hold stand, MPU leveling active, 2 seconds
+    5. WALK     — tripod gait, full IK every frame, MPU leveling every frame
 
-Right Middle Coxa Resting at 1500
-Max Right Middle Forward Pan 1000 (If You Really Push and the front leg is also ponting forward it Lets say 1200)
-Max Right Middle Backward Pan 2500 (If You Really Push and the back leg is also ponting backwards it Lets say 2300)
+  OBSTACLE AVOIDANCE (runs continuously during WALK):
+    • Ultrasonic < 25 cm   → stop, back up, turn right, resume
+    • MPU pitch > threshold → cliff/steep drop detected, same avoidance
+    • MPU roll  > threshold → side tilt, strafe away from high side
 
+  ALL MOTION PATH:
+    Every pose (rest, stand, walk swing/stance) is a 3D foot target in mm.
+    solveIK() converts each foot target to (coxa, femur, tibia) joint angles.
+    encodeLeg() converts angles to PWM using your hardware calibration.
+    Nothing moves without going through IK.
 
-         - all Right  Femurs are pointing upwards at 2500
-    - all Right  Femurs are bent 90 degrees at 1500
-    - all Right  Femurs are pointing downwards 500
-    
-    - all Right  Tibias are straight at 500
-    - all Right  Tibias are bent 90 degrees at 1500
-    - all Right  Tibias are jackknife with femur 2500
-
-Left
-
-             Resting pos for  Left back Coxas: 1000
-    Resting pos for  Left Front Coxas: 2000
-          Max forward pan for Left back Coxas: 1700
-     Max backward pan for Left back Coxas: 500
-     Max forward pan for Left front Coxas: 2500
-     Max backward pan for Left front Coxas: 1200
-
-         - all Left  Femurs are pointing upwards at 500
-    - all Left  Femurs are bent 90 degrees at 1500
-    - all Left  Femurs are pointing downwards 2500
-
-    - all Left  Tibias are straight at 2500
-    - all Left  Tibias are bent 90 degrees at 1500
-    - all Left  Tibias are jackknife with femur 500
-
-    Left Middle Coxa Resting at 1500
-Max Left Middle Forward Pan 2500 (If You Really Push and the front leg is also ponting forward it Lets say 2300)
-Max Left Middle Backward Pan 1000 (If You Really Push and the back leg is also ponting backwards it Lets say 1200)
-
-
-
-
-
-
-*/
-/*
-  ================================================================================
-  HEXAPOD MASTER CONTROL ENGINE - FACTORY SPEC HARDWARE CALIBRATION
-  ================================================================================
+  ─────────────────────────────────────────────────────────────────────────────
+  HARDWARE CALIBRATION (your notes — do not change these):
+  ─────────────────────────────────────────────────────────────────────────────
+  RIGHT:
+    Back  Coxa  center=2000  fwd=1200  back=2500
+    Front Coxa  center=1000  fwd=1200  back=2500  (45° forward mount)
+    Mid   Coxa  center=1500  fwd=1000  back=2500
+    Femurs  up=2500  90°=1500  down=500   → pwm = 1500 + angle*scale
+    Tibias  straight=500  90°=1500  JK=2500 → pwm = 1500 + angle*scale
+  LEFT:
+    Back  Coxa  center=1000  fwd=1700  back=500
+    Front Coxa  center=2000  fwd=2500  back=1200
+    Mid   Coxa  center=1500  fwd=2500  back=1000
+    Femurs  up=500  90°=1500  down=2500  → pwm = 1500 - angle*scale
+    Tibias  straight=2500  90°=1500  JK=500 → pwm = 1500 - angle*scale
+  ─────────────────────────────────────────────────────────────────────────────
 */
 
 #include <SoftwareSerial.h>
 #include <Wire.h>
 
-SoftwareSerial controllerSerial(11, 10); // (RX, TX)
+SoftwareSerial ssc(11, 10);   // SSC-32 RX=11 TX=10
 
-const int TRIG_PIN = 7;
-const int ECHO_PIN = 6;
-const int DISTANCE_THRESHOLD_CM = 25; 
+// ── Pins ─────────────────────────────────────────────────────────────────────
+const int TRIG     = 7;
+const int ECHO     = 6;
+
+// ── MPU6050 ──────────────────────────────────────────────────────────────────
+const int   MPU_ADDR      = 0x68;
+const float G_SCALE       = 1.0f / 16384.0f;  // ±2g range
+// Tilt compensation: each mm of leg distance from body centre adds this many
+// mm of Z correction per g of tilt.  Tune 0.2–0.6.
+const float TILT_GAIN     = 0.35f;
+// Thresholds for tilt-triggered avoidance (g units, ~0.17g ≈ 10°)
+const float PITCH_LIMIT   = 0.22f;   // front/back tilt — cliff or ramp
+const float ROLL_LIMIT    = 0.18f;   // side tilt — falling sideways
+
+// ── Geometry ─────────────────────────────────────────────────────────────────
+const float LT   = 168.0f;  // tibia  mm
+const float LF   =  84.0f;  // femur  mm
+const float LC_C = 168.0f;  // coxa, corner legs
+const float LC_M =  42.0f;  // coxa, middle legs
+
+const float PWM_RAD = 636.62f;   // µs per radian  (1000µs / (π/2))
+
+// ── Gait tuning ──────────────────────────────────────────────────────────────
+const float STRIDE   = 38.0f;   // mm half-stride forward/back
+const float STRIDE_S = 28.0f;   // mm half-stride lateral (strafe)
+const float STRIDE_T = 28.0f;   // mm lateral offset for turning
+const float LIFT     = 30.0f;   // mm foot clearance during swing
+const int   T_GAIT   = 260;     // ms per tripod half-cycle
+const int   T_TRANS  = 80;      // ms per interpolation frame (rest↔stand)
+const int   INTER_N  = 18;      // frames in rest↔stand transition
+const int   OBSTACLE_CM = 25;
+
+// ── Mount angles ─────────────────────────────────────────────────────────────
+const float MA_45  = 45.0f  * PI / 180.0f;
+const float MA_90  = 90.0f  * PI / 180.0f;
+const float MA_135 = 135.0f * PI / 180.0f;
 
 // ================================================================================
-// 1. PHYSICAL GEOMETRY & STANCE CALIBRATION (CIGARETTE UNIT SCALE)
+// LEG TABLE
 // ================================================================================
-const float CIG_LENGTH = 84.0; 
-
-const float L_TIBIA_VAL = CIG_LENGTH * 2.0; // 168mm
-const float L_FEMUR_VAL = CIG_LENGTH * 1.0; // 84mm
-const float L_COXA_LONG = CIG_LENGTH * 2.0; // 168mm (Corner Legs)
-const float L_COXA_SHRT = CIG_LENGTH * 0.5; // 42mm  (Middle Legs)
-
-struct LegConfig {
-  int coxaCh; int femurCh; int tibiaCh;
-  int legType;        // 0 = Back, 1 = Middle, 2 = Front
-  bool isLeftSide;    // True if mounted on Left Side, False for Right Side
-  float l_coxa; float l_femur; float l_tibia;
-  float homeX; float homeY; float homeZ;
-  float bodyAngleRad; 
+struct Leg {
+  int   cx, fx, tx;        // servo channels
+  int   type;              // 0=back 1=mid 2=front
+  bool  left;
+  float lc, lf, lt;        // segment lengths mm
+  float hX, hY, hZ;        // HOME foot position (standing)
+  float rX, rY, rZ;        // REST foot position (folded/crouched)
+  float ma;                // mount angle rad
 };
 
-const float RAD_45  = 45.0 * PI / 180.0;  
-const float RAD_135 = 135.0 * PI / 180.0; 
-
-// Base structural configuration array mapped precisely to physical channels
-LegConfig Legs[6] = {
-  // ------------------------------------ LEFT SIDE LIMBS ------------------------------------
-  {1,  2,  3,  0, true,  L_COXA_LONG, L_FEMUR_VAL, L_TIBIA_VAL, 240.0, -50.0, -120.0, RAD_135}, // 0: Left Back
-  {4,  5,  6,  1, true,  L_COXA_SHRT, L_FEMUR_VAL, L_TIBIA_VAL, 90.0,   0.0,  -120.0, 0.0},     // 1: Left Middle
-  {7,  8,  9,  2, true,  L_COXA_LONG, L_FEMUR_VAL, L_TIBIA_VAL, 180.0,  60.0,  -120.0, RAD_45},  // 2: Left Front
-
-  // ------------------------------------ RIGHT SIDE LIMBS ------------------------------------
-  {24, 25, 26, 2, false, L_COXA_LONG, L_FEMUR_VAL, L_TIBIA_VAL, 180.0,  60.0,  -120.0, RAD_45},  // 3: Right Front
-  {27, 28, 29, 1, false, L_COXA_SHRT, L_FEMUR_VAL, L_TIBIA_VAL, 90.0,   0.0,  -120.0, 0.0},     // 4: Right Middle
-  {30, 31, 32, 0, false, L_COXA_LONG, L_FEMUR_VAL, L_TIBIA_VAL, 240.0, -50.0, -120.0, RAD_135}  // 5: Right Back
+/*
+  HOME (hZ = -120 mm  → comfortably standing)
+  REST  — coxa centred, femur nearly up, tibia tucked:
+          rX same as home but shorter reach, rZ = -30 mm (high up / crouched)
+*/
+Leg L[6] = {
+//  cx  fx  tx  typ  left    lc    lf   lt     hX    hY    hZ      rX    rY    rZ     ma
+  { 1,  2,  3,   0, true,  LC_C,  LF,  LT,  240, -50, -120,    80, -20,  -35,  MA_135 }, // 0 L-Back
+  { 4,  5,  6,   1, true,  LC_M,  LF,  LT,   90,   0, -120,    50,   0,  -35,  MA_90  }, // 1 L-Mid
+  { 7,  8,  9,   2, true,  LC_C,  LF,  LT,  180,  60, -120,    80,  25,  -35,  MA_45  }, // 2 L-Front
+  {24, 25, 26,   2, false, LC_C,  LF,  LT,  180,  60, -120,    80,  25,  -35,  MA_45  }, // 3 R-Front
+  {27, 28, 29,   1, false, LC_M,  LF,  LT,   90,   0, -120,    50,   0,  -35,  MA_90  }, // 4 R-Mid
+  {30, 31, 32,   0, false, LC_C,  LF,  LT,  240, -50, -120,    80, -20,  -35,  MA_135 }, // 5 R-Back
 };
 
-const float STEP_HEIGHT = 30.0; 
-char globalCmdBuffer[650];      
+// ── Live tilt (updated before every frame) ───────────────────────────────────
+float gTiltX = 0.0f, gTiltY = 0.0f;   // raw accel g values
 
-enum GaitPattern  { GAIT_TRIPOD, GAIT_WAVE };
-enum MoveDirection { MOVE_STOP, MOVE_FORWARD, MOVE_BACKWARD, MOVE_STRAFE_LEFT, MOVE_STRAFE_RIGHT, MOVE_TURN_LEFT, MOVE_TURN_RIGHT };
+// ── Serial buffer ────────────────────────────────────────────────────────────
+char buf[720];
+
+// ── State machine ────────────────────────────────────────────────────────────
+enum State { ST_REST, ST_RISING, ST_STAND, ST_WALK };
+State state = ST_REST;
 
 // ================================================================================
-// 2. MATHEMATICAL INVERSE KINEMATICS MATRIX
+// MPU6050
 // ================================================================================
-struct LegAngles { float coxa; float femur; float tibia; };
+void mpuInit() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B); Wire.write(0x00);   // wake
+  Wire.endTransmission(true);
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x1C); Wire.write(0x00);   // ±2g
+  Wire.endTransmission(true);
+}
 
-LegAngles calculateLegIK(int legIdx, float x, float y, float z) {
-  LegAngles angles;
-  float lc = Legs[legIdx].l_coxa;
-  float lf = Legs[legIdx].l_femur;
-  float lt = Legs[legIdx].l_tibia;
-  float bAngle = Legs[legIdx].bodyAngleRad;
+void mpuRead() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B);
+  Wire.endTransmission(false);
+  Wire.requestFrom(MPU_ADDR, 6, true);
+  int16_t ax = (Wire.read() << 8) | Wire.read();
+  int16_t ay = (Wire.read() << 8) | Wire.read();
+  /*int16_t az =*/ Wire.read(); Wire.read();   // unused
+  gTiltX = ax * G_SCALE;   // positive = nose-up pitch
+  gTiltY = ay * G_SCALE;   // positive = right-side roll
+}
 
-  // Track rotational offset adjustments relative to the mounting angles
-  float rotX = x * cos(bAngle) + y * sin(bAngle);
-  float rotY = -x * sin(bAngle) + y * cos(bAngle);
-
-  angles.coxa = atan2(rotY, rotX);
-  
-  float r = sqrt(rotX * rotX + rotY * rotY);
-  float d = r - lc; 
-  float targetDepth = abs(z);
-  float s = sqrt(d * d + targetDepth * targetDepth);
-
-  float cos_angleC = (lf * lf + lt * lt - s * s) / (2.0 * lf * lt);
-  if(cos_angleC < -1.0) cos_angleC = -1.0; if(cos_angleC > 1.0) cos_angleC = 1.0; 
-  float angleC = acos(cos_angleC);
-
-  float cos_angleA = (lf * lf + s * s - lt * lt) / (2.0 * lf * s);
-  if(cos_angleA < -1.0) cos_angleA = -1.0; if(cos_angleA > 1.0) cos_angleA = 1.0; 
-  float angleA = acos(cos_angleA);
-
-  // Return true standardized geometric delta outputs (0.0 rad = home aligned position)
-  angles.femur = (atan2(targetDepth, d) + angleA) - HALF_PI; 
-  angles.tibia = angleC - HALF_PI; 
-  
-  return angles;
+// ── Tilt Z-offset for one leg ─────────────────────────────────────────────────
+// The further a leg is from centre in the tilt direction, the more Z it needs.
+float tiltComp(int i) {
+  return -(L[i].hX * gTiltX * TILT_GAIN)
+         -(L[i].hY * gTiltY * TILT_GAIN);
 }
 
 // ================================================================================
-// 3. HARDWARE SPECIFIC SERVO MICROSAMPLED CONVERSION ENGINE
+// INVERSE KINEMATICS
+// Input : body-frame foot target (wx, wy, wz) in mm
+// Output: joint angles in radians  (0 = mechanical neutral)
+//   coxa  — horizontal pan    (0 = straight ahead of mount)
+//   femur — elevation          (0 = horizontal, + = up)
+//   tibia — knee bend          (0 = straight, + = bent)
 // ================================================================================
-void appendLegToBuffer(int legIdx, float x, float y, float z) {
-  LegAngles target = calculateLegIK(legIdx, x, y, z);
-  if (isnan(target.coxa) || isnan(target.femur) || isnan(target.tibia)) return;
+struct JA { float c, f, t; bool ok; };
 
-  char temp[25];
-  int pwmCoxa = 1500;
-  int pwmFemur = 1500;
-  int pwmTibia = 1500;
+JA ik(int i, float wx, float wy, float wz) {
+  JA a; a.ok = false;
+  float ma = L[i].ma;
+  float lc = L[i].lc, lf = L[i].lf, lt = L[i].lt;
 
-  bool isLeft = Legs[legIdx].isLeftSide;
-  int type = Legs[legIdx].legType;
+  // Rotate body-frame target into leg-local frame
+  float lx =  wx * cosf(ma) + wy * sinf(ma);
+  float ly = -wx * sinf(ma) + wy * cosf(ma);
 
-  // ------------------------- COXA JOINT STRUCTURAL CONVERSION -------------------------
-  // Converts geometric angles to your precise unequal min/rest/max ranges
-  if (!isLeft) { // Right Side Coxas
-    if (type == 0) { // Right Back Coxa
-      pwmCoxa = 2000 + round(target.coxa * 636.62);
-      if(pwmCoxa < 1200) pwmCoxa = 1200; if(pwmCoxa > 2500) pwmCoxa = 2500;
-    } else if (type == 2) { // Right Front Coxa
-      pwmCoxa = 1000 + round(target.coxa * 636.62);
-      if(pwmCoxa < 500) pwmCoxa = 500; if(pwmCoxa > 1800) pwmCoxa = 1800; // Scaled proportionally based on rest offsets
-    } else { // Right Middle Coxa
-      pwmCoxa = 1500 + round(target.coxa * 636.62);
-      if(pwmCoxa < 1000) pwmCoxa = 1000; if(pwmCoxa > 2500) pwmCoxa = 2500;
-    }
-  } else { // Left Side Coxas
-    if (type == 0) { // Left Back Coxa
-      pwmCoxa = 1000 + round(target.coxa * 636.62);
-      if(pwmCoxa < 500) pwmCoxa = 500; if(pwmCoxa > 1700) pwmCoxa = 1700;
-    } else if (type == 2) { // Left Front Coxa
-      pwmCoxa = 2000 + round(target.coxa * 636.62);
-      if(pwmCoxa < 1200) pwmCoxa = 1200; if(pwmCoxa > 2500) pwmCoxa = 2500;
-    } else { // Left Middle Coxa
-      pwmCoxa = 1500 + round(target.coxa * 636.62);
-      if(pwmCoxa < 1000) pwmCoxa = 1000; if(pwmCoxa > 2500) pwmCoxa = 2500;
-    }
-  }
+  a.c = atan2f(ly, lx);                    // coxa pan
 
-  // ------------------------- FEMUR JOINT STRUCTURAL CONVERSION -------------------------
-  // Mapped using: Right (2500 Up / 500 Down) vs Left (500 Up / 2500 Down)
-  if (!isLeft) { 
-    pwmFemur = 1500 + round(target.femur * 636.62); // Positive angle drives towards 2500 (Upwards)
-  } else { 
-    pwmFemur = 1500 - round(target.femur * 636.62); // Positive angle drives towards 500 (Upwards)
-  }
-  if(pwmFemur < 500) pwmFemur = 500; if(pwmFemur > 2500) pwmFemur = 2500;
+  float r     = sqrtf(lx*lx + ly*ly) - lc; // reach past coxa pivot
+  float depth = -wz;                        // positive downward
+  if (depth < 0.0f) depth = 0.0f;
 
-  // ------------------------- TIBIA JOINT STRUCTURAL CONVERSION -------------------------
-  // Mapped using: Right (500 Straight / 2500 Folded) vs Left (2500 Straight / 500 Folded)
-  if (!isLeft) { 
-    pwmTibia = 1500 + round(target.tibia * 636.62); // Positive flexing angle folds towards 2500
-  } else { 
-    pwmTibia = 1500 - round(target.tibia * 636.62); // Positive flexing angle folds towards 500
-  }
-  if(pwmTibia < 500) pwmTibia = 500; if(pwmTibia > 2500) pwmTibia = 2500;
+  float s = sqrtf(r*r + depth*depth);       // femur-pivot → foot distance
+  float maxS = lf + lt - 1.0f;
+  if (s > maxS) s = maxS;
 
-  // Write finalized clean conversions directly into the serial transmission packet
-  sprintf(temp, "#%dP%d#%dP%d#%dP%d", Legs[legIdx].coxaCh, pwmCoxa, Legs[legIdx].femurCh, pwmFemur, Legs[legIdx].tibiaCh, pwmTibia);
-  strcat(globalCmdBuffer, temp);
-}
+  float cosC = (lf*lf + lt*lt - s*s) / (2.0f*lf*lt);
+  cosC = constrain(cosC, -1.0f, 1.0f);
+  a.t = acosf(cosC) - HALF_PI;             // tibia (0 = straight)
 
-void transmitBuffer(int durationMs) {
-  char tail[20];
-  sprintf(tail, "T%d\r\n", durationMs); 
-  strcat(globalCmdBuffer, tail);
-  controllerSerial.print(globalCmdBuffer); 
-  delay(durationMs + 15);                  
+  float cosA = (lf*lf + s*s - lt*lt) / (2.0f*lf*s);
+  cosA = constrain(cosA, -1.0f, 1.0f);
+  a.f = (atan2f(depth, r) + acosf(cosA)) - HALF_PI;  // femur (0 = horizontal)
+
+  if (!isnan(a.c) && !isnan(a.f) && !isnan(a.t)) a.ok = true;
+  return a;
 }
 
 // ================================================================================
-// 4. SYMMETRICAL GAIT IMPLEMENTATION LOOP
+// PWM ENCODING  (hardware calibration)
 // ================================================================================
-void executeGait(MoveDirection dir, GaitPattern pattern, int phase, int executionTimeMs) {
-  globalCmdBuffer[0] = '\0'; 
-  float turnDir = 0; 
-  float strideMag = 35.0; 
+void encLeg(int i, float wx, float wy, float wz) {
+  JA a = ik(i, wx, wy, wz);
+  if (!a.ok) return;
 
-  if (dir == MOVE_TURN_LEFT)  turnDir = -1.0;
-  if (dir == MOVE_TURN_RIGHT) turnDir =  1.0;
+  bool  sl = L[i].left;
+  int   tp = L[i].type;
 
-  for (int i = 0; i < 6; i++) {
-    bool isSwing = false;
-    if (pattern == GAIT_TRIPOD) {
-      if (phase == 0) isSwing = (i == 0 || i == 2 || i == 4); 
-      else            isSwing = (i == 1 || i == 3 || i == 5); 
-    } else {
-      const int waveSequence[6] = {2, 1, 0, 3, 4, 5}; 
-      isSwing = (waveSequence[phase] == i);
+  // ── Coxa ────────────────────────────────────────────────────────────────────
+  int pc;
+  if (!sl) {  // RIGHT
+    if      (tp==0){ pc = 2000 - round(a.c * PWM_RAD); pc = constrain(pc,1200,2500); }
+    else if (tp==2){ pc = 1000 + round(a.c * PWM_RAD); pc = constrain(pc, 500,1800); }
+    else           { pc = 1500 - round(a.c * PWM_RAD); pc = constrain(pc,1000,2500); }
+  } else {    // LEFT
+    if      (tp==0){ pc = 1000 + round(a.c * PWM_RAD); pc = constrain(pc, 500,1700); }
+    else if (tp==2){ pc = 2000 + round(a.c * PWM_RAD); pc = constrain(pc,1200,2500); }
+    else           { pc = 1500 + round(a.c * PWM_RAD); pc = constrain(pc,1000,2500); }
+  }
+
+  // ── Femur ───────────────────────────────────────────────────────────────────
+  // Right: up=2500 → +angle raises PWM.  Left: up=500 → +angle lowers PWM.
+  int pf;
+  if (!sl) pf = 1500 + round(a.f * PWM_RAD);
+  else     pf = 1500 - round(a.f * PWM_RAD);
+  pf = constrain(pf, 700, 2300);
+
+  // ── Tibia ───────────────────────────────────────────────────────────────────
+  // Right: straight=500 → +bend raises PWM.  Left: straight=2500 → +bend lowers.
+  int pt;
+  if (!sl) pt = 1500 + round(a.t * PWM_RAD);
+  else     pt = 1500 - round(a.t * PWM_RAD);
+  pt = constrain(pt, 500, 2500);
+
+  char tmp[28];
+  sprintf(tmp, "#%dP%d#%dP%d#%dP%d", L[i].cx,pc, L[i].fx,pf, L[i].tx,pt);
+  strcat(buf, tmp);
+}
+
+void send(int ms) {
+  char tail[16]; sprintf(tail,"T%d\r\n",ms);
+  strcat(buf,tail);
+  ssc.print(buf);
+  delay(ms + 12);
+}
+
+// ── Encode all 6 legs from explicit positions + tilt, then transmit ───────────
+void poseAndSend(float px[6], float py[6], float pz[6], int ms) {
+  buf[0] = '\0';
+  mpuRead();
+  for (int i=0;i<6;i++) encLeg(i, px[i], py[i], pz[i] + tiltComp(i));
+  send(ms);
+}
+
+// ================================================================================
+// POSE HELPERS
+// ================================================================================
+
+// Fill position arrays from the home (standing) pose
+void fillHome(float px[6], float py[6], float pz[6]) {
+  for (int i=0;i<6;i++){ px[i]=L[i].hX; py[i]=L[i].hY; pz[i]=L[i].hZ; }
+}
+
+// Fill position arrays from the rest (folded) pose
+void fillRest(float px[6], float py[6], float pz[6]) {
+  for (int i=0;i<6;i++){ px[i]=L[i].rX; py[i]=L[i].rY; pz[i]=L[i].rZ; }
+}
+
+// Linearly interpolate between two poses over INTER_N frames
+// t=0 → from,  t=1 → to
+void interpolatePose(
+  float fx[6],float fy[6],float fz[6],  // from
+  float tx[6],float ty[6],float tz[6],  // to
+  int frames, int msPerFrame)
+{
+  for (int f=1; f<=frames; f++) {
+    float t = (float)f / (float)frames;
+    float px[6], py[6], pz[6];
+    for (int i=0;i<6;i++){
+      px[i] = fx[i] + (tx[i]-fx[i])*t;
+      py[i] = fy[i] + (ty[i]-fy[i])*t;
+      pz[i] = fz[i] + (tz[i]-fz[i])*t;
     }
+    poseAndSend(px,py,pz, msPerFrame);
+  }
+}
 
-    float pushFactor = (pattern == GAIT_TRIPOD) ? 1.0 : 5.0;
-    float targetX = Legs[i].homeX;
-    float targetY = Legs[i].homeY;
-    float targetZ = Legs[i].homeZ;
+// Hold a pose for durationMs, refreshing MPU correction every 200ms
+void holdPose(float px[6],float py[6],float pz[6], unsigned long durationMs) {
+  unsigned long end = millis() + durationMs;
+  while (millis() < end) {
+    poseAndSend(px,py,pz, 180);
+  }
+}
 
-    if (dir != MOVE_STOP) {
-      if (turnDir != 0) {
-        float sideSign = (i < 3) ? 1.0 : -1.0; 
-        if (isSwing) {
-          targetY += (strideMag / 2.0) * turnDir * sideSign;
-          targetZ += STEP_HEIGHT; 
-        } else {
-          targetY -= ((strideMag / 2.0) / pushFactor) * turnDir * sideSign;
-        }
-      } 
-      else {
-        float vecX = 0;
-        if (dir == MOVE_FORWARD)  vecX =  strideMag;
-        if (dir == MOVE_BACKWARD) vecX = -strideMag;
+// ================================================================================
+// STARTUP SEQUENCE: REST → WAIT → STAND → WAIT
+// ================================================================================
+void doStartupSequence() {
+  float rpx[6],rpy[6],rpz[6];
+  float hpx[6],hpy[6],hpz[6];
+  fillRest(rpx,rpy,rpz);
+  fillHome(hpx,hpy,hpz);
 
-        if (isSwing) {
-          targetX += vecX / 2.0;
-          targetZ += STEP_HEIGHT; 
-        } else {
-          targetX -= (vecX / 2.0) / pushFactor;
-        }
+  Serial.println("[1] REST — folding to rest pose...");
+  // Start from wherever servos are (treat as home initially after power-on)
+  interpolatePose(hpx,hpy,hpz, rpx,rpy,rpz, INTER_N, T_TRANS);
+
+  Serial.println("[2] WAIT — holding rest for 2s...");
+  holdPose(rpx,rpy,rpz, 2000);
+
+  Serial.println("[3] STAND — rising to standing pose...");
+  interpolatePose(rpx,rpy,rpz, hpx,hpy,hpz, INTER_N, T_TRANS);
+
+  Serial.println("[4] WAIT — holding stand for 2s...");
+  holdPose(hpx,hpy,hpz, 2000);
+
+  Serial.println("[5] WALK — starting gait...");
+}
+
+// ================================================================================
+// ULTRASONIC
+// ================================================================================
+long readCM() {
+  digitalWrite(TRIG,LOW);  delayMicroseconds(2);
+  digitalWrite(TRIG,HIGH); delayMicroseconds(10);
+  digitalWrite(TRIG,LOW);
+  long d = pulseIn(ECHO,HIGH,22000);
+  return (d==0) ? 999 : (d * 0.034f / 2.0f);
+}
+
+// ================================================================================
+// FULL IK GAIT ENGINE
+// ────────────────────────────────────────────────────────────────────────────────
+//  velFwd  : +1 forward / -1 backward / 0 none
+//  velLat  : +1 strafe-right / -1 strafe-left / 0 none
+//  velTurn : +1 turn-right / -1 turn-left / 0 none
+//
+//  Each leg swings (lifts + advances) or stances (pushes body forward).
+//  Foot targets are real 3D positions resolved through IK every single frame.
+//  MPU tilt compensation added to Z before IK so the body stays level.
+// ================================================================================
+void gaitFrame(float velFwd, float velLat, float velTurn, int phase, int ms) {
+  buf[0] = '\0';
+  mpuRead();
+
+  for (int i=0;i<6;i++) {
+    // ── Which group swings this phase? (Tripod A={0,2,4}  B={1,3,5}) ─────────
+    bool inA   = (i==0||i==2||i==4);
+    bool swing = (phase==0) ? inA : !inA;
+
+    // ── Stride vector for this leg ─────────────────────────────────────────────
+    // Forward stride: corner legs step along their 45°/135° mount axis so the
+    // foot traces a line parallel to the direction of travel.
+    // Middle legs step pure X (body axis).
+    float sX=0, sY=0;
+
+    if (velFwd != 0.0f) {
+      if (L[i].type == 1) {                    // middle — pure X
+        sX = velFwd * STRIDE;
+      } else {                                  // corners — along mount axis
+        float ma = L[i].ma;
+        float ux = cosf(ma), uy = sinf(ma);    // unit vector of mount direction
+        sX = velFwd * STRIDE * ux;
+        sY = velFwd * STRIDE * uy;
       }
     }
-    appendLegToBuffer(i, targetX, targetY, targetZ);
-  }
-  transmitBuffer(executionTimeMs);
-}
 
-void moveRobot(MoveDirection dir, GaitPattern pattern, int stepsCount) {
-  int totalPhases = (pattern == GAIT_TRIPOD) ? 2 : 6;
-  int speedMs = (pattern == GAIT_TRIPOD) ? 280 : 160; 
-  for (int step = 0; step < stepsCount; step++) {
-    for (int phase = 0; phase < totalPhases; phase++) {
-      executeGait(dir, pattern, phase, speedMs);
+    // Lateral (strafe): all legs shift pure Y
+    if (velLat != 0.0f) {
+      sY += velLat * STRIDE_S;
     }
+
+    // Turn: opposite Y sign on each side creates differential rotation
+    if (velTurn != 0.0f) {
+      float side = L[i].left ? 1.0f : -1.0f;
+      sY += velTurn * STRIDE_T * side;
+    }
+
+    // ── Foot target ────────────────────────────────────────────────────────────
+    float tx = L[i].hX;
+    float ty = L[i].hY;
+    float tz = L[i].hZ;
+
+    if (swing) {
+      // Advance half-stride forward and lift
+      tx += sX * 0.5f;
+      ty += sY * 0.5f;
+      tz += LIFT;               // ← IK resolves the exact femur/tibia needed
+    } else {
+      // Push body forward: foot moves to rear half of stride
+      tx -= sX * 0.5f;
+      ty -= sY * 0.5f;
+      // tz at ground — IK keeps it there
+    }
+
+    // ── MPU level compensation ─────────────────────────────────────────────────
+    tz += tiltComp(i);
+
+    encLeg(i, tx, ty, tz);
+  }
+  send(ms);
+}
+
+// N full tripod cycles
+void walk(float vF, float vL, float vT, int cycles) {
+  for (int c=0;c<cycles;c++) {
+    gaitFrame(vF,vL,vT, 0, T_GAIT);
+    gaitFrame(vF,vL,vT, 1, T_GAIT);
   }
 }
 
-long readDistanceCM() {
-  digitalWrite(TRIG_PIN, LOW); delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
-  long duration = pulseIn(ECHO_PIN, HIGH, 20000); 
-  return (duration == 0) ? 999 : (duration * 0.034 / 2);
+// Immediate stop — go to home with tilt correction
+void stopWalk() {
+  float px[6],py[6],pz[6]; fillHome(px,py,pz);
+  poseAndSend(px,py,pz, 300);
+  delay(80);
 }
 
+// ================================================================================
+// OBSTACLE AVOIDANCE
+// ── Called whenever ultrasonic or MPU detects a problem while walking.
+// ── All moves go through the same gait/IK engine.
+// ================================================================================
+void avoidObstacle(bool cliffDetected, bool rollDetected, float rollDir) {
+  stopWalk();
+  delay(120);
+
+  if (cliffDetected) {
+    // Nose-down or steep pitch — back away
+    Serial.println("[!] CLIFF/STEEP — backing up");
+    walk(-1.0f, 0.0f, 0.0f, 3);
+    stopWalk(); delay(100);
+    walk( 0.0f, 0.0f, 1.0f, 4);   // turn right
+    stopWalk(); delay(100);
+
+  } else if (rollDetected) {
+    // Side tilt — strafe away from the high side
+    // rollDir > 0 means right side is high → strafe left (-1)
+    float lat = (rollDir > 0.0f) ? -1.0f : 1.0f;
+    Serial.print("[!] ROLL — strafing "); Serial.println(lat>0?"right":"left");
+    walk( 0.0f, lat, 0.0f, 3);
+    stopWalk(); delay(100);
+
+  } else {
+    // Ultrasonic obstacle ahead
+    Serial.println("[!] OBSTACLE — back + turn");
+    walk(-1.0f, 0.0f, 0.0f, 3);
+    stopWalk(); delay(100);
+    walk( 0.0f, 0.0f, 1.0f, 4);
+    stopWalk(); delay(100);
+  }
+}
+
+// ================================================================================
+// SETUP
+// ================================================================================
 void setup() {
-  Serial.begin(9600);           
-  controllerSerial.begin(9600); 
-  pinMode(TRIG_PIN, OUTPUT); pinMode(ECHO_PIN, INPUT);
+  Serial.begin(9600);
+  ssc.begin(9600);
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
   Wire.begin();
+  mpuInit();
+  delay(2000);   // let power rails stabilise
 
-  delay(2000); 
-
-  // Safely achieves your custom default mechanical alignment values
-  globalCmdBuffer[0] = '\0';
-  for(int i=0; i<6; i++) { appendLegToBuffer(i, Legs[i].homeX, Legs[i].homeY, Legs[i].homeZ); }
-  transmitBuffer(1200); 
-  delay(1000);
-  Serial.println("Hexapod Operational Stance Confirmed. Calibration Vectors Aligned.");
+  // ── Startup: rest → wait → stand → wait → start walking ──────────────────
+  doStartupSequence();
+  state = ST_WALK;
 }
 
+// ================================================================================
+// MAIN LOOP — walking with continuous avoidance
+// ================================================================================
 void loop() {
-  long distance = readDistanceCM();
-  
-  if (distance > 0 && distance < DISTANCE_THRESHOLD_CM) {
-    Serial.println("[!] Obstacle Avoidance Routing Initiated...");
-    executeGait(MOVE_STOP, GAIT_TRIPOD, 0, 300); 
-    delay(200);
-    moveRobot(MOVE_BACKWARD, GAIT_TRIPOD, 2);    
-    executeGait(MOVE_STOP, GAIT_TRIPOD, 0, 300);
-    moveRobot(MOVE_TURN_RIGHT, GAIT_TRIPOD, 3);   
-    executeGait(MOVE_STOP, GAIT_TRIPOD, 0, 300);
-  } 
-  else {
-    executeGait(MOVE_FORWARD, GAIT_TRIPOD, 0, 280);
-    executeGait(MOVE_FORWARD, GAIT_TRIPOD, 1, 280);
+
+  // ── 1. Read sensors ──────────────────────────────────────────────────────────
+  long   dist  = readCM();
+  mpuRead();   // updates gTiltX, gTiltY
+
+  bool ultraObs  = (dist > 0 && dist < OBSTACLE_CM);
+  bool pitchObs  = (fabsf(gTiltX) > PITCH_LIMIT);
+  bool rollObs   = (fabsf(gTiltY) > ROLL_LIMIT);
+
+  // ── 2. Decide ────────────────────────────────────────────────────────────────
+  if (ultraObs || pitchObs || rollObs) {
+    avoidObstacle(pitchObs, rollObs, gTiltY);
+  } else {
+    // ── 3. Normal forward walk — one full tripod cycle ────────────────────────
+    //     MPU tilt compensation is applied inside gaitFrame() automatically.
+    gaitFrame(1.0f, 0.0f, 0.0f, 0, T_GAIT);
+    gaitFrame(1.0f, 0.0f, 0.0f, 1, T_GAIT);
   }
 
-  while (controllerSerial.available()) { controllerSerial.read(); }
+  // Drain stale servo controller replies
+  while (ssc.available()) ssc.read();
 }
+
+/*
+  ================================================================================
+  MOTION API — call these from loop() for RC/Bluetooth control:
+  ─────────────────────────────────────────────────────────────────────────────
+  walk( 1.0f,  0.0f,  0.0f, 1);  // Forward
+  walk(-1.0f,  0.0f,  0.0f, 1);  // Backward
+  walk( 0.0f,  1.0f,  0.0f, 1);  // Strafe right
+  walk( 0.0f, -1.0f,  0.0f, 1);  // Strafe left
+  walk( 0.0f,  0.0f,  1.0f, 1);  // Turn right
+  walk( 0.0f,  0.0f, -1.0f, 1);  // Turn left
+  walk( 0.7f,  0.0f,  0.4f, 1);  // Forward while curving right
+  stopWalk();                     // Freeze in standing pose
+
+  IK + MPU compensation apply automatically on every call.
+  ================================================================================
+*/

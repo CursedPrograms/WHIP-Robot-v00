@@ -7,11 +7,13 @@
     - 45-degree corner leg coordinate rotation matrix
     - Real-time ultrasonic obstacle avoidance
 
+    the front and back shoulders (Coxas) are mounted at a angled 45-degree corner vector looking forward.
+
 Right
-    Resting pos for  Right back Coxas: 2000
+    Resting pos for  Right back Coxas: 2000 (Use this as the centre)
     Max forward pan for Right back Coxas: 1200
      Max backward pan for Right back Coxas: 2500
-    Resting pos for  Right Front Coxas: 1000
+    Resting pos for  Right Front Coxas: 1000 (Use this as the centre)
         Max forward pan for Right back Coxas: 1200
      Max backward pan for Right back Coxas: 2500
 
@@ -30,8 +32,8 @@ Max Right Middle Backward Pan 2500 (If You Really Push and the back leg is also 
 
 Left
 
-             Resting pos for  Left back Coxas: 1000
-    Resting pos for  Left Front Coxas: 2000
+             Resting pos for  Left back Coxas: 1000 (Use this as the centre)
+    Resting pos for  Left Front Coxas: 2000 (Use this as the centre)
           Max forward pan for Left back Coxas: 1700
      Max backward pan for Left back Coxas: 500
      Max forward pan for Left front Coxas: 2500
@@ -48,6 +50,26 @@ Left
     Left Middle Coxa Resting at 1500
 Max Left Middle Forward Pan 2500 (If You Really Push and the front leg is also ponting forward it Lets say 2300)
 Max Left Middle Backward Pan 1000 (If You Really Push and the back leg is also ponting backwards it Lets say 1200)
+
+Leg Link Dimensions
+
+    Femur (Upper Thigh): 84 mm
+
+    Tibia (Lower Leg/Shin): 168 mm
+
+    Long Coxa (Front & Back Shoulders): 168 mm
+
+    Short Coxa (Middle Shoulders): 42 mm
+
+Total Extended Reach (Per Leg)
+
+This is the maximum mechanical span from the chassis shoulder pivot out to the tip of the foot when the leg is fully extended:
+
+    Front & Back Corner Legs: 420 mm (Coxa 168 mm+Femur 84 mm+Tibia 168 mm)
+
+    Middle Left & Right Legs: 294 mm (Coxa 42 mm+Femur 84 mm+Tibia 168 mm)
+
+    the front shoulders (Coxas) are mounted at a angled 45-degree corner vector looking forward. R
 
 
 
