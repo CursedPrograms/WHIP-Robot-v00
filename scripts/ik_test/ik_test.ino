@@ -12,7 +12,7 @@ SoftwareSerial controller(11, 10);
 
 const int TRIG_PIN = 7;
 const int ECHO_PIN = 6;
-const int MIN_DISTANCE = 300;
+const int MIN_DISTANCE = 60;
 
 enum State { INIT, WAITING, WALK, OBSTACLE };
 State state = INIT;
