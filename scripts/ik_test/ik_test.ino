@@ -1,9 +1,6 @@
 /*
-  HEXAPOD WALKING - SMOOTH GAIT
-  - Initialize all to 1500
-  - Wait 2 seconds
-  - Start walking
-  - Obstacle detection stops and returns to 1500
+  HEXAPOD WALKING - 4-STEP TRIPOD GAIT
+  Uses actual animated positions
 */
 
 #include <SoftwareSerial.h>
@@ -12,7 +9,7 @@ SoftwareSerial controller(11, 10);
 
 const int TRIG_PIN = 7;
 const int ECHO_PIN = 6;
-const int MIN_DISTANCE = 60;
+const int MIN_DISTANCE = 30;
 
 enum State { INIT, WAITING, WALK, OBSTACLE };
 State state = INIT;
@@ -29,20 +26,36 @@ int neutral[32] = {
   1500, 1500
 };
 
-// Step 1: Tripod A lifted, Tripod B pushing
+// Step 1: Tripod A lifted and forward
 int step1[32] = {
-  1800, 1500, 1500,  1300, 2500, 1800,  1800, 1500, 1500,  1500,
+  1300, 2500, 1300,  1500, 1500, 1500,  1300, 2500, 1300,  1500,
   1500, 1500, 1500,  1500, 1500, 1500,  1500, 1500, 1500,  1500,
-  1500, 1500, 2500,  1800, 500, 1200,   1200, 1500, 1500,  1800,
-  500, 1200
+  1500, 1500, 1500,  1500, 1500, 1500,  1700, 500, 1700,   1500,
+  1500, 1500
 };
 
-// Step 2: Tripod A pushing, Tripod B lifted
+// Step 2: Hold position
 int step2[32] = {
-  1300, 2500, 1500,  1800, 1500, 1500,  1300, 2500, 1500,  1500,
+  1300, 1500, 1500,  1500, 1500, 1500,  1300, 1500, 1500,  1500,
   1500, 1500, 1500,  1500, 1500, 1500,  1500, 1500, 1500,  1500,
-  1500, 1200, 500,   1500, 1800, 500,   1200, 1200, 500,   1500,
-  1200, 500
+  1500, 1500, 1500,  1500, 1500, 1500,  1700, 1500, 1700,   1500,
+  1700, 1500
+};
+
+// Step 3: Tripod B lifted and forward
+int step3[32] = {
+  1500, 1500, 1500,  1300, 2500, 1300,  1500, 1500, 1500,  1500,
+  1500, 1500, 1500,  1500, 1500, 1500,  1500, 1500, 1500,  1500,
+  1500, 1500, 1500,  1700, 500, 1700,   1500, 1500, 1500,  1700,
+  1500, 1700
+};
+
+// Step 4: Hold position
+int step4[32] = {
+  1500, 1500, 1500,  1300, 1500, 1500,  1500, 1500, 1500,  1500,
+  1500, 1500, 1500,  1500, 1500, 1500,  1500, 1500, 1500,  1500,
+  1500, 1500, 1500,  1700, 1500, 1500,  1500, 1500, 1500,  1700,
+  1500, 1500
 };
 
 void sendPosition(int pos[32]) {
@@ -83,12 +96,12 @@ void setup() {
   
   delay(1000);
   
-  // Initialize all servos to 1500
+  // Initialize all servos to neutral
   sendPosition(neutral);
   state = WAITING;
   timer = millis();
   
-  Serial.println("=== HEXAPOD ===");
+  Serial.println("=== HEXAPOD 4-STEP GAIT ===");
   Serial.println("Initializing... waiting 2 seconds");
 }
 
@@ -121,17 +134,28 @@ void loop() {
       timer = millis();
       Serial.println("OBSTACLE - STOPPING");
     } else {
-      // Walk: alternate between step1 and step2
+      // 4-step gait cycle: ~1200ms total
       float gait_phase = fmod((millis() - gait_timer) / 1200.0, 1.0);
       
-      if (gait_phase < 0.5) {
-        // Blend from neutral to step1, then step1 to step2
-        float blend = gait_phase * 2.0;
+      if (gait_phase < 0.25) {
+        // Step 1: neutral to step1
+        float blend = gait_phase * 4.0;
         interpolate(neutral, step1, blend);
-      } else {
-        // Blend from step1 to step2, then step2 to neutral
-        float blend = (gait_phase - 0.5) * 2.0;
+      } 
+      else if (gait_phase < 0.5) {
+        // Step 2: step1 to step2 (hold)
+        float blend = (gait_phase - 0.25) * 4.0;
         interpolate(step1, step2, blend);
+      }
+      else if (gait_phase < 0.75) {
+        // Step 3: step2 to step3
+        float blend = (gait_phase - 0.5) * 4.0;
+        interpolate(step2, step3, blend);
+      }
+      else {
+        // Step 4: step3 to step4 (hold), then back to neutral
+        float blend = (gait_phase - 0.75) * 4.0;
+        interpolate(step3, step4, blend);
       }
     }
   }
