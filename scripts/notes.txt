@@ -71,5 +71,8 @@ This is the maximum mechanical span from the chassis shoulder pivot out to the t
 
     the front shoulders (Coxas) are mounted at a angled 45-degree corner vector looking forward. R
 
+    basically at     - all Left/Right  Femurs are bent 90 degrees at 1500     - all Left/Right  Tibias are bent 90 degrees at 1500  Resting pos for  Right back Coxas: 2000 (Use this as the centre) Resting pos for  Right Front Coxas: 1000 (Use this as the centre)              Resting pos for  Left back Coxas: 1000 (Use this as the centre)
+    Resting pos for  Left Front Coxas: 2000 (Use this as the centre) --- this would be standing up!!!
+
 
 
