@@ -1,0 +1,778 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RTrobot>
+    <Group id="0" alias="">
+        <value>#1P1100#2P2000#3P1000#4P1500#5P1500#6P1500#7P1100#8P2000#9P1000#24P1500#25P1500#26P1500#27P1900#28P1000#29P2000#30P1500#31P1500#32P1500T500D500
+#2P1500#3P1500#8P1500#9P1500#28P1500#29P1500T500D500
+#1P1500#4P1100#5P2000#6P1000#7P1500#24P1900#25P1000#26P2000#27P1500#30P1900#31P1000#32P2000T500D500
+#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500T500D500</value>
+    </Group>
+    <Group id="1" alias="">
+        <value>#1P1500#2P1500#3P1500#4P1500#5P1500#6P1500#7P1500#8P1500#9P1500#24P1500#25P1500#26P1500#27P1500#28P1500#29P1500#30P1500#31P1500#32P1500T500D500
+#2P2500#3P1500#8P2500#28P500#29P1500T500D500
+#3P500#9P500#29P2500T500D500
+#3P2500#9P2500#29P500T500D500
+#5P1700#6P1200#25P1200#26P1700#31P1200#32P1700T500D500
+#5P2500#25P500#26P1700#28P500#31P500T500D500
+#6P500#26P2500#32P2500T500D500
+#6P2500#26P500#32P500T500D500</value>
+    </Group>
+    <Group id="2" alias="">
+        <value></value>
+    </Group>
+    <Group id="3" alias="">
+        <value></value>
+    </Group>
+    <Group id="4" alias="">
+        <value></value>
+    </Group>
+    <Group id="5" alias="">
+        <value></value>
+    </Group>
+    <Group id="6" alias="">
+        <value></value>
+    </Group>
+    <Group id="7" alias="">
+        <value></value>
+    </Group>
+    <Group id="8" alias="">
+        <value></value>
+    </Group>
+    <Group id="9" alias="">
+        <value></value>
+    </Group>
+    <Group id="10" alias="">
+        <value></value>
+    </Group>
+    <Group id="11" alias="">
+        <value></value>
+    </Group>
+    <Group id="12" alias="">
+        <value></value>
+    </Group>
+    <Group id="13" alias="">
+        <value></value>
+    </Group>
+    <Group id="14" alias="">
+        <value></value>
+    </Group>
+    <Group id="15" alias="">
+        <value></value>
+    </Group>
+    <Group id="16" alias="">
+        <value></value>
+    </Group>
+    <Group id="17" alias="">
+        <value></value>
+    </Group>
+    <Group id="18" alias="">
+        <value></value>
+    </Group>
+    <Group id="19" alias="">
+        <value></value>
+    </Group>
+    <Group id="20" alias="">
+        <value></value>
+    </Group>
+    <Group id="21" alias="">
+        <value></value>
+    </Group>
+    <Group id="22" alias="">
+        <value></value>
+    </Group>
+    <Group id="23" alias="">
+        <value></value>
+    </Group>
+    <Group id="24" alias="">
+        <value></value>
+    </Group>
+    <Group id="25" alias="">
+        <value></value>
+    </Group>
+    <Group id="26" alias="">
+        <value></value>
+    </Group>
+    <Group id="27" alias="">
+        <value></value>
+    </Group>
+    <Group id="28" alias="">
+        <value></value>
+    </Group>
+    <Group id="29" alias="">
+        <value></value>
+    </Group>
+    <Group id="30" alias="">
+        <value></value>
+    </Group>
+    <Group id="31" alias="">
+        <value></value>
+    </Group>
+    <Group id="32" alias="">
+        <value></value>
+    </Group>
+    <Group id="33" alias="">
+        <value></value>
+    </Group>
+    <Group id="34" alias="">
+        <value></value>
+    </Group>
+    <Group id="35" alias="">
+        <value></value>
+    </Group>
+    <Group id="36" alias="">
+        <value></value>
+    </Group>
+    <Group id="37" alias="">
+        <value></value>
+    </Group>
+    <Group id="38" alias="">
+        <value></value>
+    </Group>
+    <Group id="39" alias="">
+        <value></value>
+    </Group>
+    <Group id="40" alias="">
+        <value></value>
+    </Group>
+    <Group id="41" alias="">
+        <value></value>
+    </Group>
+    <Group id="42" alias="">
+        <value></value>
+    </Group>
+    <Group id="43" alias="">
+        <value></value>
+    </Group>
+    <Group id="44" alias="">
+        <value></value>
+    </Group>
+    <Group id="45" alias="">
+        <value></value>
+    </Group>
+    <Group id="46" alias="">
+        <value></value>
+    </Group>
+    <Group id="47" alias="">
+        <value></value>
+    </Group>
+    <Group id="48" alias="">
+        <value></value>
+    </Group>
+    <Group id="49" alias="">
+        <value></value>
+    </Group>
+    <Group id="50" alias="">
+        <value></value>
+    </Group>
+    <Group id="51" alias="">
+        <value></value>
+    </Group>
+    <Group id="52" alias="">
+        <value></value>
+    </Group>
+    <Group id="53" alias="">
+        <value></value>
+    </Group>
+    <Group id="54" alias="">
+        <value></value>
+    </Group>
+    <Group id="55" alias="">
+        <value></value>
+    </Group>
+    <Group id="56" alias="">
+        <value></value>
+    </Group>
+    <Group id="57" alias="">
+        <value></value>
+    </Group>
+    <Group id="58" alias="">
+        <value></value>
+    </Group>
+    <Group id="59" alias="">
+        <value></value>
+    </Group>
+    <Group id="60" alias="">
+        <value></value>
+    </Group>
+    <Group id="61" alias="">
+        <value></value>
+    </Group>
+    <Group id="62" alias="">
+        <value></value>
+    </Group>
+    <Group id="63" alias="">
+        <value></value>
+    </Group>
+    <Group id="64" alias="">
+        <value></value>
+    </Group>
+    <Group id="65" alias="">
+        <value></value>
+    </Group>
+    <Group id="66" alias="">
+        <value></value>
+    </Group>
+    <Group id="67" alias="">
+        <value></value>
+    </Group>
+    <Group id="68" alias="">
+        <value></value>
+    </Group>
+    <Group id="69" alias="">
+        <value></value>
+    </Group>
+    <Group id="70" alias="">
+        <value></value>
+    </Group>
+    <Group id="71" alias="">
+        <value></value>
+    </Group>
+    <Group id="72" alias="">
+        <value></value>
+    </Group>
+    <Group id="73" alias="">
+        <value></value>
+    </Group>
+    <Group id="74" alias="">
+        <value></value>
+    </Group>
+    <Group id="75" alias="">
+        <value></value>
+    </Group>
+    <Group id="76" alias="">
+        <value></value>
+    </Group>
+    <Group id="77" alias="">
+        <value></value>
+    </Group>
+    <Group id="78" alias="">
+        <value></value>
+    </Group>
+    <Group id="79" alias="">
+        <value></value>
+    </Group>
+    <Group id="80" alias="">
+        <value></value>
+    </Group>
+    <Group id="81" alias="">
+        <value></value>
+    </Group>
+    <Group id="82" alias="">
+        <value></value>
+    </Group>
+    <Group id="83" alias="">
+        <value></value>
+    </Group>
+    <Group id="84" alias="">
+        <value></value>
+    </Group>
+    <Group id="85" alias="">
+        <value></value>
+    </Group>
+    <Group id="86" alias="">
+        <value></value>
+    </Group>
+    <Group id="87" alias="">
+        <value></value>
+    </Group>
+    <Group id="88" alias="">
+        <value></value>
+    </Group>
+    <Group id="89" alias="">
+        <value></value>
+    </Group>
+    <Group id="90" alias="">
+        <value></value>
+    </Group>
+    <Group id="91" alias="">
+        <value></value>
+    </Group>
+    <Group id="92" alias="">
+        <value></value>
+    </Group>
+    <Group id="93" alias="">
+        <value></value>
+    </Group>
+    <Group id="94" alias="">
+        <value></value>
+    </Group>
+    <Group id="95" alias="">
+        <value></value>
+    </Group>
+    <Group id="96" alias="">
+        <value></value>
+    </Group>
+    <Group id="97" alias="">
+        <value></value>
+    </Group>
+    <Group id="98" alias="">
+        <value></value>
+    </Group>
+    <Group id="99" alias="">
+        <value></value>
+    </Group>
+    <Group id="100" alias="">
+        <value></value>
+    </Group>
+    <Group id="101" alias="">
+        <value></value>
+    </Group>
+    <Group id="102" alias="">
+        <value></value>
+    </Group>
+    <Group id="103" alias="">
+        <value></value>
+    </Group>
+    <Group id="104" alias="">
+        <value></value>
+    </Group>
+    <Group id="105" alias="">
+        <value></value>
+    </Group>
+    <Group id="106" alias="">
+        <value></value>
+    </Group>
+    <Group id="107" alias="">
+        <value></value>
+    </Group>
+    <Group id="108" alias="">
+        <value></value>
+    </Group>
+    <Group id="109" alias="">
+        <value></value>
+    </Group>
+    <Group id="110" alias="">
+        <value></value>
+    </Group>
+    <Group id="111" alias="">
+        <value></value>
+    </Group>
+    <Group id="112" alias="">
+        <value></value>
+    </Group>
+    <Group id="113" alias="">
+        <value></value>
+    </Group>
+    <Group id="114" alias="">
+        <value></value>
+    </Group>
+    <Group id="115" alias="">
+        <value></value>
+    </Group>
+    <Group id="116" alias="">
+        <value></value>
+    </Group>
+    <Group id="117" alias="">
+        <value></value>
+    </Group>
+    <Group id="118" alias="">
+        <value></value>
+    </Group>
+    <Group id="119" alias="">
+        <value></value>
+    </Group>
+    <Group id="120" alias="">
+        <value></value>
+    </Group>
+    <Group id="121" alias="">
+        <value></value>
+    </Group>
+    <Group id="122" alias="">
+        <value></value>
+    </Group>
+    <Group id="123" alias="">
+        <value></value>
+    </Group>
+    <Group id="124" alias="">
+        <value></value>
+    </Group>
+    <Group id="125" alias="">
+        <value></value>
+    </Group>
+    <Group id="126" alias="">
+        <value></value>
+    </Group>
+    <Group id="127" alias="">
+        <value></value>
+    </Group>
+    <Group id="128" alias="">
+        <value></value>
+    </Group>
+    <Group id="129" alias="">
+        <value></value>
+    </Group>
+    <Group id="130" alias="">
+        <value></value>
+    </Group>
+    <Group id="131" alias="">
+        <value></value>
+    </Group>
+    <Group id="132" alias="">
+        <value></value>
+    </Group>
+    <Group id="133" alias="">
+        <value></value>
+    </Group>
+    <Group id="134" alias="">
+        <value></value>
+    </Group>
+    <Group id="135" alias="">
+        <value></value>
+    </Group>
+    <Group id="136" alias="">
+        <value></value>
+    </Group>
+    <Group id="137" alias="">
+        <value></value>
+    </Group>
+    <Group id="138" alias="">
+        <value></value>
+    </Group>
+    <Group id="139" alias="">
+        <value></value>
+    </Group>
+    <Group id="140" alias="">
+        <value></value>
+    </Group>
+    <Group id="141" alias="">
+        <value></value>
+    </Group>
+    <Group id="142" alias="">
+        <value></value>
+    </Group>
+    <Group id="143" alias="">
+        <value></value>
+    </Group>
+    <Group id="144" alias="">
+        <value></value>
+    </Group>
+    <Group id="145" alias="">
+        <value></value>
+    </Group>
+    <Group id="146" alias="">
+        <value></value>
+    </Group>
+    <Group id="147" alias="">
+        <value></value>
+    </Group>
+    <Group id="148" alias="">
+        <value></value>
+    </Group>
+    <Group id="149" alias="">
+        <value></value>
+    </Group>
+    <Group id="150" alias="">
+        <value></value>
+    </Group>
+    <Group id="151" alias="">
+        <value></value>
+    </Group>
+    <Group id="152" alias="">
+        <value></value>
+    </Group>
+    <Group id="153" alias="">
+        <value></value>
+    </Group>
+    <Group id="154" alias="">
+        <value></value>
+    </Group>
+    <Group id="155" alias="">
+        <value></value>
+    </Group>
+    <Group id="156" alias="">
+        <value></value>
+    </Group>
+    <Group id="157" alias="">
+        <value></value>
+    </Group>
+    <Group id="158" alias="">
+        <value></value>
+    </Group>
+    <Group id="159" alias="">
+        <value></value>
+    </Group>
+    <Group id="160" alias="">
+        <value></value>
+    </Group>
+    <Group id="161" alias="">
+        <value></value>
+    </Group>
+    <Group id="162" alias="">
+        <value></value>
+    </Group>
+    <Group id="163" alias="">
+        <value></value>
+    </Group>
+    <Group id="164" alias="">
+        <value></value>
+    </Group>
+    <Group id="165" alias="">
+        <value></value>
+    </Group>
+    <Group id="166" alias="">
+        <value></value>
+    </Group>
+    <Group id="167" alias="">
+        <value></value>
+    </Group>
+    <Group id="168" alias="">
+        <value></value>
+    </Group>
+    <Group id="169" alias="">
+        <value></value>
+    </Group>
+    <Group id="170" alias="">
+        <value></value>
+    </Group>
+    <Group id="171" alias="">
+        <value></value>
+    </Group>
+    <Group id="172" alias="">
+        <value></value>
+    </Group>
+    <Group id="173" alias="">
+        <value></value>
+    </Group>
+    <Group id="174" alias="">
+        <value></value>
+    </Group>
+    <Group id="175" alias="">
+        <value></value>
+    </Group>
+    <Group id="176" alias="">
+        <value></value>
+    </Group>
+    <Group id="177" alias="">
+        <value></value>
+    </Group>
+    <Group id="178" alias="">
+        <value></value>
+    </Group>
+    <Group id="179" alias="">
+        <value></value>
+    </Group>
+    <Group id="180" alias="">
+        <value></value>
+    </Group>
+    <Group id="181" alias="">
+        <value></value>
+    </Group>
+    <Group id="182" alias="">
+        <value></value>
+    </Group>
+    <Group id="183" alias="">
+        <value></value>
+    </Group>
+    <Group id="184" alias="">
+        <value></value>
+    </Group>
+    <Group id="185" alias="">
+        <value></value>
+    </Group>
+    <Group id="186" alias="">
+        <value></value>
+    </Group>
+    <Group id="187" alias="">
+        <value></value>
+    </Group>
+    <Group id="188" alias="">
+        <value></value>
+    </Group>
+    <Group id="189" alias="">
+        <value></value>
+    </Group>
+    <Group id="190" alias="">
+        <value></value>
+    </Group>
+    <Group id="191" alias="">
+        <value></value>
+    </Group>
+    <Group id="192" alias="">
+        <value></value>
+    </Group>
+    <Group id="193" alias="">
+        <value></value>
+    </Group>
+    <Group id="194" alias="">
+        <value></value>
+    </Group>
+    <Group id="195" alias="">
+        <value></value>
+    </Group>
+    <Group id="196" alias="">
+        <value></value>
+    </Group>
+    <Group id="197" alias="">
+        <value></value>
+    </Group>
+    <Group id="198" alias="">
+        <value></value>
+    </Group>
+    <Group id="199" alias="">
+        <value></value>
+    </Group>
+    <Group id="200" alias="">
+        <value></value>
+    </Group>
+    <Group id="201" alias="">
+        <value></value>
+    </Group>
+    <Group id="202" alias="">
+        <value></value>
+    </Group>
+    <Group id="203" alias="">
+        <value></value>
+    </Group>
+    <Group id="204" alias="">
+        <value></value>
+    </Group>
+    <Group id="205" alias="">
+        <value></value>
+    </Group>
+    <Group id="206" alias="">
+        <value></value>
+    </Group>
+    <Group id="207" alias="">
+        <value></value>
+    </Group>
+    <Group id="208" alias="">
+        <value></value>
+    </Group>
+    <Group id="209" alias="">
+        <value></value>
+    </Group>
+    <Group id="210" alias="">
+        <value></value>
+    </Group>
+    <Group id="211" alias="">
+        <value></value>
+    </Group>
+    <Group id="212" alias="">
+        <value></value>
+    </Group>
+    <Group id="213" alias="">
+        <value></value>
+    </Group>
+    <Group id="214" alias="">
+        <value></value>
+    </Group>
+    <Group id="215" alias="">
+        <value></value>
+    </Group>
+    <Group id="216" alias="">
+        <value></value>
+    </Group>
+    <Group id="217" alias="">
+        <value></value>
+    </Group>
+    <Group id="218" alias="">
+        <value></value>
+    </Group>
+    <Group id="219" alias="">
+        <value></value>
+    </Group>
+    <Group id="220" alias="">
+        <value></value>
+    </Group>
+    <Group id="221" alias="">
+        <value></value>
+    </Group>
+    <Group id="222" alias="">
+        <value></value>
+    </Group>
+    <Group id="223" alias="">
+        <value></value>
+    </Group>
+    <Group id="224" alias="">
+        <value></value>
+    </Group>
+    <Group id="225" alias="">
+        <value></value>
+    </Group>
+    <Group id="226" alias="">
+        <value></value>
+    </Group>
+    <Group id="227" alias="">
+        <value></value>
+    </Group>
+    <Group id="228" alias="">
+        <value></value>
+    </Group>
+    <Group id="229" alias="">
+        <value></value>
+    </Group>
+    <Group id="230" alias="">
+        <value></value>
+    </Group>
+    <Group id="231" alias="">
+        <value></value>
+    </Group>
+    <Group id="232" alias="">
+        <value></value>
+    </Group>
+    <Group id="233" alias="">
+        <value></value>
+    </Group>
+    <Group id="234" alias="">
+        <value></value>
+    </Group>
+    <Group id="235" alias="">
+        <value></value>
+    </Group>
+    <Group id="236" alias="">
+        <value></value>
+    </Group>
+    <Group id="237" alias="">
+        <value></value>
+    </Group>
+    <Group id="238" alias="">
+        <value></value>
+    </Group>
+    <Group id="239" alias="">
+        <value></value>
+    </Group>
+    <Group id="240" alias="">
+        <value></value>
+    </Group>
+    <Group id="241" alias="">
+        <value></value>
+    </Group>
+    <Group id="242" alias="">
+        <value></value>
+    </Group>
+    <Group id="243" alias="">
+        <value></value>
+    </Group>
+    <Group id="244" alias="">
+        <value></value>
+    </Group>
+    <Group id="245" alias="">
+        <value></value>
+    </Group>
+    <Group id="246" alias="">
+        <value></value>
+    </Group>
+    <Group id="247" alias="">
+        <value></value>
+    </Group>
+    <Group id="248" alias="">
+        <value></value>
+    </Group>
+    <Group id="249" alias="">
+        <value></value>
+    </Group>
+    <Group id="250" alias="">
+        <value></value>
+    </Group>
+    <Group id="251" alias="">
+        <value></value>
+    </Group>
+    <Group id="252" alias="">
+        <value></value>
+    </Group>
+    <Group id="253" alias="">
+        <value></value>
+    </Group>
+    <Group id="254" alias="">
+        <value></value>
+    </Group>
+</RTrobot>
