@@ -40,6 +40,18 @@
 
 SoftwareSerial controllerSerial(11, 10); // RX, TX
 
+// Non-blocking cycle player for a gait's command lines.
+// Defined this early so it's visible to Arduino's auto-generated function
+// prototypes, which get inserted near the top of the file, above any
+// functions that take GaitPlayer& as a parameter.
+struct GaitPlayer {
+  const char* const* table;
+  uint8_t numLines;
+  uint8_t currentLine;
+  unsigned long lineStart;
+  static const unsigned long LINE_MS = 1000; // T500 + D500
+};
+
 // ---------------------------------------------------------------------------
 // Pins / addresses
 // ---------------------------------------------------------------------------
@@ -136,15 +148,6 @@ void sendSimplePose(const char* cmd, const char* label) {
   Serial.print(F("Sent: "));
   Serial.println(label);
 }
-
-// Non-blocking cycle player for a gait's command lines.
-struct GaitPlayer {
-  const char* const* table;
-  uint8_t numLines;
-  uint8_t currentLine;
-  unsigned long lineStart;
-  static const unsigned long LINE_MS = 1000; // T500 + D500
-};
 
 void resetPlayer(GaitPlayer &p) {
   p.currentLine = 0;
