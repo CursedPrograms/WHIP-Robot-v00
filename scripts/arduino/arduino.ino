@@ -9,6 +9,8 @@
     MPU6050: SDA -> Arduino A4, SCL -> Arduino A5, VCC -> 5V, GND -> GND
 
   Servos:
+
+  
     1. L Back Coxa      2. L Back Femur      3. L Back Tibia
     4. L Middle Coxa    5. L Middle Femur    6. L Middle Tibia
     7. L Front Coxa     8. L Front Femur     9. L Front Tibia
@@ -18,20 +20,28 @@
 
   State machine:
     BOOT       -> send Rest, then Stand pose
-    WALK       -> loop the recorded Forward tripod gait (gait.xml Group 0)
-    AVOID      -> obstacle within MIN_DISTANCE_CM: loop the recorded Turn
-                  Left gait (gait.xml Group 4) until the path clears
+    WALK       -> loop the recorded Forward tripod gait (gait.xml Group 0).
+                  The ultrasonic is only sampled on the settled lines
+                  (FWD_2/FWD_4, see FORWARD_SCAN_SAFE) - during FWD_1/FWD_3 a
+                  tripod is mid-swing and can pass through the sensor beam.
+    AVOID      -> obstacle within MIN_DISTANCE_CM: pickAvoidDirection() picks
+                  Turn Left (gait.xml Group 2) or Turn Right (Group 3), plays
+                  it for AVOID_TURN_LOOPS full cycles, then freezes on the
+                  settled last pose (no servo commands sent while frozen) and
+                  takes a single ultrasonic reading. Clear -> WALK; still
+                  blocked -> another AVOID_TURN_LOOPS cycles, same direction.
     TILT_SAFE  -> tilt exceeds TILT_LIMIT_DEG: freeze in the Stand pose
                   until level again (highest priority - overrides AVOID/WALK)
     SHUTDOWN   -> triggered by sending 'x' over USB serial: plays the
                   recorded Reset/Shutdown sequence (gait.xml Group 1) once,
                   then halts
 
-  Turn Right / Backward are not recorded yet. Once captured, add their
-  PROGMEM lines the same way FORWARD/TURN_LEFT are defined below, point a
-  new GaitPlayer at them, and give AVOID a way to pick a direction (e.g.
-  alternate, or add a second ultrasonic sensor to compare left/right
-  clearance). Until then AVOID always turns left.
+  Backward is not recorded yet. Once captured, add its PROGMEM lines the
+  same way FORWARD/TURN_LEFT/TURN_RIGHT are defined below.
+
+  pickAvoidDirection() (below the state machine variables) currently always
+  picks left - replace its body with real left/right logic (e.g. a second
+  ultrasonic sensor comparing clearance on both sides) when ready.
 */
 
 #include <SoftwareSerial.h>
@@ -65,6 +75,7 @@ const int MPU_ADDR = 0x68;
 const long MIN_DISTANCE_CM   = 20;  // trigger AVOID below this
 const long CLEAR_DISTANCE_CM = 35;  // resume WALK above this (hysteresis)
 const uint8_t OBSTACLE_DEBOUNCE = 3; // consecutive readings required
+const uint8_t AVOID_TURN_LOOPS = 2;  // full turn-gait cycles before pausing to scan
 
 // ---------------------------------------------------------------------------
 // Tilt safety tuning (MPU6050)
@@ -103,19 +114,36 @@ const char FWD_4[] PROGMEM = "#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500T500
 const char* const FORWARD_GAIT[] PROGMEM = { FWD_1, FWD_2, FWD_3, FWD_4 };
 const uint8_t FORWARD_GAIT_LEN = 4;
 
+// FWD_1/FWD_3 lift & swing a tripod - a leg can pass through the ultrasonic
+// beam and read as a false obstacle. FWD_2/FWD_4 settle both tripods back to
+// neutral, so those are the only lines it's safe to trust a distance reading.
+const bool FORWARD_SCAN_SAFE[] PROGMEM = { false, true, false, true };
+
 // ---------------------------------------------------------------------------
-// Turn Left tripod gait (gait.xml Group 4)
+// Turn Left tripod gait (gait.xml Group 2 "Turn Left")
 // ---------------------------------------------------------------------------
-const char TURNL_1[] PROGMEM = "#1P2000#2P2500#3P1000#4P1500#5P1500#6P1500#7P2000#8P2500#9P1000#24P1500#25P1500#26P1500#27P2000#28P500#29P2000#30P1500#31P1500#32P1500T500D500\r\n";
+const char TURNL_1[] PROGMEM = "#1P1000#2P2500#3P1100#4P1500#5P1500#6P1500#7P1000#8P2500#9P1100#24P1500#25P1500#26P1500#27P1000#28P500#29P1900#30P1500#31P1500#32P1500T500D500\r\n";
 const char TURNL_2[] PROGMEM = "#2P1500#3P1500#8P1500#9P1500#28P1500#29P1500T500D500\r\n";
-const char TURNL_3[] PROGMEM = "#4P2000#5P2500#6P1000#24P2000#25P500#26P2000#30P2000#31P500#32P2000T500D500\r\n";
-const char TURNL_4[] PROGMEM = "#1P1500#7P1500#27P1500#30P2000T500D500\r\n";
-const char TURNL_5[] PROGMEM = "#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500T500D500\r\n";
+const char TURNL_3[] PROGMEM = "#1P1000#2P1500#3P1500#4P1000#5P2500#6P1100#7P1000#8P1500#9P1500#24P1000#25P500#26P1900#27P1000#28P1500#29P1500#30P1000#31P500#32P1900T500D500\r\n";
+const char TURNL_4[] PROGMEM = "#1P1500#7P1500#27P1500T500D500\r\n";
+const char TURNL_5[] PROGMEM = "#1P1500#2P1500#3P1500#5P1500#6P1500#7P1500#8P1500#9P1500#25P1500#26P1500#27P1500#28P1500#29P1500#31P1500#32P1500T500D500\r\n";
 
 const char* const TURN_LEFT_GAIT[] PROGMEM = { TURNL_1, TURNL_2, TURNL_3, TURNL_4, TURNL_5 };
 const uint8_t TURN_LEFT_GAIT_LEN = 5;
 
-// TODO: Turn Right / Backward - add here once recorded, same pattern as above.
+// ---------------------------------------------------------------------------
+// Turn Right tripod gait (gait.xml Group 3 "Turn Right")
+// ---------------------------------------------------------------------------
+const char TURNR_1[] PROGMEM = "#1P2000#2P2500#3P1000#4P1500#5P1500#6P1500#7P2000#8P2500#9P1000#24P1500#25P1500#26P1500#27P2000#28P500#29P2000#30P1500#31P1500#32P1500T500D500\r\n";
+const char TURNR_2[] PROGMEM = "#2P1500#3P1500#8P1500#9P1500#28P1500#29P1500T500D500\r\n";
+const char TURNR_3[] PROGMEM = "#4P2000#5P2500#6P1000#24P2000#25P500#26P2000#30P2000#31P500#32P2000T500D500\r\n";
+const char TURNR_4[] PROGMEM = "#1P1500#7P1500#27P1500#30P2000T500D500\r\n";
+const char TURNR_5[] PROGMEM = "#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500T500D500\r\n";
+
+const char* const TURN_RIGHT_GAIT[] PROGMEM = { TURNR_1, TURNR_2, TURNR_3, TURNR_4, TURNR_5 };
+const uint8_t TURN_RIGHT_GAIT_LEN = 5;
+
+// TODO: Backward - add here once recorded, same pattern as above.
 
 // ---------------------------------------------------------------------------
 // Reset / Shutdown sequence (gait.xml Group 1 "Resr -Shut Down")
@@ -154,18 +182,29 @@ void resetPlayer(GaitPlayer &p) {
   p.lineStart = 0;
 }
 
-void stepPlayer(GaitPlayer &p) {
+// Returns true when this step just wrapped back to line 0, i.e. a full
+// gait cycle finished.
+bool stepPlayer(GaitPlayer &p) {
   unsigned long now = millis();
   if (p.lineStart == 0 || now - p.lineStart >= GaitPlayer::LINE_MS) {
     sendGaitLine(p.table, p.currentLine);
     p.currentLine = (p.currentLine + 1) % p.numLines;
     p.lineStart = now;
+    return p.currentLine == 0;
   }
+  return false;
 }
 
-GaitPlayer forwardPlayer  = { FORWARD_GAIT,   FORWARD_GAIT_LEN,   0, 0 };
-GaitPlayer turnLeftPlayer = { TURN_LEFT_GAIT, TURN_LEFT_GAIT_LEN, 0, 0 };
-GaitPlayer shutdownPlayer = { SHUTDOWN_SEQ,   SHUTDOWN_SEQ_LEN,   0, 0 };
+// The line currently being physically executed (stepPlayer already advanced
+// currentLine to the *next* line right after sending).
+uint8_t activeLine(const GaitPlayer &p) {
+  return (p.currentLine + p.numLines - 1) % p.numLines;
+}
+
+GaitPlayer forwardPlayer   = { FORWARD_GAIT,    FORWARD_GAIT_LEN,    0, 0 };
+GaitPlayer turnLeftPlayer  = { TURN_LEFT_GAIT,  TURN_LEFT_GAIT_LEN,  0, 0 };
+GaitPlayer turnRightPlayer = { TURN_RIGHT_GAIT, TURN_RIGHT_GAIT_LEN, 0, 0 };
+GaitPlayer shutdownPlayer  = { SHUTDOWN_SEQ,    SHUTDOWN_SEQ_LEN,    0, 0 };
 
 // ---------------------------------------------------------------------------
 // Ultrasonic
@@ -299,6 +338,26 @@ uint8_t clearCount = 0;
 unsigned long tiltOverSince = 0;
 unsigned long tiltClearSince = 0;
 
+uint8_t avoidLoopsDone = 0; // full turn-gait cycles completed since entering AVOID
+bool avoidHolding = false;  // frozen on the settled last pose, sampling the sensor
+GaitPlayer* avoidTurnPlayer = &turnLeftPlayer; // which way this AVOID episode is turning
+
+// TODO: pick a direction from real sensor data (e.g. a second ultrasonic
+// comparing left/right clearance) instead of always defaulting to left.
+void pickAvoidDirection() {
+  avoidTurnPlayer = &turnLeftPlayer;
+}
+
+// Resets the turn/scan cycle without changing direction - used both when
+// first entering AVOID and when restarting after a failed clearance check.
+void resetAvoid() {
+  avoidLoopsDone = 0;
+  avoidHolding = false;
+  obstacleCount = 0;
+  clearCount = 0;
+  resetPlayer(*avoidTurnPlayer);
+}
+
 void enterTiltSafe() {
   if (state != TILT_SAFE) {
     stateBeforeTilt = state;
@@ -404,7 +463,7 @@ void loop() {
         if (tiltMag <= TILT_CLEAR_DEG && now - tiltClearSince >= TILT_DEBOUNCE_MS) {
           state = stateBeforeTilt;
           if (state == WALK) resetPlayer(forwardPlayer);
-          if (state == AVOID) resetPlayer(turnLeftPlayer);
+          if (state == AVOID) resetAvoid(); // restart the turn/scan cycle cleanly
           Serial.println(state == WALK ? F("Level again - WALK") : F("Level again - AVOID"));
         }
       } else {
@@ -415,32 +474,57 @@ void loop() {
 
   if (state == TILT_SAFE) return; // hold the stand pose, skip walking/obstacle logic
 
-  // --- Obstacle monitoring ---
-  static unsigned long lastDistCheck = 0;
-  if (millis() - lastDistCheck >= 100) {
-    lastDistCheck = millis();
-    long distance = readDistanceCM();
+  if (state == WALK) {
+    stepPlayer(forwardPlayer);
 
-    if (distance > 0 && distance < MIN_DISTANCE_CM) {
-      obstacleCount++;
-      clearCount = 0;
-    } else if (distance < 0 || distance >= CLEAR_DISTANCE_CM) {
-      clearCount++;
-      obstacleCount = 0;
+    // Only trust the ultrasonic while both tripods are settled (FWD_2/FWD_4) -
+    // during FWD_1/FWD_3 a leg is swinging through the beam.
+    static unsigned long lastWalkDistCheck = 0;
+    bool scanSafe = pgm_read_byte(&FORWARD_SCAN_SAFE[activeLine(forwardPlayer)]);
+    if (scanSafe && millis() - lastWalkDistCheck >= 100) {
+      lastWalkDistCheck = millis();
+      long distance = readDistanceCM();
+
+      if (distance > 0 && distance < MIN_DISTANCE_CM) {
+        obstacleCount++;
+      } else if (distance < 0 || distance >= CLEAR_DISTANCE_CM) {
+        obstacleCount = 0;
+      }
+
+      if (obstacleCount >= OBSTACLE_DEBOUNCE) {
+        state = AVOID;
+        pickAvoidDirection();
+        resetAvoid();
+        Serial.println(avoidTurnPlayer == &turnLeftPlayer
+                          ? F("OBSTACLE - AVOID (turn left)")
+                          : F("OBSTACLE - AVOID (turn right)"));
+      }
     }
+  } else if (state == AVOID) {
+    if (!avoidHolding) {
+      // Turn for AVOID_TURN_LOOPS full cycles, then freeze on the settled
+      // last pose (legs down) so the sensor can be trusted.
+      if (stepPlayer(*avoidTurnPlayer)) {
+        avoidLoopsDone++;
+        if (avoidLoopsDone >= AVOID_TURN_LOOPS) avoidHolding = true;
+      }
+    } else {
+      // Reached the settled last pose - take one reading and decide right
+      // away. No servo commands are sent while avoidHolding is true, so
+      // nothing else moves until this decides WALK or another turn.
+      long distance = readDistanceCM();
+      bool clear = (distance < 0 || distance >= CLEAR_DISTANCE_CM);
 
-    if (state == WALK && obstacleCount >= OBSTACLE_DEBOUNCE) {
-      state = AVOID;
-      resetPlayer(turnLeftPlayer);
-      Serial.println(F("OBSTACLE - AVOID (turn left)"));
-    } else if (state == AVOID && clearCount >= OBSTACLE_DEBOUNCE) {
-      state = WALK;
-      resetPlayer(forwardPlayer);
-      Serial.println(F("CLEAR - WALK"));
+      if (clear) {
+        state = WALK;
+        avoidHolding = false;
+        avoidLoopsDone = 0;
+        resetPlayer(forwardPlayer);
+        Serial.println(F("CLEAR - WALK"));
+      } else {
+        resetAvoid(); // still blocked - turn for another AVOID_TURN_LOOPS cycles
+        Serial.println(F("STILL BLOCKED - turn again"));
+      }
     }
   }
-
-  // --- Gait playback ---
-  if (state == WALK) stepPlayer(forwardPlayer);
-  else if (state == AVOID) stepPlayer(turnLeftPlayer);
 }
