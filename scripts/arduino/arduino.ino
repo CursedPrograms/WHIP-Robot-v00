@@ -38,7 +38,7 @@
 #include <Wire.h>
 #include <avr/pgmspace.h>
 
-SoftwareSerial controllerSerial(11, 10); // RX, TX
+SoftwareSerial controllerSerial(9, 10); // RX, TX
 
 // Non-blocking cycle player for a gait's command lines.
 // Defined this early so it's visible to Arduino's auto-generated function
@@ -191,11 +191,23 @@ float gyroXBias = 0, gyroYBias = 0;
 float pitchDeg = 0, rollDeg = 0;
 unsigned long lastTiltUpdate = 0;
 
+bool mpuFound = false;
+
 void mpuInit() {
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x6B); // PWR_MGMT_1
   Wire.write(0);    // wake up
-  Wire.endTransmission(true);
+  uint8_t err = Wire.endTransmission(true);
+
+  Wire.beginTransmission(MPU_ADDR);
+  mpuFound = (Wire.endTransmission() == 0);
+  if (!mpuFound) {
+    Serial.print(F("MPU6050 NOT FOUND at 0x"));
+    Serial.print(MPU_ADDR, HEX);
+    Serial.print(F(" (I2C error "));
+    Serial.print(err);
+    Serial.println(F(") - check SDA/SCL/VCC/GND wiring and AD0 address pin."));
+  }
 }
 
 void mpuReadRaw() {
@@ -225,6 +237,34 @@ void calibrateGyro() {
   }
   gyroXBias = (float)sumX / samples;
   gyroYBias = (float)sumY / samples;
+}
+
+float pitchOffsetDeg = 0, rollOffsetDeg = 0;
+
+// The MPU6050's mounting angle (and/or the stand pose itself) isn't
+// perfectly level, so raw pitch/roll has a fixed non-zero baseline even
+// when the robot is standing normally. Average the accel-derived angle
+// once at boot, after the robot is in its stand pose, and use that as the
+// "level" reference instead of 0 - only deviation from it should ever
+// trip TILT_SAFE.
+void calibrateTiltOffset() {
+  float sumPitch = 0, sumRoll = 0;
+  const int samples = 50;
+  for (int i = 0; i < samples; i++) {
+    mpuReadRaw();
+    float accXg = rawAccX / 16384.0;
+    float accYg = rawAccY / 16384.0;
+    float accZg = rawAccZ / 16384.0;
+    sumPitch += atan2(-accXg, sqrt(accYg * accYg + accZg * accZg)) * RAD_TO_DEG;
+    sumRoll  += atan2(accYg, accZg) * RAD_TO_DEG;
+    delay(5);
+  }
+  pitchOffsetDeg = sumPitch / samples;
+  rollOffsetDeg = sumRoll / samples;
+  // Start the complementary filter already converged on the baseline so it
+  // doesn't need to drift there over the first second or two of runtime.
+  pitchDeg = pitchOffsetDeg;
+  rollDeg = rollOffsetDeg;
 }
 
 void updateTilt() {
@@ -288,6 +328,14 @@ void setup() {
   sendSimplePose(STAND_CMD, "stand pose");
   delay(1000);
 
+  if (mpuFound) {
+    calibrateTiltOffset();
+    Serial.print(F("Tilt baseline: pitch="));
+    Serial.print(pitchOffsetDeg);
+    Serial.print(F(" roll="));
+    Serial.println(rollOffsetDeg);
+  }
+
   state = WALK;
   resetPlayer(forwardPlayer);
   Serial.println(F("WALK"));
@@ -325,11 +373,23 @@ void loop() {
 
   // --- Tilt monitoring (highest priority) ---
   static unsigned long lastTiltCheck = 0;
-  if (millis() - lastTiltCheck >= 20) {
+  if (mpuFound && millis() - lastTiltCheck >= 20) {
     lastTiltCheck = millis();
     updateTilt();
-    float tiltMag = max(abs(pitchDeg), abs(rollDeg));
+    float tiltMag = max(abs(pitchDeg - pitchOffsetDeg), abs(rollDeg - rollOffsetDeg));
     unsigned long now = millis();
+
+    // TEMP DEBUG - remove once tilt behavior is confirmed correct
+    static unsigned long lastTiltPrint = 0;
+    if (now - lastTiltPrint >= 250) {
+      lastTiltPrint = now;
+      Serial.print(F("pitch="));
+      Serial.print(pitchDeg);
+      Serial.print(F(" roll="));
+      Serial.print(rollDeg);
+      Serial.print(F(" tiltMag="));
+      Serial.println(tiltMag);
+    }
 
     if (tiltMag >= TILT_LIMIT_DEG) {
       tiltClearSince = 0;
