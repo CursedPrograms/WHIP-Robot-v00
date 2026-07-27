@@ -30,6 +30,12 @@
 
 ---
 
+<div align="center">
+  <img src="images/whip00.png" alt="WHIP00 Robot" width="400"/>
+</div>
+
+---
+
 ## 📖 Overview
 
 <details>
@@ -88,6 +94,12 @@ WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing
 | IMU SENSOR | MPU6050 |
 
 </details>
+
+---
+
+<div align="center">
+  <img src="images/whip01.png" alt="WHIP00 Robot" width="400"/>
+</div>
 
 ---
 
@@ -237,7 +249,6 @@ A middle ground between Wave and Tripod.
 ---
 
 ## Specialized Gaits for 18-DOF Platforms
-Since you have an ESP32 and an IMU (MPU6050), you can implement these advanced logical behaviors:
 
 | Gait Name | Logic / Behavior | Use Case |
 | :--- | :--- | :--- |
