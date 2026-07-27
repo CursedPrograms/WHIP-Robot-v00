@@ -83,7 +83,7 @@ Utilizing high-torque servo control and real-time IMU feedback to navigate compl
 ### Power System
 | **Component** | **Details** |
 |-----------|---------|
-| Battery | 3s Lip |
+| Battery | 3s LiPo |
 | Voltage Regulator | UBEC (→ 6V) |
 
 ### Sensors
