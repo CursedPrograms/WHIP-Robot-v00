@@ -38,6 +38,7 @@
 #include <Wire.h>
 #include <avr/pgmspace.h>
 
+#define RAW_BUFFER_LENGTH 100   // NEC needs far less than the default; saves RAM
 #define DECODE_NEC              // must precede the IRremote include
 #include <IRremote.hpp>         // IRremote 4.x
 
@@ -153,7 +154,6 @@ const char TURNL_4[] PROGMEM =
 const char TURNL_5[] PROGMEM =
   "#1P1500#2P1500#3P1500#5P1500#6P1500#7P1500#8P1500#9P1500"
   "#25P1500#26P1500#27P1500#28P1500#29P1500#31P1500#32P1500T500\r\n";
-
 const char* const TURN_LEFT_GAIT[] PROGMEM = { TURNL_1, TURNL_2, TURNL_3, TURNL_4, TURNL_5 };
 const uint8_t TURN_LEFT_GAIT_LEN = 5;
 
@@ -173,7 +173,6 @@ const char TURNR_4[] PROGMEM =
   "#1P1500#7P1500#27P1500#30P2000T500\r\n";
 const char TURNR_5[] PROGMEM =
   "#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500T500\r\n";
-
 const char* const TURN_RIGHT_GAIT[] PROGMEM = { TURNR_1, TURNR_2, TURNR_3, TURNR_4, TURNR_5 };
 const uint8_t TURN_RIGHT_GAIT_LEN = 5;
 
@@ -215,20 +214,216 @@ unsigned long irLastCmdMillis = 0;
 uint8_t obstacleCount    = 0;
 bool    obstacleDetected = false;
 
+bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe);
 bool gaitWait(unsigned long ms, bool scanSafe);
 long readDistanceCM();
 void pollTilt();
 void pollIR();
 
 // ---------------------------------------------------------------------------
+// MECHANICAL SAFETY LIMITS
+// ---------------------------------------------------------------------------
+// Every outgoing command is clamped against these before transmission, so a bad
+// gait value, a typo, or a corrupted serial byte can't drive a servo into its
+// stop and stall it.
+//
+// The two sides mirror around 1500: mirror(v) = 3000 - v.
+// Confirmed against the gait data -- #2P2000 <-> #28P1000, #1P1100 <-> #27P1900.
+//
+// So you only measure SIDE A. Side B is derived. Note that mirroring SWAPS the
+// bounds: if side A femur is safe over [1200, 2400], side B is [600, 1800].
+//
+//   Side A: legs 1, 4, 7   -> coxa 1/4/7,    femur 2/5/8,    tibia 3/6/9
+//   Side B: legs 24,27,30  -> coxa 24/27/30, femur 25/28/31, tibia 26/29/32
+//
+// MEASURE THESE with the feet off the ground, one channel at a time, stepping
+// 100us out from 1500 until the joint buzzes or hits a stop, then back off 100.
+// Left at 500/2500 they clamp nothing.
+//
+const uint16_t A_COXA_MIN  = 500,  A_COXA_MAX  = 2500;
+const uint16_t A_FEMUR_MIN = 500,  A_FEMUR_MAX = 2500;
+const uint16_t A_TIBIA_MIN = 500,  A_TIBIA_MAX = 2500;
+
+// Derived - do not edit. Bounds swap under mirroring.
+const uint16_t B_COXA_MIN  = 3000 - A_COXA_MAX;
+const uint16_t B_COXA_MAX  = 3000 - A_COXA_MIN;
+const uint16_t B_FEMUR_MIN = 3000 - A_FEMUR_MAX;
+const uint16_t B_FEMUR_MAX = 3000 - A_FEMUR_MIN;
+const uint16_t B_TIBIA_MIN = 3000 - A_TIBIA_MAX;
+const uint16_t B_TIBIA_MAX = 3000 - A_TIBIA_MIN;
+
+const uint16_t CH_MIN[33] PROGMEM = {
+  500,                                                    // 0 unused
+  A_COXA_MIN, A_FEMUR_MIN, A_TIBIA_MIN,                   // 1-3   leg 1
+  A_COXA_MIN, A_FEMUR_MIN, A_TIBIA_MIN,                   // 4-6   leg 4
+  A_COXA_MIN, A_FEMUR_MIN, A_TIBIA_MIN,                   // 7-9   leg 7
+  500,500,500,500,500,500,500,500,500,500,500,500,500,500,// 10-23 unused
+  B_COXA_MIN, B_FEMUR_MIN, B_TIBIA_MIN,                   // 24-26 leg 24
+  B_COXA_MIN, B_FEMUR_MIN, B_TIBIA_MIN,                   // 27-29 leg 27
+  B_COXA_MIN, B_FEMUR_MIN, B_TIBIA_MIN                    // 30-32 leg 30
+};
+
+const uint16_t CH_MAX[33] PROGMEM = {
+  2500,
+  A_COXA_MAX, A_FEMUR_MAX, A_TIBIA_MAX,
+  A_COXA_MAX, A_FEMUR_MAX, A_TIBIA_MAX,
+  A_COXA_MAX, A_FEMUR_MAX, A_TIBIA_MAX,
+  2500,2500,2500,2500,2500,2500,2500,2500,2500,2500,2500,2500,2500,2500,
+  B_COXA_MAX, B_FEMUR_MAX, B_TIBIA_MAX,
+  B_COXA_MAX, B_FEMUR_MAX, B_TIBIA_MAX,
+  B_COXA_MAX, B_FEMUR_MAX, B_TIBIA_MAX
+};
+
+// ---------------------------------------------------------------------------
 // Serial send helpers
 // ---------------------------------------------------------------------------
-char cmdBuf[190];   // longest line is 18 channels, ~145 chars
+char cmdBuf[190];    // raw command from PROGMEM
+char safeBuf[190];   // clamped command actually transmitted
+
+// ---------------------------------------------------------------------------
+// Setup & Loop
+// ---------------------------------------------------------------------------
+void setup() {
+  Serial.begin(9600);
+  controllerSerial.begin(9600);   // must match the controller's configured baud
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  Wire.begin();
+  mpuInit();
+
+  IrReceiver.begin(IRR_PIN, ENABLE_LED_FEEDBACK);
+
+  delay(2000);
+
+  auditAllGaits();
+
+  Serial.println(F("Calibrating gyro..."));
+  calibrateGyro();
+
+  sendCmdP(STAND_CMD);
+  Serial.println(F("Sent: stand pose"));
+  currentMove = MOVE_STAND;
+  delay(1500);
+
+  if (mpuFound) calibrateTiltOffset();
+
+  controlMode = CTRL_OBSTACLE;
+  Serial.println(F("CONTROL -> OBSTACLE AVOIDANCE"));
+}
+
+void loop() {
+  abortMovement = false;
+
+  while (controllerSerial.available()) Serial.write(controllerSerial.read());
+
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == 'x' || c == 'X') {
+      sysState = SYS_SHUTDOWN;
+      Serial.println(F("SHUTDOWN"));
+    }
+  }
+
+  if (sysState == SYS_SHUTDOWN) {
+    ShutdownSequence();
+    while (true) { delay(1000); }
+  }
+
+  pollTilt();
+  if (sysState == SYS_TILT_SAFE) return;
+
+  pollIR();
+
+  if (controlMode == CTRL_OBSTACLE) {
+    runObstacleMode();
+  } else {
+    runIRMode();
+  }
+}
+
+// Parses "#<ch>P<val>" tokens, clamps each value, copies everything else
+// (T500, \r\n) through untouched. Reports anything it had to correct.
+void clampCommand(const char* in, char* out, size_t outSize) {
+  size_t o = 0;
+  const char* p = in;
+
+  while (*p && o < outSize - 1) {
+    if (*p != '#') { out[o++] = *p++; continue; }
+
+    const char* tokenStart = p;
+    p++;                                   // skip '#'
+
+    uint16_t ch = 0;
+    if (!isdigit(*p)) { out[o++] = *tokenStart; p = tokenStart + 1; continue; }
+    while (isdigit(*p)) ch = ch * 10 + (*p++ - '0');
+
+    if (*p != 'P') {                       // malformed - copy raw and move on
+      while (tokenStart < p && o < outSize - 1) out[o++] = *tokenStart++;
+      continue;
+    }
+    p++;                                   // skip 'P'
+
+    uint16_t val = 0;
+    while (isdigit(*p)) val = val * 10 + (*p++ - '0');
+
+    uint16_t lo = 500, hi = 2500;
+    if (ch <= 32) {
+      lo = pgm_read_word(&CH_MIN[ch]);
+      hi = pgm_read_word(&CH_MAX[ch]);
+    }
+
+    uint16_t clamped = val;
+    if (clamped < lo) clamped = lo;
+    if (clamped > hi) clamped = hi;
+
+    if (clamped != val) {
+      Serial.print(F("CLAMP ch"));
+      Serial.print(ch);
+      Serial.print(F(": "));
+      Serial.print(val);
+      Serial.print(F(" -> "));
+      Serial.println(clamped);
+    }
+
+    o += snprintf(out + o, outSize - o, "#%uP%u", ch, clamped);
+  }
+  out[o] = '\0';
+}
+
+// Runs every stored gait line through the clamp without transmitting, so any
+// value that exceeds a mechanical limit is reported at boot rather than
+// discovered mid-walk. clampCommand() prints each correction it makes.
+void auditTable(const char* const table[], uint8_t len, const __FlashStringHelper* name) {
+  Serial.print(F("  checking "));
+  Serial.println(name);
+  for (uint8_t i = 0; i < len; i++) {
+    strncpy_P(cmdBuf, (const char*)pgm_read_ptr(&table[i]), sizeof(cmdBuf) - 1);
+    cmdBuf[sizeof(cmdBuf) - 1] = '\0';
+    clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
+  }
+}
+
+void auditAllGaits() {
+  Serial.println(F("Auditing gait tables against servo limits..."));
+  auditTable(FORWARD_GAIT,    FORWARD_GAIT_LEN,    F("FORWARD"));
+  auditTable(BACKWARD_GAIT,   BACKWARD_GAIT_LEN,   F("BACKWARD"));
+  auditTable(TURN_LEFT_GAIT,  TURN_LEFT_GAIT_LEN,  F("TURN LEFT"));
+  auditTable(TURN_RIGHT_GAIT, TURN_RIGHT_GAIT_LEN, F("TURN RIGHT"));
+  auditTable(SHUTDOWN_SEQ,    SHUTDOWN_SEQ_LEN,    F("SHUTDOWN"));
+  strncpy_P(cmdBuf, STAND_CMD, sizeof(cmdBuf) - 1);
+  cmdBuf[sizeof(cmdBuf) - 1] = '\0';
+  clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
+  Serial.println(F("Audit done. Any CLAMP lines above are values your gaits"));
+  Serial.println(F("exceed -- fix the XML, or widen the limit if it's safe."));
+}
 
 void sendCmdP(const char* pgmCmd) {
   strncpy_P(cmdBuf, pgmCmd, sizeof(cmdBuf) - 1);
   cmdBuf[sizeof(cmdBuf) - 1] = '\0';
-  controllerSerial.print(cmdBuf);
+  clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
+  controllerSerial.print(safeBuf);
 }
 
 void sendTableLine(const char* const table[], uint8_t index) {
@@ -240,9 +435,10 @@ void sendTableLine(const char* const table[], uint8_t index) {
 // ---------------------------------------------------------------------------
 bool playGait(const char* const table[], uint8_t len, const bool* scanTable) {
   for (uint8_t i = 0; i < len; i++) {
+    unsigned long frameStart = millis();      // clock starts BEFORE transmission
     sendTableLine(table, i);
     bool scanSafe = scanTable ? (bool)pgm_read_byte(&scanTable[i]) : false;
-    if (!gaitWait(LINE_MS, scanSafe)) return false;
+    if (!gaitWaitUntil(frameStart, LINE_MS, scanSafe)) return false;
   }
   return true;
 }
@@ -265,8 +461,9 @@ bool requestMove(MovementState next) {
   if (next == currentMove) return true;
 
   if (currentMove != MOVE_STAND) {
+    unsigned long frameStart = millis();
     Stand();
-    if (!gaitWait(STAND_SETTLE_MS, false)) return false;
+    if (!gaitWaitUntil(frameStart, STAND_SETTLE_MS, false)) return false;
   }
 
   if (next == MOVE_STAND) {
@@ -288,8 +485,11 @@ bool requestMove(MovementState next) {
 // ---------------------------------------------------------------------------
 // gaitWait -- the only wait used inside a movement
 // ---------------------------------------------------------------------------
-bool gaitWait(unsigned long ms, bool scanSafe) {
-  unsigned long start = millis();
+// Waits until `ms` have elapsed since `start`. Because the caller timestamps
+// before transmitting, every gait frame occupies exactly LINE_MS regardless of
+// how many channels that line contains -- which is how the RTrobot software
+// schedules its groups. Returns false when the move should be dropped.
+bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
   static unsigned long lastPing = 0;
 
   while (millis() - start < ms) {
@@ -321,6 +521,11 @@ bool gaitWait(unsigned long ms, bool scanSafe) {
     if (abortMovement || sysState != SYS_ACTIVE) return false;
   }
   return true;
+}
+
+// Convenience wrapper for waits that don't wrap a transmission.
+bool gaitWait(unsigned long ms, bool scanSafe) {
+  return gaitWaitUntil(millis(), ms, scanSafe);
 }
 
 // ---------------------------------------------------------------------------
@@ -641,63 +846,4 @@ void ShutdownSequence() {
   Serial.println(F("Shutdown complete."));
 }
 
-// ---------------------------------------------------------------------------
-// Setup & Loop
-// ---------------------------------------------------------------------------
-void setup() {
-  Serial.begin(9600);
-  controllerSerial.begin(9600);   // must match the controller's configured baud
 
-  pinMode(TRIG_PIN, OUTPUT);
-  pinMode(ECHO_PIN, INPUT);
-
-  Wire.begin();
-  mpuInit();
-
-  IrReceiver.begin(IRR_PIN, ENABLE_LED_FEEDBACK);
-
-  delay(2000);
-
-  Serial.println(F("Calibrating gyro..."));
-  calibrateGyro();
-
-  sendCmdP(STAND_CMD);
-  Serial.println(F("Sent: stand pose"));
-  currentMove = MOVE_STAND;
-  delay(1500);
-
-  if (mpuFound) calibrateTiltOffset();
-
-  controlMode = CTRL_OBSTACLE;
-  Serial.println(F("CONTROL -> OBSTACLE AVOIDANCE"));
-}
-
-void loop() {
-  abortMovement = false;
-
-  while (controllerSerial.available()) Serial.write(controllerSerial.read());
-
-  if (Serial.available()) {
-    char c = Serial.read();
-    if (c == 'x' || c == 'X') {
-      sysState = SYS_SHUTDOWN;
-      Serial.println(F("SHUTDOWN"));
-    }
-  }
-
-  if (sysState == SYS_SHUTDOWN) {
-    ShutdownSequence();
-    while (true) { delay(1000); }
-  }
-
-  pollTilt();
-  if (sysState == SYS_TILT_SAFE) return;
-
-  pollIR();
-
-  if (controlMode == CTRL_OBSTACLE) {
-    runObstacleMode();
-  } else {
-    runIRMode();
-  }
-}
