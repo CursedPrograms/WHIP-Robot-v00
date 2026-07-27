@@ -41,13 +41,12 @@
 <details>
 <summary><b>Overview</b></summary>
 
-WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing high-torque servo control and real-time IMU feedback to navigate complex environments. By offloading leg kinematics to a dedicated servo controller, WHIP achieves fluid, insect-like motion while maintaining a low-latency connection for remote operations.
+Utilizing high-torque servo control and real-time IMU feedback to navigate complex environments. By offloading leg kinematics to a dedicated servo controller, WHIP achieves fluid, insect-like motion while maintaining a low-latency connection for remote operations.
 
 ### Core Features
 - [x] 18-DOF Kinematics: Full articulation for complex terrain adaptation and specialized gaits.
 - [x] Adaptive Gait Selection: Real-time transitioning between Tripod, Wave, and Ripple gaits based on terrain.
 - [x] IMU Stabilization: MPU6050 integration to prevent tipping and maintain Center of Gravity (CoG).
-- [x] Dual-Processor Logic: Distributed processing between ESP32 (Communications) and Arduino (Sensor/Motion Hub).
 
 </details>
 
@@ -66,8 +65,8 @@ WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing
 ### Microcontrollers
 | **Component** | **Details** |
 |-----------|---------|
-| Microcontroller 0 | ESP32 Servo Controller Board | Dev0 |
-| Microcontroller 1 | Arduino UNO | Dev1 |
+| Servo Controller | RTRobot Controller Board |
+| Microcontroller | Arduino UNO |
 
 ### Chassis & Motion
 | **Component** | **Details** |
@@ -84,8 +83,8 @@ WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing
 ### Power System
 | **Component** | **Details** |
 |-----------|---------|
-| Battery | 3s 21700 (12.6V in series) |
-| Voltage Regulator | XL4016 DC-DC Buck Converter (12.6V → 6V) |
+| Battery | 3s Lip |
+| Voltage Regulator | UBEC (→ 6V) |
 
 ### Sensors
 | **Component** | **Details** |
@@ -111,21 +110,21 @@ WHIP is built on an **ESP32** and **Arduino UNO** hybrid architecture, utilizing
 
 ### Power Schematic
 ```
-3S 21700 BATTERIES ──────► XL4016 12.6V ──────► XL4016 Output 6V
-XL4016 Output 6V:
-├── + ──────► ESP32 Servo Controller Board +
-├── – ──────► ESP32 Servo Controller Board - 
-├── + ──────► Arduino UNO +
-└── – ──────► Arduino UNO - 
+3S LiPo ──────► UBEC 12.6V ──────► UBEC Output 6V
+UBEC Output 6V:
+├── + ──────► RTRobot Servo Controller Board +
+├── – ──────► RTRobot Servo Controller Board - 
+RTRobot Servo Controller Board + ──────► Arduino UNO +
+RTRobot Servo Controller Board - ──────► Arduino UNO - 
 ```
 
 </details>
 
 > [!TIP]
-> **Pro-Tip:** Be sure to set the XL4016 output to 6V before connecting your components.
+> **Pro-Tip:** Be sure to set the UBEC output to 6V before connecting your components.
 
 <details>
-<summary><b>View ESP32 Servo Controller Configuration</b></summary>
+<summary><b>View RTRobot Servo Controller Configuration</b></summary>
 
 **ARDUINO (DEV0):**
 ```
@@ -139,7 +138,7 @@ USB-C (DEV0) ──────► USB-C (DEV1) - Serial Communication
 ```
 ```
 POWER:
-├── XL4016 6V ──────► 
+├── UBEC 6V ──────► 
 └── GND ─────► Common GND (modules)
 
 Leg 1 = Front  Left  → channels  0,  1,  2
@@ -170,9 +169,12 @@ USB-C (DEV1) ──────► USB-C (DEV0) - Serial Communication + Power
 MPU6050 (Gyro + Accelerometer)
 SDA  ─────► A4 (UNO)
 SCL  ─────► A5 (UNO)
+
 Ultrasonic Sensor (HC-SR04)
 TRIG ─────► D7
 ECHO ─────► D6
+
+IRreciever ─────► D4
 ```
 </details>
 <details>
@@ -183,8 +185,9 @@ ECHO ─────► D6
 ```
 VCC  ─────► 5V
 GND  ─────► GND
-SDA  ─────► A4 (UNO)
-SCL  ─────► A5 (UNO)
+SDA  ─────► SDA (UNO)
+SCL  ─────► SCL (UNO)
+
 ```
 - Ultrasonic Sensor (HC-SR04)
 ```
