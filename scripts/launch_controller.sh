@@ -12,6 +12,6 @@ fi
 source "$VENV_DIR/bin/activate"
 
 pip install --quiet --upgrade pip
-pip install --quiet pygame
+pip install --quiet pygame requests
 
 python "$SCRIPT_DIR/controller.py"
