@@ -161,11 +161,12 @@ const unsigned long WEB_CMD_TIMEOUT_MS = 500;
 // that needs editing: none of the gait strings have a T baked in anymore --
 // sendCmdP() appends "T<GAIT_MOVE_MS>\r\n" to every command it sends, and
 // LINE_MS/STAND_SETTLE_MS are derived below so they always stay in sync.
-// (Originally T500D500 from the XML; retuned to 300/200 for a faster gait --
-// bench-test with the feet off the ground before trusting a new value.)
+// (Originally T500D500 from the XML. GAIT_DWELL_MS was a leftover dead pause
+// after each line's move finished -- zeroed out for continuous motion.
+// Bench-test with the feet off the ground before trusting a new value.)
 // ---------------------------------------------------------------------------
 const uint16_t GAIT_MOVE_MS      = 300;   // transmitted: how long the controller takes to execute a move
-const uint16_t GAIT_DWELL_MS     = 200;   // NOT transmitted -- how long we wait after that before the next line
+const uint16_t GAIT_DWELL_MS     = 0;     // NOT transmitted -- how long we wait after that before the next line
 const uint16_t TIMING_MARGIN_MS  = 20;    // slack on top of move+dwell so we never poll ahead of the servo
 
 const unsigned long LINE_MS         = GAIT_MOVE_MS + GAIT_DWELL_MS + TIMING_MARGIN_MS;
