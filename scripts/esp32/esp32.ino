@@ -164,10 +164,36 @@ const unsigned long WEB_CMD_TIMEOUT_MS = 500;
 // (Originally T500D500 from the XML. GAIT_DWELL_MS was a leftover dead pause
 // after each line's move finished -- zeroed out for continuous motion.
 // Bench-test with the feet off the ground before trusting a new value.)
+//
+// Unlike the PC software (which uploads gait.xml as a stored action group
+// the controller plays back internally), every frame here is re-sent live
+// over the wire, and the controller can't start moving until the whole
+// line -- including the trailing T -- has arrived. At 9600 baud an
+// 18-channel power-stroke line (~145 bytes) took ~150ms just to transmit,
+// which blew straight through the old 20ms margin: WHIP was sending the
+// next frame before the servos had actually finished the previous one.
+// That's the source of the overlap, not GAIT_MOVE_MS itself.
+//
+// CONTROLLER_BAUD must be set to match the RTrobot controller's own
+// configured UART baud -- that's a setting on the controller itself
+// (normally changed once from its PC config software, the same one used
+// to build gait.xml), NOT something this sketch can change remotely. Before
+// raising this, go set the controller to the same rate and power-cycle it
+// to confirm the new rate stuck -- if this doesn't match, WHIP simply loses
+// the controller (garbled/no response), it won't damage anything, but stand
+// up will do nothing. RTrobot-family 32ch controllers document UART support
+// for 4800/9600/19200/38400/57600 (some revisions to 115200); 38400 is a
+// safe, widely-supported middle ground -- ~4x less transmission time.
 // ---------------------------------------------------------------------------
+const unsigned long CONTROLLER_BAUD = 38400;
+
 const uint16_t GAIT_MOVE_MS      = 300;   // transmitted: how long the controller takes to execute a move
 const uint16_t GAIT_DWELL_MS     = 0;     // NOT transmitted -- how long we wait after that before the next line
-const uint16_t TIMING_MARGIN_MS  = 20;    // slack on top of move+dwell so we never poll ahead of the servo
+// At CONTROLLER_BAUD, the worst-case 18-channel line (~145 bytes, 10 bits/byte)
+// takes roughly (145 * 10 * 1000) / CONTROLLER_BAUD ms to transmit. Margin
+// covers that plus a little slop, so even the heaviest line finishes well
+// inside LINE_MS.
+const uint16_t TIMING_MARGIN_MS  = (uint16_t)((145UL * 10UL * 1000UL) / CONTROLLER_BAUD) + 20;
 
 const unsigned long LINE_MS         = GAIT_MOVE_MS + GAIT_DWELL_MS + TIMING_MARGIN_MS;
 const unsigned long STAND_SETTLE_MS = LINE_MS;
@@ -413,7 +439,7 @@ void setup() {
   Serial2.println();
   Serial2.println(F("WHIP Hexapod - ESP32 boot"));
 
-  Serial.begin(9600);   // RTrobot controller link -- must match its configured baud
+  Serial.begin(CONTROLLER_BAUD);   // RTrobot controller link -- must match its configured baud
 
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);

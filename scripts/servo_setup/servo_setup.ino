@@ -22,8 +22,9 @@ const int RUN_TIME_MS  = 500; // T param - time to complete the move
 const int DELAY_MS     = 500; // D param - pause after move
 
 void setup() {
-  Serial.begin(9600);            // USB debug monitor (optional)
-  controllerSerial.begin(9600);  // must match controller's UART baud rate
+  Serial.begin(9600);             // USB debug monitor (optional)
+  controllerSerial.begin(38400);  // must match controller's UART baud rate -- see esp32.ino's
+                                   // Timing section for why this was raised from 9600
   delay(2000);                   // let the controller finish booting
 
   String cmd = "";
