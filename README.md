@@ -20,6 +20,8 @@
 
 # WHIP: Walking Hexapod Intelligence Platform
 
+- Robot Type: Hexapod
+
 ## Related Projects
 
 - [KIDA-Robot-v00](https://github.com/CursedPrograms/KIDA-Robot-v00)
