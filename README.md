@@ -18,9 +18,17 @@
   <img alt="Git" src="https://img.shields.io/badge/git%20-%23323330.svg?&style=for-the-badge&logo=git&logoColor=white"/>
 </div>
 
-# WHIP: Walking Hexapod Intelligence Platform
+# WHIP 
+## Walking Hexapod Intelligence Platform
 
 - Robot Type: Hexapod
+
+---
+
+### Software
+- [Arduino IDE](https://docs.arduino.cc/software/ide/)
+
+---
 
 ## Related Projects
 
