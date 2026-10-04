@@ -87,6 +87,7 @@
 
 #define RAW_BUFFER_LENGTH 100   // NEC needs far less than the default; saves RAM
 #define DECODE_NEC              // must precede the IRremote include
+#include "avatar.h"           // WHIP's avatar as a JPEG byte array (served at /avatar.jpg)
 #include <IRremote.hpp>         // IRremote 4.x -- supports ESP32
 
 // ---------------------------------------------------------------------------
@@ -1027,6 +1028,8 @@ void setupWebServer() {
   server.on("/mode",     handleModeCmd);
   server.on("/shutdown", handleShutdownCmd);
   server.on("/status",   handleStatus);
+  server.on("/avatar.jpg",  handleAvatar);
+  server.on("/favicon.ico", handleAvatar);
   server.begin();
   Serial2.println(F("Web control server started on port 5005."));
 }
@@ -1040,6 +1043,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>WHIP Control</title>
+  <link rel="icon" href="/avatar.jpg">
   <style>
     :root {
       /* same palette as the rest of the fleet's HUDs -- one look throughout */
@@ -1067,6 +1071,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       display: flex; flex-direction: column; align-items: center;
       min-height: 100vh; padding: 20px; gap: 16px;
     }
+    #avatar { width: 96px; height: 96px; border-radius: 50%; border: 2px solid var(--accent); object-fit: cover; }
     h1 { font-size: 1.6rem; letter-spacing: 3px; color: var(--accent); }
     h2 { font-size: 0.8rem; color: var(--text-dim); letter-spacing: 1px; }
 
@@ -1120,6 +1125,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   </style>
 </head>
 <body>
+  <img id="avatar" src="/avatar.jpg" alt="WHIP avatar">
   <h1>WHIP</h1>
   <h2>Hexapod Control</h2>
 
@@ -1233,6 +1239,12 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
 void handleRoot() {
   server.send_P(200, "text/html", INDEX_HTML);
+}
+
+// The avatar lives in its own route so the page stays plain text (one place to swap it for an animation later)
+void handleAvatar() {
+  server.sendHeader("Cache-Control", "max-age=86400");
+  server.send_P(200, "image/jpeg", (PGM_P)AVATAR_JPG, AVATAR_JPG_LEN);
 }
 
 // ---------------------------------------------------------------------------
