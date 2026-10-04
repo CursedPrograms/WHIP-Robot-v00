@@ -23,6 +23,11 @@
 
 - Robot Type: Hexapod
 
+<div align="center">
+  <img src="images/whip_avatar.jpg" alt="WHIP avatar: a human representation of the robot" width="320"/>
+  <p><i>WHIP</i></p>
+</div>
+
 ---
 
 ### Software
@@ -51,12 +56,14 @@
 <details>
 <summary><b>Overview</b></summary>
 
-Utilizing high-torque servo control and real-time IMU feedback to navigate complex environments. By offloading leg kinematics to a dedicated servo controller, WHIP achieves fluid, insect-like motion while maintaining a low-latency connection for remote operations.
+WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser control page, and streams pre-tuned gait poses to an RTrobot 32-channel servo controller, which moves all the joints together. An MPU6050 watches for tipping and an HC-SR04 watches the way ahead.
 
 ### Core Features
-- [x] 18-DOF Kinematics: Full articulation for complex terrain adaptation and specialized gaits.
-- [x] Adaptive Gait Selection: Real-time transitioning between Tripod, Wave, and Ripple gaits based on terrain.
-- [x] IMU Stabilization: MPU6050 integration to prevent tipping and maintain Center of Gravity (CoG).
+- [x] 18-DOF walking: forward, backward, turn left and turn right gaits, plus stand, rest and shut-down poses.
+- [x] Three control modes: Obstacle Avoidance (the boot default), IR Remote, and Web (the browser page or the Python controller).
+- [x] Tilt safety: past 10° of pitch or roll for 250 ms she stops and stands, and resumes once she is back under 7°.
+- [x] Obstacle avoidance: walks until something is closer than 20 cm, then stands, turns and walks on once the way is clear past 35 cm.
+- [x] Fleet: joins NORA's network when it's in range and registers with the fleet, or hosts her own `WHIP` access point.
 
 </details>
 
@@ -68,39 +75,24 @@ Utilizing high-torque servo control and real-time IMU feedback to navigate compl
 <summary><b>Prerequisites</b></summary>
 
 ### Software
-- [Arduino IDE](https://docs.arduino.cc/software/ide/)
+- [Arduino IDE](https://docs.arduino.cc/software/ide/) with the ESP32 board package
+- Library: [`IRremote`](https://github.com/Arduino-IRremote/Arduino-IRremote) 4.x (`WiFi`, `WebServer`, `HTTPClient` and `Wire` come with the ESP32 core)
+- Python 3 with `pygame` and `requests` for the desktop controller (`pip install -r requirements.txt`)
 
 ### Hardware
 
-### Microcontrollers
 | **Component** | **Details** |
 |-----------|---------|
-| Servo Controller | RTRobot Controller Board |
-| Microcontroller | Arduino UNO |
-
-### Chassis & Motion
-| **Component** | **Details** |
-|-----------|---------|
-| Chassis | 18DOF hexapod chassis |
-| Motors | 18 × MG995 180° Servo Motors |
-
-### User Controllers
-| **Component** | **Details** |
-|-----------|---------|
-| Interface | PC, Android, iPhone |
-| Controller | PS2 Controller + Receiver |
-
-### Power System
-| **Component** | **Details** |
-|-----------|---------|
-| Battery | 3s LiPo |
-| Voltage Regulator | UBEC (→ 6V) |
-
-### Sensors
-| **Component** | **Details** |
-|-----------|---------|
-| Ultrasonic Sensors | HC-SR04 |
-| IMU SENSOR | MPU6050 |
+| Microcontroller | ESP32 (the same module as NORA) |
+| Servo controller | RTrobot 32-channel servo controller (UART, 38400 baud) |
+| Chassis | 18-DOF hexapod chassis |
+| Servos | 18 × MG995 180° |
+| Battery | 3S LiPo |
+| Regulator | UBEC set to 6 V |
+| Distance | HC-SR04 ultrasonic sensor |
+| Balance | MPU6050 gyro + accelerometer |
+| Remote | NEC IR receiver + remote (the same remote as MILA and IDA) |
+| Controllers | Browser, PS2-style USB gamepad (Python controller), IR remote |
 
 </details>
 
@@ -116,189 +108,147 @@ Utilizing high-torque servo control and real-time IMU feedback to navigate compl
 ## ⚡ Technical Pinouts
 
 <details>
-<summary><b>View Power Distribution Wiring</b></summary>
+<summary><b>Power</b></summary>
 
-### Power Schematic
 ```
-3S LiPo ──────► UBEC 12.6V ──────► UBEC Output 6V
-UBEC Output 6V:
-├── + ──────► RTRobot Servo Controller Board +
-├── – ──────► RTRobot Servo Controller Board - 
-RTRobot Servo Controller Board + ──────► Arduino UNO +
-RTRobot Servo Controller Board - ──────► Arduino UNO - 
+3S LiPo ──────► UBEC (set to 6 V)
+UBEC 6 V ─────► RTrobot servo controller V+ / GND   (servo power)
+ESP32 ────────► USB or 5 V from the servo controller's logic rail
+All grounds tied together
 ```
 
 </details>
 
 > [!TIP]
-> **Pro-Tip:** Be sure to set the UBEC output to 6V before connecting your components.
+> Set the UBEC to 6 V **before** connecting the servos, and make sure every module shares a common ground.
 
 <details>
-<summary><b>View RTRobot Servo Controller Configuration</b></summary>
+<summary><b>ESP32 wiring</b></summary>
 
-**ARDUINO (DEV0):**
-```
-USB-C (DEV0) ──────► USB-C (DEV1) - Serial Communication
-```
-#### Libraries:
-```
-- Wire.h
-- Adafruit_PWMServoDriver.h
-- PS2X_lib.h
-```
-```
-POWER:
-├── UBEC 6V ──────► 
-└── GND ─────► Common GND (modules)
+| Signal | ESP32 pin |
+|---|---|
+| Servo controller RX ← ESP32 TX | GPIO 1 (TX0) |
+| Servo controller TX → ESP32 RX | GPIO 3 (RX0) |
+| Debug console (optional USB-TTL) | GPIO 16 (RX2), GPIO 17 (TX2) |
+| HC-SR04 TRIG / ECHO | GPIO 12 / GPIO 13 |
+| MPU6050 SDA / SCL | GPIO 21 / GPIO 22 |
+| IR receiver OUT | GPIO 14 |
 
-Leg 1 = Front  Left  → channels  0,  1,  2
-Leg 2 = Middle Left  → channels  3,  4,  5
-Leg 3 = Back   Left  → channels  6,  7,  8
-Leg 4 = Front  Right → channels  9, 10, 11
-Leg 5 = Middle Right → channels 12, 13, 14
-Leg 6 = Back   Right → channels 15, 16, 17
+The servo controller shares UART0 with the USB-serial bridge, exactly like NORA's ESP32↔Arduino link. **Disconnect the controller's wires before uploading**, then reconnect. Boot and status logging goes to Serial2 (GPIO 17) instead.
 
-PS2 Reciever Connection
-```
 </details>
+
 <details>
-<summary><b>View UNO Sensor Array Wiring</b></summary>
+<summary><b>Servo channels</b></summary>
 
-**ARDUINO (DEV1):**
-```
-USB-C (DEV1) ──────► USB-C (DEV0) - Serial Communication + Power
-```
-#### Libraries:
-```
-- Wire.h
-- Adafruit_PWMServoDriver.h
-- PS2X_lib.h
-- MPU6050.h / I2Cdev.h
-```
-```
-MPU6050 (Gyro + Accelerometer)
-SDA  ─────► A4 (UNO)
-SCL  ─────► A5 (UNO)
+The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per leg). Every pose and gait line comes from `gait.xml`, exported from the RTrobot editor.
 
-Ultrasonic Sensor (HC-SR04)
-TRIG ─────► D7
-ECHO ─────► D6
-
-IRreciever ─────► D4
-```
-</details>
-<details>
-<summary><b>Sensor Wiring</b></summary>
-
-#### Sensors
-- MPU6050 (Gyro + Accelerometer)
-```
-VCC  ─────► 5V
-GND  ─────► GND
-SDA  ─────► SDA (UNO)
-SCL  ─────► SCL (UNO)
-
-```
-- Ultrasonic Sensor (HC-SR04)
-```
-VCC  ─────► 5V
-GND  ─────► GND
-TRIG ─────► D7
-ECHO ─────► D6
-```
-> [!TIP]
-> **Pro-Tip:** Make sure all modules share a common ground (GND) for stable operation.
+`scripts/servo_setup/servo_setup.ino` sends every channel to 1500 µs (centre) for fitting the servo horns. It runs on an Arduino with the controller on SoftwareSerial pins 11 (RX) and 10 (TX) at 38400 baud.
 
 </details>
 
 ---
+
 ## 🌐 Connectivity & Controls
 
 <details>
 <summary><b>Connectivity & Controls</b></summary>
 
-### Network Configuration
+### Network
+On boot WHIP looks for NORA's access point. If it's there she joins it and registers with the fleet. If not, she starts her own.
+
 | Parameter | Value |
 | :--- | :--- |
-| **SSID** | `NORA` |
-| **Password** | `12345678` |
+| **NORA's network** | SSID `NORA`, password `12345678` |
+| **WHIP's own AP** | SSID `WHIP`, password `12345678` |
+| **Control page** | `http://<WHIP's IP>:5005/` |
+| **Fleet registry** | `192.168.4.1:5000/register` (heartbeat every 10 s) |
 
 ### RIFT Integration
-To connect via [RIFT](https://github.com/CursedPrograms/RIFT), ensure WHIP is active on:
-* `localhost:5006`
+WHIP's control page is on port `5005`, the port [RIFT](https://github.com/CursedPrograms/RIFT) assigns her. On NORA's network she shows up in RIFT's Registered Fleet list.
+
+### Control modes
+| Mode | How | What it does |
+|---|---|---|
+| **Obstacle Avoidance** | IR `2`, web, gamepad Circle | Walks on her own and turns away from anything within 20 cm (boot default) |
+| **IR Remote** | IR `1`, gamepad Square | Arrows walk and turn while held. She stands when you let go (350 ms timeout) |
+| **Web** | Web page, gamepad Cross | D-pad on the page or the Python controller. She stands if the browser goes quiet for 500 ms |
+
+### Python controller (`scripts/controller.py`)
+Draws a PS2-style pad and drives WHIP over WiFi. It finds her on NORA's network first, and on her own AP otherwise.
+
+| Input | Action |
+|---|---|
+| D-pad / arrow keys | Forward, backward, turn left, turn right |
+| Cross (A) | Web control mode (needed before driving) |
+| Circle (B) | Obstacle Avoidance mode |
+| Square (X) | IR Remote mode |
+| Triangle (Y) | Emergency stop (stand) |
 
 </details>
 
 ---
 
 <details>
-<summary><b>View Gait Info</b></summary>
-# Gaits
+<summary><b>Gaits</b></summary>
 
-Because **WHIP** has 18-DOF, it can transition between these gaits depending on the speed required or the unevenness of the terrain detected by your **MPU6050**.
+### What the firmware does
+| Movement | Lines | Source |
+|---|---|---|
+| Forward | 4 | `gait.xml` "Forward" group |
+| Backward | 4 | `gait.xml` |
+| Turn left / turn right | 5 each | `gait.xml` |
+| Stand, rest, shut down | Poses | `gait.xml` "Reset - Shut Down" group |
 
-### 1. Tripod Gait (The "Standard")
-This is the most common and fastest stable gait for hexapods.
-* **Logic:** 3 legs move at once while the other 3 stay on the ground, forming a stable triangle (tripod).
-* **Pattern:** `{L1, R2, L3}` move together, then `{R1, L2, R3}` move together.
-* **Best For:** Fast movement on flat surfaces.
+Each line is sent with a move time of `GAIT_MOVE_MS` (300 ms). Retuning the walking speed is that one constant in `esp32.ino`.
 
-### 2. Wave Gait (The "Crawler")
-The most stable but slowest gait.
-* **Logic:** Only one leg moves at a time while the other 5 remain on the ground. The "wave" ripples from the back leg to the front.
-* **Pattern:** `L3` → `L2` → `L1` → `R3` → `R2` → `R1`
-* **Best For:** Maximum stability on extremely treacherous or unknown terrain.
+### Gait reference
+The patterns below are the design notes for future gaits. The current firmware walks with the tables above.
 
-### 3. Ripple Gait (The "Intermediate")
-A middle ground between Wave and Tripod.
-* **Logic:** Two legs move at a time, while four stay on the ground.
-* **Pattern:** `{L3, R1}` → `{L2, R3}` → `{L1, R2}`
-* **Best For:** Smooth, fluid motion at moderate speeds; looks the most "lifelike" or insect-like.
-
-### 4. Quadruped-Style (Amble) Gait
-* **Logic:** Two legs are lifted, but they are not opposite (unlike the Ripple).
-* **Behavior:** It creates a slight "swaggering" motion. Often used if one side of the robot's motor driver is overheating and needs to distribute load differently.
-
----
-
-## Specialized Gaits for 18-DOF Platforms
-
-| Gait Name | Logic / Behavior | Use Case |
+| Gait | Logic | Best for |
 | :--- | :--- | :--- |
-| **Metachronal** | A sequential wave that looks like a "Mexican Wave." | Moving through tight corridors. |
-| **Rotational** | Legs move in a circular pattern around the center axis. | Turning 360° in place without changing the footprint. |
-| **Sidewinding** | Lateral movement without changing the robot's heading. | Strafing to avoid an obstacle detected by the HC-SR04. |
-| **Stair/Climb** | High-clearance lifting of the "Tibia" (lower leg). | Navigating steps or large debris. |
-
----
-
-## 💡 The "Brain" Logic for Gaits
-**Gait Selector** 
-
-* **Default:** Tripod Gait (Speed).
-* **Obstacle Detected (< 20cm):** Transition to Sidewind or Rotational.
-* **Tilt Detected (> 10° via MPU6050):** Transition to Wave Gait (Safety/Stability).
+| **Tripod** | `{L1, R2, L3}` then `{R1, L2, R3}`: three legs move, three hold a triangle | Speed on flat ground |
+| **Wave** | `L3 → L2 → L1 → R3 → R2 → R1`, one leg at a time | Maximum stability |
+| **Ripple** | `{L3, R1} → {L2, R3} → {L1, R2}`, two legs at a time | Smooth, lifelike motion |
+| **Amble** | Two non-opposite legs lifted together | Spreading load differently |
+| **Metachronal** | A sequential "Mexican wave" | Tight corridors |
+| **Rotational** | Legs circle the centre axis | Turning 360° in place |
+| **Sidewinding** | Sideways without changing heading | Strafing round obstacles |
+| **Stair / climb** | High tibia lift | Steps and debris |
 
 > [!TIP]
-> **Pro-Tip:** When programming these in `Adafruit_PWMServoDriver.h`, remember that "lifting" the leg (the Femur servo) must always be coordinated with "extending" the leg (the Coxa servo) to maintain the **Center of Gravity (CoG)**. If the CoG exits the tripod triangle, WHIP will tip!
+> Lifting a leg (femur servo) must be coordinated with extending it (coxa servo) to keep the centre of gravity inside the support triangle, or WHIP will tip.
+
 </details>
 
 ---
-
-### Hardware Configuration
 
 ## How to Run:
 <details>
 <summary><b>View How to Run</b></summary>
 
-### Install Requirements
+1. Flash `scripts/esp32/esp32.ino` to the ESP32 (servo controller wires disconnected), then reconnect them.
+2. Power WHIP. She stands, connects to NORA's network or starts her own `WHIP` AP, and starts in Obstacle Avoidance mode.
+3. Open `http://<WHIP's IP>:5005/` in a browser, or run the Python controller:
 
 ```bash
 python -m venv venv
-source venv/bin/activate
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+python scripts/controller.py      # or ./scripts/launch_controller.sh
 ```
 </details>
+
+---
+
+## Screenshots
+
+<div align="center">
+  <img src="images/screenshots/controller-python.png" alt="Python controller" width="420"/>
+</div>
+
+<p align="center"><i>Python controller. Captured without a robot connected, so live values show their offline state.</i></p>
+
 ---
 
 <br>
@@ -311,4 +261,10 @@ pip install -r requirements.txt
     <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png"
         alt="CursedEntertainment Logo" style="width:250px;">
 </a>
+</div>
+<br>
+<div align="center">
+  <a href="https://github.com/SynthWomb" target="_blank">
+    <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png" alt="SynthWomb" style="width:200px;"/>
+  </a>
 </div>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WHIP — Walking Hexapod Intelligence Platform</title>
+<meta name="description" content="WHIP is an 18-servo ESP32 hexapod from the DREAM Robotics ecosystem, with obstacle avoidance, MPU6050 tilt safety, an IR remote, a browser control page and a gamepad controller.">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="WHIP — Walking Hexapod Intelligence Platform">
+<meta property="og:description" content="An 18-servo ESP32 hexapod with obstacle avoidance, tilt safety and web control.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="images/whip_avatar.jpg">
+<link rel="icon" href="site/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="site/apple-touch-icon.png">
+<link rel="stylesheet" href="site/style.css">
+<script src="site/site.js" defer></script>
+</head>
+<body>
+
+<nav aria-label="Primary">
+  <div class="wrap">
+    <a class="brand" href="#top">WHIP</a>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#hardware">Hardware</a></li>
+      <li><a href="#controls">Controls</a></li>
+      <li><a href="#quickstart">Quick start</a></li>
+      <li><a href="#screens">Screens</a></li>
+      <li><a href="https://github.com/CursedPrograms/WHIP-Robot-v00">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <div class="eyebrow">A DREAM Robotics Agent &middot; Hexapod</div>
+    <h1>WHIP</h1>
+    <p class="tagline">Walking Hexapod Intelligence Platform</p>
+    <p class="lede">Eighteen servos on an RTrobot controller, driven by an ESP32 that runs her gaits, WiFi and a browser control page. An MPU6050 stops her before she tips, and an ultrasonic sensor watches the way ahead.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/CursedPrograms/WHIP-Robot-v00">View on GitHub</a>
+      <a class="btn" href="#controls">Controls</a>
+      <a class="btn" href="https://ko-fi.com/cursedentertainment">Support on Ko-fi</a>
+    </div>
+    <div class="tags" aria-label="Technologies">
+      <span class="tag">C++</span>
+      <span class="tag">Python</span>
+      <span class="tag">ESP32</span>
+      <span class="tag">18-DOF</span>
+      <span class="tag">MPU6050</span>
+      <span class="tag">MIT License</span>
+    </div>
+    <figure class="avatar">
+      <img src="images/whip_avatar.jpg" alt="WHIP's avatar: a human representation of the robot" width="768" height="768">
+      <figcaption>WHIP &middot; avatar</figcaption>
+    </figure>
+    <div class="photos">
+      <figure>
+        <img src="images/whip00.png" alt="WHIP, the 18-DOF hexapod robot" width="3060" height="2916" loading="lazy">
+        <figcaption>WHIP</figcaption>
+      </figure>
+      <figure>
+        <img src="images/whip01.png" alt="WHIP from another angle" width="3060" height="2916" loading="lazy">
+        <figcaption>Legs</figcaption>
+      </figure>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section id="overview">
+  <div class="wrap">
+    <h2>Overview</h2>
+    <h3 class="title">Six legs, eighteen joints</h3>
+    <div class="grid cols-3">
+      <div class="card">
+        <span class="k">Walk</span>
+        <h4>Gaits</h4>
+        <p>Forward, backward, turn left and turn right, plus stand, rest and shut-down poses, all tuned in the RTrobot editor.</p>
+      </div>
+      <div class="card">
+        <span class="k">Avoid</span>
+        <h4>Obstacle mode</h4>
+        <p>Walks on her own until something is within 20&nbsp;cm, then stands, turns and carries on once it's clear past 35&nbsp;cm.</p>
+      </div>
+      <div class="card">
+        <span class="k">Balance</span>
+        <h4>Tilt safety</h4>
+        <p>Past 10&deg; of pitch or roll she stops and stands, and resumes once she's back under 7&deg;.</p>
+      </div>
+      <div class="card">
+        <span class="k">Remote</span>
+        <h4>IR remote</h4>
+        <p>Arrows walk and turn while held. She stands when you let go.</p>
+      </div>
+      <div class="card">
+        <span class="k">Web</span>
+        <h4>Browser &amp; gamepad</h4>
+        <p>A control page on port <code>5005</code>, and a Python controller that drives her from a PS2-style gamepad.</p>
+      </div>
+      <div class="card">
+        <span class="k">Fleet</span>
+        <h4>RIFT integration</h4>
+        <p>She joins the <code>NORA</code> network and registers with the fleet, or hosts her own access point.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="hardware">
+  <div class="wrap">
+    <h2>Hardware</h2>
+    <h3 class="title">What she's built from</h3>
+    <ol class="parts">
+      <li><span class="n">01</span> ESP32 (the same module as NORA)</li>
+      <li><span class="n">02</span> RTrobot 32-channel servo controller</li>
+      <li><span class="n">03</span> 18-DOF hexapod chassis</li>
+      <li><span class="n">04</span> 18&times; MG995 180&deg; servos</li>
+      <li><span class="n">05</span> 3S LiPo battery</li>
+      <li><span class="n">06</span> UBEC set to 6&nbsp;V</li>
+      <li><span class="n">07</span> HC-SR04 ultrasonic sensor</li>
+      <li><span class="n">08</span> MPU6050 gyro + accelerometer</li>
+      <li><span class="n">09</span> NEC IR receiver + remote</li>
+    </ol>
+    <h3 class="sub">Power</h3>
+<pre>3S LiPo &#9472;&#9472;&#9658; UBEC (6 V) &#9472;&#9472;&#9658; RTrobot servo controller V+ / GND
+All grounds tied together</pre>
+    <p class="note"><strong>Set the UBEC to 6&nbsp;V</strong> before connecting the servos, and make sure every module shares a common ground.</p>
+    <h3 class="sub">ESP32 pinout</h3>
+    <div class="grid cols-2">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Signal</th><th>GPIO</th></tr></thead>
+        <tbody>
+          <tr><td>Servo controller (UART0, 38400 baud)</td><td class="mono">TX0 1 / RX0 3</td></tr>
+          <tr><td>Debug console (Serial2)</td><td class="mono">RX2 16 / TX2 17</td></tr>
+          <tr><td>HC-SR04 TRIG / ECHO</td><td class="mono">12 / 13</td></tr>
+          <tr><td>MPU6050 SDA / SCL</td><td class="mono">21 / 22</td></tr>
+          <tr><td>IR receiver</td><td class="mono">14</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Servos</th><th>RTrobot channels</th></tr></thead>
+        <tbody>
+          <tr><td>Left side (three legs)</td><td class="mono">1&ndash;9</td></tr>
+          <tr><td>Right side (three legs)</td><td class="mono">24&ndash;32</td></tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+    <p class="muted spaced">The servo controller shares UART0 with the USB bridge, so <strong>disconnect it before uploading</strong>. <code>scripts/servo_setup</code> centres every channel at 1500&nbsp;&micro;s for fitting servo horns.</p>
+  </div>
+</section>
+
+<section id="controls">
+  <div class="wrap">
+    <h2>Controls</h2>
+    <h3 class="title">Three ways to drive</h3>
+    <div class="grid cols-3">
+      <div class="card mode">
+        <span class="k">Boot default</span>
+        <h4>Obstacle Avoidance</h4>
+        <p>IR <kbd>2</kbd>, the web page, or gamepad Circle.</p>
+      </div>
+      <div class="card mode">
+        <span class="k"><kbd>1</kbd> &middot; IR remote</span>
+        <h4>Hold to walk</h4>
+        <p>Arrows walk and turn. 350&nbsp;ms without a repeat and she stands.</p>
+      </div>
+      <div class="card mode">
+        <span class="k">Web</span>
+        <h4>Browser or gamepad</h4>
+        <p>The page's D-pad or the Python controller. 500&nbsp;ms without a command and she stands.</p>
+      </div>
+    </div>
+    <h3 class="sub">Python controller</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Input</th><th>Action</th></tr></thead>
+        <tbody>
+          <tr><td>D-pad / arrow keys</td><td>Forward, backward, turn left, turn right</td></tr>
+          <tr><td>Cross (A)</td><td>Web control mode (needed before driving)</td></tr>
+          <tr><td>Circle (B)</td><td>Obstacle Avoidance mode</td></tr>
+          <tr><td>Square (X)</td><td>IR Remote mode</td></tr>
+          <tr><td>Triangle (Y)</td><td>Emergency stop (stand)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2>Quick start</h2>
+    <h3 class="title">Get her walking</h3>
+    <ol class="steps">
+      <li>Flash <code>scripts/esp32/esp32.ino</code> with the servo controller's wires disconnected, then reconnect them.</li>
+      <li>Power WHIP. She stands, joins NORA's network or starts her own <code>WHIP</code> AP, and starts in Obstacle Avoidance mode.</li>
+      <li>Open <code>http://&lt;WHIP's IP&gt;:5005/</code>, or run the Python controller.</li>
+    </ol>
+<pre><span class="p">$</span> python -m venv venv
+<span class="p">$</span> source venv/bin/activate
+<span class="p">$</span> pip install -r requirements.txt
+<span class="p">$</span> python scripts/controller.py</pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>NORA's network</td><td><code>NORA</code> / <code>12345678</code></td></tr>
+          <tr><td>WHIP's own AP</td><td><code>WHIP</code> / <code>12345678</code></td></tr>
+          <tr><td>Control page / RIFT port</td><td><code>5005</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="screens">
+  <div class="wrap">
+    <h2>Screens</h2>
+    <h3 class="title">The controllers</h3>
+    <p class="muted">Captured without a robot connected, so live values show their offline state.</p>
+    <div class="screens">
+      <figure class="shot">
+        <img src="images/screenshots/controller-python.png" alt="WHIP's controller showing the gamepad layout" width="902" height="652" loading="lazy">
+        <figcaption>Python controller (PS2 / gamepad)</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="related">
+  <div class="wrap">
+    <h2>DREAM Robotics</h2>
+    <h3 class="title">The rest of the family</h3>
+    <div class="related">
+      <a href="https://github.com/CursedPrograms/MILA-Robot-v00">MILA-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/IDA-Robot-v00">IDA-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/KIDA-Robot-v00">KIDA-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/KIDA-Robot-v01">KIDA-Robot-v01</a>
+      <a href="https://github.com/CursedPrograms/NORA-Robot-v00">NORA-Robot-v00</a>
+      <a href="https://github.com/CursedPrograms/ARM-Robot-v01">ARM-Robot-v01</a>
+      <a href="https://github.com/CursedPrograms/RIFT">RIFT</a>
+      <a href="https://github.com/CursedPrograms/DREAM">DREAM</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/CursedPrograms/WHIP-Robot-v00">GitHub</a>
+      <a href="https://x.com/NorowaretaGemu">X: @NorowaretaGemu</a>
+      <a href="https://cursed-entertainment.itch.io/">itch.io</a>
+      <a href="https://ko-fi.com/cursedentertainment">Ko-fi</a>
+      <a href="https://github.com/CursedPrograms/WHIP-Robot-v00/blob/main/LICENSE">MIT License</a>
+    </div>
+
+    <div class="logos">
+      <a href="https://ko-fi.com/cursedentertainment">
+        <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Cursed Entertainment on Ko-fi" width="180" loading="lazy">
+      </a>
+      <a href="https://cursed-entertainment.itch.io/">
+        <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png" alt="Cursed Entertainment" width="250" loading="lazy">
+      </a>
+      <a href="https://github.com/SynthWomb">
+        <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png?raw=true" alt="SynthWomb" width="200" loading="lazy">
+      </a>
+    </div>
+
+    <div>&copy; Cursed Entertainment 2026</div>
+  </div>
+</footer>
+
+</body>
+</html>

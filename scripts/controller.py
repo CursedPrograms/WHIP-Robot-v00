@@ -31,6 +31,7 @@ runs on a background thread (WhipLink) so a slow or dropped WiFi frame
 never stalls the pygame render loop.
 """
 
+import os
 import sys
 import threading
 import time
@@ -199,6 +200,10 @@ class ControllerLayout:
 
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("WHIP Robot - Controller")
+        try:  # window icon: the robot's avatar
+            pygame.display.set_icon(pygame.image.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images", "whip-icon.png")))
+        except (pygame.error, OSError):
+            pass
         self.clock = pygame.time.Clock()
 
         self.font_large = pygame.font.SysFont("consolas", 26)
