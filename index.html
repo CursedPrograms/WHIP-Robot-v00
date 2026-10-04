@@ -189,6 +189,8 @@ All grounds tied together</pre>
         </tbody>
       </table>
     </div>
+    <h3 class="sub">Driven by NORA</h3>
+    <p class="muted"><a href="https://cursedprograms.github.io/NORA-Robot-v00/">NORA</a> can drive WHIP through her IR transmitter: Samsung-format IR at address <code>0x0DA3</code>, with the fleet link&rsquo;s commands <code>0x48</code>&ndash;<code>0x4F</code> (drive, stop, obstacle, manual, speed). Driving switches her into IR Remote mode, and each command runs as the matching remote button. She stands once the link has been quiet for 600 ms (frames can land mid-step). She has one gait speed, so <code>speed</code> is ignored. Link frames print as <code>LINK cmd=0x..</code>.</p>
   </div>
 </section>
 

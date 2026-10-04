@@ -174,6 +174,9 @@ WHIP's control page is on port `5005`, the port [RIFT](https://github.com/Cursed
 | **IR Remote** | IR `1`, gamepad Square | Arrows walk and turn while held. She stands when you let go (350 ms timeout) |
 | **Web** | Web page, gamepad Cross | D-pad on the page or the Python controller. She stands if the browser goes quiet for 500 ms |
 
+### Driven by NORA (fleet IR link)
+[NORA](https://github.com/CursedPrograms/NORA-Robot-v00) can drive WHIP through her IR transmitter, from her web page, Python controller or Bluetooth. The frames are Samsung-format IR at address `0x0DA3`, with the fleet link's commands: `0x48` forward, `0x49` back, `0x4A` left, `0x4B` right, `0x4C` stop, `0x4D` obstacle mode, `0x4E` manual, `0x4F` speed. Driving switches her into IR Remote mode, and each command runs as the matching remote button. She stands once the link has been quiet for 600 ms (frames can land mid-step). She has one gait speed, so `speed` is ignored. Link frames print as `LINK cmd=0x..`.
+
 ### Python controller (`scripts/controller.py`)
 Draws a PS2-style pad and drives WHIP over WiFi. It finds her on NORA's network first, and on her own AP otherwise.
 

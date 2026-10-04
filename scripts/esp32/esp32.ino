@@ -87,6 +87,7 @@
 
 #define RAW_BUFFER_LENGTH 100   // NEC needs far less than the default; saves RAM
 #define DECODE_NEC              // must precede the IRremote include
+#define DECODE_SAMSUNG          // NORA's fleet link (see FLEET LINK below)
 #include "avatar.h"           // WHIP's avatar as a JPEG byte array (served at /avatar.jpg)
 #include <IRremote.hpp>         // IRremote 4.x -- supports ESP32
 
@@ -144,6 +145,23 @@ const int MPU_ADDR = 0x68;
 #define IR_MODE_OBSTACLE    0x1   // "2" -> obstacle avoidance
 
 const unsigned long IR_CMD_TIMEOUT_MS = 350;
+unsigned long irTimeoutMs = IR_CMD_TIMEOUT_MS;   // release timeout for the current drive (remote or link)
+
+// FLEET LINK (commands relayed by NORA). NORA's web page, Python controller
+// and Bluetooth link can drive WHIP through NORA's IR transmitter: Samsung-
+// format frames at WHIP_LINK_ADDRESS, with the command codes the whole fleet
+// link uses (IDA 0x0DA1, MILA 0x0DA2, KIDA-01 0x0DA4). Drive commands repeat
+// every 150 ms while held; each is run as the matching remote button.
+#define WHIP_LINK_ADDRESS 0x0DA3
+#define LINK_FORWARD   0x48
+#define LINK_BACKWARD  0x49
+#define LINK_LEFT      0x4A
+#define LINK_RIGHT     0x4B
+#define LINK_STOP      0x4C
+#define LINK_OBSTACLE  0x4D
+#define LINK_MANUAL    0x4E   // IR remote control mode
+#define LINK_SPEED     0x4F   // WHIP has one gait speed: ignored
+const unsigned long LINK_HOLD_MS = 600;   // longer than the remote: frames can land mid-step
 
 // ---------------------------------------------------------------------------
 // Web D-pad codes -- mirror the IR command shape (an "active command" byte
@@ -707,7 +725,7 @@ bool gaitWait(unsigned long ms, bool scanSafe) {
 // IR REMOTE MODE
 // ---------------------------------------------------------------------------
 void runIRMode() {
-  if (irActiveCmd != 0 && millis() - irLastCmdMillis > IR_CMD_TIMEOUT_MS) {
+  if (irActiveCmd != 0 && millis() - irLastCmdMillis > irTimeoutMs) {
     irActiveCmd = 0;
   }
 
@@ -867,16 +885,37 @@ void handleIRCommand(uint8_t cmd) {
   }
 }
 
+// A command relayed by NORA over the fleet link, run as the matching remote
+// button. Driving switches WHIP into IR control first, so one press is enough.
+void runLinkCommand(uint8_t c) {
+  switch (c) {
+    case LINK_FORWARD: case LINK_BACKWARD: case LINK_LEFT: case LINK_RIGHT:
+      handleIRCommand(IR_MODE_IRControl);
+      irTimeoutMs = LINK_HOLD_MS;
+      handleIRCommand(c == LINK_FORWARD ? IR_FORWARD : c == LINK_BACKWARD ? IR_BACKWARD
+                    : c == LINK_LEFT ? IR_LEFT : IR_RIGHT);
+      break;
+    case LINK_STOP:     handleIRCommand(IR_MODE_IRControl); handleIRCommand(IR_OK); break;
+    case LINK_OBSTACLE: handleIRCommand(IR_MODE_OBSTACLE);  break;
+    case LINK_MANUAL:   handleIRCommand(IR_MODE_IRControl); break;
+  }
+}
+
 void pollIR() {
   if (IrReceiver.decode()) {
     bool isRepeat = (IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT);
     bool isNoise  = (IrReceiver.decodedIRData.protocol == UNKNOWN);
 
-    if (isRepeat) {
+    if (IrReceiver.decodedIRData.protocol == SAMSUNG && IrReceiver.decodedIRData.address == WHIP_LINK_ADDRESS) {
+      Serial2.print(F("LINK cmd=0x"));
+      Serial2.println(IrReceiver.decodedIRData.command, HEX);
+      runLinkCommand(IrReceiver.decodedIRData.command);
+    } else if (isRepeat) {
       if (irActiveCmd != 0) irLastCmdMillis = millis();
     } else if (!isNoise) {
       Serial2.print(F("IR cmd=0x"));
       Serial2.println(IrReceiver.decodedIRData.command, HEX);
+      irTimeoutMs = IR_CMD_TIMEOUT_MS;
       handleIRCommand(IrReceiver.decodedIRData.command);
     } else {
       Serial2.println(F("IR noise (UNKNOWN protocol)"));
@@ -884,7 +923,7 @@ void pollIR() {
     IrReceiver.resume();
   }
 
-  if (irActiveCmd != 0 && millis() - irLastCmdMillis > IR_CMD_TIMEOUT_MS) {
+  if (irActiveCmd != 0 && millis() - irLastCmdMillis > irTimeoutMs) {
     irActiveCmd = 0;
   }
 }
