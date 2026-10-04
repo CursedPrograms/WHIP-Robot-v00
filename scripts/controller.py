@@ -193,6 +193,21 @@ MODE_NAMES = ["OBSTACLE", "IR REMOTE", "WEB"]
 MOVE_NAMES = ["STAND", "WALK", "BACKWARD", "TURN LEFT", "TURN RIGHT"]
 
 
+def round_avatar(path, size):
+    """The robot's avatar as a circular surface, or None if it can't be loaded.
+    The one place the avatar is loaded: swap in animation frames here later."""
+    try:
+        img = pygame.transform.smoothscale(pygame.image.load(path).convert(), (size, size))
+    except (pygame.error, OSError):
+        return None
+    mask = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.circle(mask, (255, 255, 255, 255), (size // 2, size // 2), size // 2)
+    out = pygame.Surface((size, size), pygame.SRCALPHA)
+    out.blit(img, (0, 0))
+    out.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+    return out
+
+
 class ControllerLayout:
     def __init__(self):
         pygame.init()
@@ -209,6 +224,7 @@ class ControllerLayout:
         self.font_large = pygame.font.SysFont("consolas", 26)
         self.font = pygame.font.SysFont("consolas", 18)
         self.font_small = pygame.font.SysFont("consolas", 14)
+        self.avatar = round_avatar(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images", "whip_avatar.jpg"), 52)
 
         self.joystick = None
         self._connect_joystick()
@@ -314,8 +330,11 @@ class ControllerLayout:
         pygame.display.flip()
 
     def _draw_header(self):
+        if self.avatar:
+            self.screen.blit(self.avatar, (20, 12))
+        tx = 84 if self.avatar else 20
         title = self.font_large.render("WHIP Robot - Controller", True, TEXT_COLOR)
-        self.screen.blit(title, (20, 16))
+        self.screen.blit(title, (tx, 16))
 
         if self.joystick is not None:
             status = f"Connected: {self.joystick.get_name()}"
@@ -324,7 +343,7 @@ class ControllerLayout:
             status = "No controller detected - use arrow keys + Z/X/C/V"
             color = MUTED_TEXT
         status_surf = self.font.render(status, True, color)
-        self.screen.blit(status_surf, (20, 50))
+        self.screen.blit(status_surf, (tx, 50))
 
         hint = self.font_small.render("ESC or close window to quit", True, MUTED_TEXT)
         self.screen.blit(hint, (WIDTH - hint.get_width() - 20, 20))
