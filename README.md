@@ -94,6 +94,8 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 | Remote | NEC IR receiver + remote (the same remote as MILA and IDA) |
 | Controllers | Browser, PS2-style USB gamepad (Python controller), IR remote |
 
+Chassis Instruction Manual: https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd](https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd)
+
 </details>
 
 ---
@@ -241,6 +243,37 @@ pip install -r requirements.txt
 python scripts/controller.py      # or ./scripts/launch_controller.sh
 ```
 </details>
+
+---
+
+## 📡 Who's nearby (ESP-NOW + Bluetooth LE)
+
+Every robot sends a small **"I'm here"** beacon twice a second and listens for the others'. From the **signal strength** it knows roughly how close each one is, and from how that changes over time whether it's **coming closer, steady or leaving**:
+
+| Signal | Zone |
+| :--- | :--- |
+| above −45 dBm | very close |
+| −45 to −60 dBm | near |
+| −60 to −75 dBm | medium |
+| below −75 dBm | far |
+
+It's coarse (walls, bodies and antenna angle all change it): for "who's around", not distance. Precise collision avoidance stays with the ultrasonic and ToF sensors.
+
+**They tell each other what they're doing**, because a rising signal looks the same from both sides even when only one robot moves. Over ESP-NOW they say it **in Brainfuck**, like the fleet's conversations: each beacon carries a program that prints `park`, `go`, `wait` or `hand` (a human is driving), and the receiver runs it. Bluetooth adverts are too small for a program, so BLE carries the same state as one byte.
+
+**Who makes way**, in self-driving modes only:
+
+| The other robot... | So this one... |
+| :--- | :--- |
+| is parked | is the one closing in: steers away |
+| is yielding | carries on, carefully |
+| is driven by a human | makes way (it's unpredictable) |
+| drives itself | follows the alphabet: KIDA00, KIDA01, NORA, WHIP; everyone makes way for MILA, who can't hear the others |
+| is leaving | carries on |
+
+Making way = stop for 2 s, turn away, then drive on (and not yield again for 5 s, so two robots that stay close don't take turns forever). While another robot is near, or coming closer, it drives slower with wider margins.
+
+WHIP hears the others over **ESP-NOW** (NORA, MILA) and **Bluetooth LE** (NORA, KIDA-00, KIDA-01). In **obstacle** mode she stands still and then turns away when a robot with right of way is close. `GET /near` shows her list. Code: `scripts/esp32/fleet_near.h` and `fleet_near_ble.h` (BLE adds a lot of code: she may need the *Huge APP* partition scheme).
 
 ---
 

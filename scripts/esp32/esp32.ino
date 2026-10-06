@@ -89,6 +89,8 @@
 #define DECODE_NEC              // must precede the IRremote include
 #define DECODE_SAMSUNG          // NORA's fleet link (see FLEET LINK below)
 #include "avatar.h"           // WHIP's avatar as a JPEG byte array (served at /avatar.jpg)
+#include "fleet_near.h"       // ESP-NOW "I'm here" beacons: which robots are nearby, from signal strength
+#include "fleet_near_ble.h"   // ...and the same beacon over Bluetooth LE, so she and the Pi robots (KIDAs) hear each other
 #include <IRremote.hpp>         // IRremote 4.x -- supports ESP32
 
 // ---------------------------------------------------------------------------
@@ -106,6 +108,28 @@ WifiMode wifiMode = WIFI_OWN_AP;
 // INTEGRATION" above) -- RIFT :5000, DREAM :5001, NORA :5002, KIDA-00
 // :5003, KIDA-01 :5004, WHIP :5005, MILA :5010.
 WebServer server(5005);
+
+// === RADAR (passive imposter spotter) ===
+// WHIP listens to the WiFi around her and flags anything that is not one of
+// our own networks as an "imposter". On-demand only (a scan channel-hops and
+// would disturb her link / ESP-NOW): she scans when /radar is opened. Passive
+// -- she never connects to or touches a network that is not hers.
+const char* const FLEET_SSIDS[] = { "NORA", "MILA", "WHIP" };
+const unsigned long RADAR_MIN_GAP_MS = 10000;
+String radarJson = "{\"scanning\":false,\"nets\":[]}";
+unsigned long lastRadarScan = 0;
+bool radarInFlight = false;
+bool radarRequested = false;
+
+// === CONTROL LOCK ===
+// A device must unlock with the PIN before it can drive WHIP. The unlocked
+// device is remembered by IP; a new device must re-enter the PIN. Looking
+// (page, /status, /radar) is always allowed; driving is not.
+// (radar + lock helper functions are defined lower down, after the type
+// declarations, so the auto-generated prototypes land after those types.)
+const char* const CONTROL_PIN = "1234";
+IPAddress controllerIP(0, 0, 0, 0);
+bool controllerUnlocked = false;
 
 // ---------------------------------------------------------------------------
 // RIFT fleet registry -- only reachable while WHIP is joined to NORA's
@@ -490,6 +514,10 @@ void setup() {
 }
 
 void loop() {
+  // what she tells the other robots: walking by herself, driven by you, or standing
+  fleetNearSetState(controlMode == CTRL_OBSTACLE ? FLEET_DRIVING : currentMove == MOVE_STAND ? FLEET_PARKED : FLEET_USER);
+  fleetNearLoop();
+  fleetNearBleLoop();
   abortMovement = false;
 
   while (Serial.available()) Serial2.write(Serial.read());
@@ -503,6 +531,7 @@ void loop() {
   }
 
   server.handleClient();
+  radarLoop();
   pollFleetRegistration();
 
   if (sysState == SYS_SHUTDOWN) {
@@ -813,6 +842,18 @@ bool pathClear() {
   Scan: clear -> forward. Still blocked -> turn again.
 */
 void runObstacleMode() {
+  // Another robot close by and coming or very near, with right of way
+  // (fleet_near.h): stand still, then turn away from it before walking on.
+  FleetYieldPhase yieldNow = fleetGiveWay(true);
+  if (yieldNow == FLEET_WAIT) {
+    requestMove(MOVE_STAND);
+    return;
+  }
+  if (yieldNow == FLEET_TURN) {
+    if (requestMove(MOVE_TURN_LEFT)) TurnLeft();
+    return;
+  }
+
   if (!obstacleDetected) {
     // --- WALK ---
     if (requestMove(MOVE_WALK)) MoveForward();
@@ -954,6 +995,8 @@ void setupWiFi() {
       Serial2.println();
       Serial2.print(F("Joined NORA. IP: "));
       Serial2.println(WiFi.localIP());
+      fleetNearBegin("WHIP", WIFI_IF_STA);   // on NORA's channel, so the fleet hears her
+      fleetNearBleBegin("WHIP");
       return;
     }
     Serial2.println();
@@ -965,6 +1008,8 @@ void setupWiFi() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASSWORD);
   wifiMode = WIFI_OWN_AP;
+  fleetNearBegin("WHIP", WIFI_IF_AP);
+  fleetNearBleBegin("WHIP");
   Serial2.print(F("AP \""));
   Serial2.print(AP_SSID);
   Serial2.print(F("\" up. IP: "));
@@ -996,7 +1041,60 @@ void pollFleetRegistration() {
   registerWithFleet();
 }
 
+bool isFleetSsid(const String& s) {
+  for (unsigned i = 0; i < sizeof(FLEET_SSIDS) / sizeof(FLEET_SSIDS[0]); i++) {
+    if (s == FLEET_SSIDS[i]) return true;
+  }
+  return false;
+}
+
+String radarEscape(const String& in) {
+  String out;
+  for (unsigned i = 0; i < in.length(); i++) {
+    char c = in[i];
+    if (c == '"' || c == '\\') { out += '\\'; out += c; }
+    else if (c == '\n' || c == '\r' || c == '\t') { out += ' '; }
+    else out += c;
+  }
+  return out;
+}
+
+void radarLoop() {
+  if (!radarInFlight && radarRequested && millis() - lastRadarScan >= RADAR_MIN_GAP_MS) {
+    radarRequested = false;
+    WiFi.scanNetworks(true, true);   // async, include hidden
+    radarInFlight = true;
+    lastRadarScan = millis();
+    return;
+  }
+  if (radarInFlight) {
+    int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) return;
+    if (n == WIFI_SCAN_FAILED)  { radarInFlight = false; return; }
+    int imposters = 0;
+    String j = "{\"scanning\":false,\"nets\":[";
+    for (int i = 0; i < n; i++) {
+      String ssid = WiFi.SSID(i);
+      String shown = ssid.length() ? radarEscape(ssid) : "(hidden)";
+      bool fleet = ssid.length() && isFleetSsid(ssid);
+      if (!fleet) imposters++;
+      if (i) j += ",";
+      j += "{\"ssid\":\"" + shown + "\",\"rssi\":" + String(WiFi.RSSI(i)) +
+           ",\"imposter\":" + String(fleet ? "false" : "true") + "}";
+    }
+    j += "],\"imposters\":" + String(imposters) + "}";
+    radarJson = j;
+    WiFi.scanDelete();
+    radarInFlight = false;
+  }
+}
+
+bool isController() {
+  return controllerUnlocked && server.client().remoteIP() == controllerIP;
+}
+
 void handleWebCmd() {
+  if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
   if (!server.hasArg("cmd")) { server.send(400, "text/plain", "missing 'cmd'"); return; }
   String cmd = server.arg("cmd");
 
@@ -1011,6 +1109,7 @@ void handleWebCmd() {
 }
 
 void handleModeCmd() {
+  if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
   if (!server.hasArg("m")) { server.send(400, "text/plain", "missing 'm'"); return; }
   String m = server.arg("m");
 
@@ -1039,6 +1138,7 @@ void handleModeCmd() {
 }
 
 void handleShutdownCmd() {
+  if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
   sysState = SYS_SHUTDOWN;
   Serial2.println(F("SHUTDOWN (web)"));
   server.send(200, "text/plain", "OK");
@@ -1062,6 +1162,17 @@ void handleStatus() {
 }
 
 void setupWebServer() {
+  server.on("/near",     []() { server.send(200, "application/json", fleetNearStatusJson()); });   // nearby robots, nearest first
+  server.on("/radar",    []() { radarRequested = true; server.send(200, "application/json", radarJson); });
+  server.on("/unlock",   []() {
+    if (server.hasArg("pw") && server.arg("pw") == CONTROL_PIN) {
+      controllerIP = server.client().remoteIP();
+      controllerUnlocked = true;
+      server.send(200, "application/json", "{\"ok\":true,\"controller\":\"" + controllerIP.toString() + "\"}");
+    } else {
+      server.send(403, "application/json", "{\"ok\":false,\"error\":\"bad pin\"}");
+    }
+  });
   server.on("/",         handleRoot);
   server.on("/web",      handleWebCmd);
   server.on("/mode",     handleModeCmd);
@@ -1164,6 +1275,14 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   </style>
 </head>
 <body>
+  <div id="lockOverlay" style="position:fixed;inset:0;background:rgba(5,8,16,0.96);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#e6edf3;font-family:inherit">
+    <div style="font-size:1.3rem;letter-spacing:3px">&#128274; WHIP LOCKED</div>
+    <div style="opacity:0.7;font-size:0.85rem">Enter controller PIN to drive</div>
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="12" placeholder="PIN"
+           style="font-size:1.3rem;text-align:center;padding:10px 16px;width:160px;background:#0b1020;border:1px solid #4a90d9;color:#e6edf3;border-radius:8px;letter-spacing:6px">
+    <button id="pinBtn" style="font-size:1rem;padding:10px 24px;background:#4a90d9;color:#041018;border:0;border-radius:8px;cursor:pointer">UNLOCK</button>
+    <div id="pinMsg" style="color:#e5534b;font-size:0.8rem;min-height:1em"></div>
+  </div>
   <img id="avatar" src="/avatar.jpg" alt="WHIP avatar">
   <h1>WHIP</h1>
   <h2>Hexapod Control</h2>
@@ -1196,11 +1315,39 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   <div id="shutdownBtn" onclick="doShutdown()">SHUTDOWN</div>
 
   <script>
+    // --- Control lock: PIN unlock before driving ---
+    var unlocked = false;
+    function doUnlock() {
+      var pin = document.getElementById('pinInput').value;
+      fetch('/unlock?pw=' + encodeURIComponent(pin))
+        .then(function (r) { if (!r.ok) throw new Error('bad'); return r.json(); })
+        .then(function () {
+          unlocked = true;
+          document.getElementById('lockOverlay').style.display = 'none';
+          document.getElementById('pinMsg').textContent = '';
+        })
+        .catch(function () { document.getElementById('pinMsg').textContent = 'Wrong PIN'; });
+    }
+    function showLock() {
+      unlocked = false;
+      var ov = document.getElementById('lockOverlay');
+      if (ov) ov.style.display = 'flex';
+    }
+    // 403 from a driving endpoint means the server locked us out: pop the PIN.
+    function driveFetch(url) {
+      return fetch(url).then(function (r) { if (r.status === 403) showLock(); return r; })
+                       .catch(function () {});
+    }
+    document.getElementById('pinBtn').addEventListener('click', doUnlock);
+    document.getElementById('pinInput').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') doUnlock();
+    });
+
     let repeatTimer = null;
     let curMode = 'obstacle';
 
     function sendCmd(c) {
-      fetch('/web?cmd=' + c).catch(function(){});
+      driveFetch('/web?cmd=' + c);
     }
 
     function press(c, el) {
@@ -1238,7 +1385,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
     function setMode(m) {
       curMode = m;
-      fetch('/mode?m=' + m).catch(function(){});
+      driveFetch('/mode?m=' + m);
       document.getElementById('modeObstacle').classList.toggle('active', m === 'obstacle');
       document.getElementById('modeIr').classList.toggle('active', m === 'ir');
       document.getElementById('modeWeb').classList.toggle('active', m === 'web');
@@ -1249,7 +1396,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
     function doShutdown() {
       if (confirm('Shutdown WHIP? This cannot be undone without a power cycle.')) {
-        fetch('/shutdown').catch(function(){});
+        driveFetch('/shutdown');
       }
     }
 

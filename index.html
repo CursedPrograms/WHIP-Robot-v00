@@ -25,6 +25,7 @@
       <li><a href="#hardware">Hardware</a></li>
       <li><a href="#controls">Controls</a></li>
       <li><a href="#quickstart">Quick start</a></li>
+      <li><a href="#near">Nearby</a></li>
       <li><a href="#screens">Screens</a></li>
       <li><a href="https://github.com/CursedPrograms/WHIP-Robot-v00">GitHub</a></li>
     </ul>
@@ -217,6 +218,20 @@ All grounds tied together</pre>
         </tbody>
       </table>
     </div>
+  </div>
+</section>
+
+<section id="near">
+  <div class="wrap">
+    <h2>Who's nearby</h2>
+    <h3 class="title">ESP-NOW + Bluetooth LE: the robots sense each other</h3>
+    <p class="muted">Every robot sends a small "I'm here" beacon twice a second. The signal strength says roughly how close each one is, and how it changes says whether it's <b>coming closer</b>, <b>steady</b> or <b>leaving</b>. Coarse, for "who's around": the ultrasonic and ToF sensors still do the precise avoiding.</p>
+    <div class="grid cols-3">
+      <div class="card"><span class="k">Zones</span><h4>Very close to far</h4><p>Above &minus;45 dBm very close, &minus;60 near, &minus;75 medium, below that far.</p></div>
+      <div class="card"><span class="k">Talk</span><h4>In Brainfuck</h4><p>Over ESP-NOW each beacon carries a program that prints <code>park</code>, <code>go</code>, <code>wait</code> or <code>hand</code>; the receiver runs it. RIFT decodes them too.</p></div>
+      <div class="card"><span class="k">Manners</span><h4>Who makes way</h4><p>A parked robot isn't the one moving; a yielding one is making way; a human-driven one gets space; otherwise the alphabet decides, and everyone makes way for MILA.</p></div>
+    </div>
+    <p class="muted spaced">WHIP hears the others over <b>ESP-NOW</b> (NORA, MILA) and <b>Bluetooth LE</b> (NORA, KIDA-00, KIDA-01). In <b>obstacle</b> mode she stands, then turns away, when a robot with right of way is close. <code>GET /near</code> shows her list.</p>
   </div>
 </section>
 
