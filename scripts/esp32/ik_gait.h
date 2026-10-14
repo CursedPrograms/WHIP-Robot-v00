@@ -207,6 +207,29 @@ inline Frame lerp(const Frame& a, const Frame& b, float t) {
   return f;
 }
 
+// A stepping foot's path from a to b, peaking `lift` above them: a quintic Bezier
+// through a, a, a+up, b+up, b, b. The doubled ends make the foot leave and land
+// at zero speed and the path has no corners, so the servos speed up and slow down
+// gradually instead of reversing at once. The peak is 10/16 of `up`, hence 1.6.
+inline Pos swing(Pos a, Pos b, float lift, float t) {
+  const float u = 1 - t;
+  const float toB = t * t * t * (10 * u * u + 5 * t * u + t * t);   // Bernstein 3 + 4 + 5
+  const float up  = 10 * t * t * u * u * 1.6f * lift;              // (Bernstein 2 + 3) * up
+  return { a.x + (b.x - a.x) * toB, a.y + (b.y - a.y) * toB, a.z + (b.z - a.z) * toB + up };
+}
+
+// One step, `from` to `land`, t 0..1. `lift` is the key frame in between that says
+// which feet step (the ones it raises) and how high; they arc over on swing(), the
+// feet on the ground keep moving in straight lines.
+inline Frame step(const Frame& from, const Frame& lift, const Frame& land, float t) {
+  Frame f;
+  for (uint8_t i = 0; i < LEGS; i++) {
+    const float up = lift.leg[i].z - land.leg[i].z;
+    f.leg[i] = up > 1 ? swing(from.leg[i], land.leg[i], up, t) : lerp(from.leg[i], land.leg[i], t);
+  }
+  return f;
+}
+
 // ---- key frames (Poses.h of the reference) --------------------------------
 inline float homeZ() { return HOME_Z_MIN + (HOME_Z_MAX - HOME_Z_MIN) * height / 9.0f; }
 
@@ -243,8 +266,8 @@ inline Frame R3() {
 
 // ms per interpolation step: speed 9 = 30 ms, speed 0 = 120 ms
 inline uint16_t stepMs() { return 120 - speed * 10; }
-// Interpolation steps between key frames, as in the reference: a foot only moves in a
-// straight line if every joint is worked out again along the way.
+// Interpolation steps between key frames, as in the reference: a foot only follows its
+// path (a straight line, or the swing arc) if every joint is worked out again along the way.
 const uint8_t STEPS = 5;
 
 }  // namespace ik

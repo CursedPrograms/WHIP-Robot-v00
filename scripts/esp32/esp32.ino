@@ -529,10 +529,25 @@ bool ikMoveTo(const ik::Frame& target, bool scanSafe, bool finish) {
   return true;
 }
 
-// One gait cycle: four key frames. scan = the frames that end with every foot down.
+// One step: a tripod swings over `lift` (ik::swing) and lands on `land` while the
+// other pushes back, in 2 * ik::STEPS small moves: the time of the two key frames
+// it replaces. scanSafe: range-find at the end, every foot down.
+bool ikStep(const ik::Frame& lift, const ik::Frame& land, bool scanSafe) {
+  const ik::Frame from = ikNow;
+  const uint16_t ms = ik::stepMs();
+  const uint8_t n = 2 * ik::STEPS;
+  for (uint8_t i = 1; i <= n; i++) {
+    unsigned long frameStart = millis();
+    if (!ikSend(ik::step(from, lift, land, (float)i / n), ms)) return false;
+    if (!gaitWaitUntil(frameStart, ms + TIMING_MARGIN_MS, scanSafe && i == n)) return false;
+  }
+  return true;
+}
+
+// One gait cycle: four key frames, lift / land for each tripod.
 bool ikCycle(ik::Frame (*const frames[4])(), bool scan) {
-  for (uint8_t i = 0; i < 4; i++) {
-    if (!ikMoveTo(frames[i](), scan && (i == 1 || i == 3), false)) return false;
+  for (uint8_t i = 0; i < 4; i += 2) {
+    if (!ikStep(frames[i](), frames[i + 1](), scan)) return false;
   }
   return true;
 }

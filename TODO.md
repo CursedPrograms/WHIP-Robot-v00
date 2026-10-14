@@ -27,12 +27,13 @@ obstacle avoidance, tilt safety, PIN.
       - Pick the lowest height (slider on /calib) where the battery still clears the floor. Then
         adjust `WHIP_HOME_Z_MIN` so height 0 is just that, or swap `HOME_Z_MIN/MAX` to `JAKOB_*`
         if the battery moves.
-- [ ] **Smooth the swing with a Bezier curve** (the user wants this remembered). Right now a stepping
-      foot moves between key frames in straight lines: up, across, down. The sharp corners make the
-      servos reverse at once, which jerks them and wears them out. A Bezier swing path is C2-continuous,
-      so the force on the leg changes gradually. Replace the linear interpolation of the swinging
-      tripod (ikMoveTo / ik::lerp) with a Bezier path: lift-off, an arc over, touch-down. Feet on
-      the ground keep moving in straight lines.
+- [x] **Smooth the swing with a Bezier curve** (2026-10-14). A stepping foot now arcs over on a
+      quintic Bezier (`ik::swing`, points a, a, a+up, b+up, b, b): no corners, and it leaves and
+      lands at zero speed. `ikStep` in esp32.ino plays each lift + land pair of key frames as one
+      step of 2 x STEPS moves (same time as before); feet on the ground still move in straight
+      lines. Checked on a PC: every swing, all gaits, heights 0-9, stays in reach and in servo range,
+      peak still 30 mm (`LIFT`). Compiles at 1.89 MB. Still to watch on the robot: the feet now
+      clear the ground higher near lift-off and touch-down than the old triangle did.
 - [ ] Later, easy with IK: walking sideways, "walk 10 cm", body tilt, more gaits (wave, ripple).
 
 **Note for the next session (on the other PC):** WHIP's code was changed on the main PC
