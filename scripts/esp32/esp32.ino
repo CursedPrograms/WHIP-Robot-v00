@@ -2,20 +2,16 @@
   WHIP Hexapod - ESP32 Control Sketch
   Controller: RTrobot Servo Motor Controller (32 channel)
 
-  Ported from scripts/arduino/arduino.ino (left there unmodified) to run on
-  the ESP32 board used across the fleet (same module as NORA), adding WiFi
-  plus a browser control page on top of the original IR-remote / obstacle-
-  avoidance gait logic. The RTrobot serial protocol, gait tables, and safety
-  clamps are copied verbatim from the Arduino version -- see arduino.ino's
-  header comment for the full provenance notes on the gait data itself (XML
-  groups, why the "redundant" lines aren't redundant, etc.). That reasoning
-  is not repeated here. Position/channel values are untouched from the XML.
+  WHIP walks by inverse kinematics (ik_gait.h): every joint is worked out
+  from where each foot should be, in millimetres, using the leg maths and
+  tripod gait of Jakob Leander's hexapod (same chassis; MIT, see ik_gait.h).
+  The recorded XML gaits it used to play are gone. Each frame goes to the
+  RTrobot controller as one "#<ch>P<us>...T<ms>" line; servo trims, channels
+  and directions are set on the /calib page and kept in flash.
 
-  The one deliberate change from arduino.ino: each gait string used to end
-  with a literal "T500\r\n" baked in from the XML. Here that's gone -- every
-  string ends right after the last channel value, and sendCmdP() appends
-  "T<GAIT_MOVE_MS>\r\n" itself at send time (see "Timing" below). Retuning
-  the gait's speed is now a single constant instead of a 28-way find/replace.
+  Everything around the walking is as it was: WiFi and the browser control
+  page, IR remote, obstacle avoidance, MPU6050 tilt safety, the fleet (RIFT,
+  ESP-NOW / BLE beacons, radar) and the control PIN.
 
   ---------------------------------------------------------------------------
   ESP32 WIRING (differs from the AVR Arduino pinout)
@@ -92,6 +88,8 @@
 #include "fleet_near.h"       // ESP-NOW "I'm here" beacons: which robots are nearby, from signal strength
 #include "fleet_near_ble.h"   // ...and the same beacon over Bluetooth LE, so she and the Pi robots (KIDAs) hear each other
 #include <IRremote.hpp>         // IRremote 4.x -- supports ESP32
+#include "ik_gait.h"            // walking by inverse kinematics (Jakob Leander's hexapod, same chassis)
+#include "calib_page.h"         // /calib: trim each servo, check its channel, pick the gait
 
 // ---------------------------------------------------------------------------
 // WiFi
@@ -200,46 +198,23 @@ const unsigned long LINK_HOLD_MS = 600;   // longer than the remote: frames can 
 const unsigned long WEB_CMD_TIMEOUT_MS = 500;
 
 // ---------------------------------------------------------------------------
-// Timing -- change GAIT_MOVE_MS to retune gait speed. It's the only value
-// that needs editing: none of the gait strings have a T baked in anymore --
-// sendCmdP() appends "T<GAIT_MOVE_MS>\r\n" to every command it sends, and
-// LINE_MS/STAND_SETTLE_MS are derived below so they always stay in sync.
-// (Originally T500D500 from the XML. GAIT_DWELL_MS was a leftover dead pause
-// after each line's move finished -- zeroed out for continuous motion.
-// Bench-test with the feet off the ground before trusting a new value.)
+// Timing -- the controller can't start a move until the whole line has
+// arrived. At CONTROLLER_BAUD an 18-channel IK line (~135 bytes, 10 bits/byte)
+// takes (145 * 10 * 1000) / CONTROLLER_BAUD ms to send: every step waits its
+// move time (ik::stepMs(), set by speed on /calib) plus that margin.
 //
-// Unlike the PC software (which uploads gait.xml as a stored action group
-// the controller plays back internally), every frame here is re-sent live
-// over the wire, and the controller can't start moving until the whole
-// line -- including the trailing T -- has arrived. At 9600 baud an
-// 18-channel power-stroke line (~145 bytes) took ~150ms just to transmit,
-// which blew straight through the old 20ms margin: WHIP was sending the
-// next frame before the servos had actually finished the previous one.
-// That's the source of the overlap, not GAIT_MOVE_MS itself.
-//
-// CONTROLLER_BAUD must be set to match the RTrobot controller's own
-// configured UART baud -- that's a setting on the controller itself
-// (normally changed once from its PC config software, the same one used
-// to build gait.xml), NOT something this sketch can change remotely. Before
-// raising this, go set the controller to the same rate and power-cycle it
-// to confirm the new rate stuck -- if this doesn't match, WHIP simply loses
-// the controller (garbled/no response), it won't damage anything, but stand
-// up will do nothing. RTrobot-family 32ch controllers document UART support
-// for 4800/9600/19200/38400/57600 (some revisions to 115200); 38400 is a
-// safe, widely-supported middle ground -- ~4x less transmission time.
+// CONTROLLER_BAUD must match the RTrobot controller's own configured UART
+// baud -- a setting on the controller itself (changed from its PC config
+// software), NOT something this sketch can change. If it doesn't match, WHIP
+// loses the controller (garbled/no response) and stand-up does nothing;
+// nothing gets damaged. RTrobot-family 32ch controllers document
+// 4800/9600/19200/38400/57600 (some revisions 115200); 38400 is a safe
+// middle ground. A faster baud makes the walk smoother (shorter margin).
 // ---------------------------------------------------------------------------
 const unsigned long CONTROLLER_BAUD = 38400;
 
-const uint16_t GAIT_MOVE_MS      = 300;   // transmitted: how long the controller takes to execute a move
-const uint16_t GAIT_DWELL_MS     = 0;     // NOT transmitted -- how long we wait after that before the next line
-// At CONTROLLER_BAUD, the worst-case 18-channel line (~145 bytes, 10 bits/byte)
-// takes roughly (145 * 10 * 1000) / CONTROLLER_BAUD ms to transmit. Margin
-// covers that plus a little slop, so even the heaviest line finishes well
-// inside LINE_MS.
 const uint16_t TIMING_MARGIN_MS  = (uint16_t)((145UL * 10UL * 1000UL) / CONTROLLER_BAUD) + 20;
-
-const unsigned long LINE_MS         = GAIT_MOVE_MS + GAIT_DWELL_MS + TIMING_MARGIN_MS;
-const unsigned long STAND_SETTLE_MS = LINE_MS;
+const unsigned long STAND_SETTLE_MS = TIMING_MARGIN_MS;   // Stand() itself waits out its move
 const unsigned long STAND_HOLD_MS   = 3000;   // hold the stand pose after hitting a wall
 
 // ---------------------------------------------------------------------------
@@ -259,111 +234,6 @@ const unsigned long TILT_DEBOUNCE_MS = 250;
 const float COMPLEMENTARY_ALPHA = 0.98;
 
 // ---------------------------------------------------------------------------
-// Poses
-// STAND_CMD is line 1 of the XML "Reset - Shut Down" group.
-// REST_CMD has no XML equivalent -- verify #7P800 before relying on it.
-// ---------------------------------------------------------------------------
-const char STAND_CMD[] PROGMEM =
-  "#1P1500#2P1500#3P1500#4P1500#5P1500#6P1500#7P1500#8P1500#9P1500"
-  "#24P1500#25P1500#26P1500#27P1500#28P1500#29P1500#30P1500#31P1500#32P1500";
-
-const char REST_CMD[] PROGMEM =
-  "#2P2500#3P2500#5P2500#6P2500#7P800#8P2500#9P2500"
-  "#25P500#26P500#28P500#29P500#31P500#32P500";
-
-// ---------------------------------------------------------------------------
-// Forward Gait -- XML group 0, verbatim
-// ---------------------------------------------------------------------------
-const char FWD_1[] PROGMEM =
-  "#1P1100#2P2000#3P1000#4P1500#5P1500#6P1500#7P1100#8P2000#9P1000"
-  "#24P1500#25P1500#26P1500#27P1900#28P1000#29P2000#30P1500#31P1500#32P1500";
-const char FWD_2[] PROGMEM =
-  "#2P1500#3P1500#8P1500#9P1500#28P1500#29P1500";
-const char FWD_3[] PROGMEM =
-  "#1P1500#4P1100#5P2000#6P1000#7P1500#24P1900#25P1000#26P2000"
-  "#27P1500#30P1900#31P1000#32P2000";
-const char FWD_4[] PROGMEM =
-  "#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500";
-
-const char* const FORWARD_GAIT[] PROGMEM = { FWD_1, FWD_2, FWD_3, FWD_4 };
-const uint8_t FORWARD_GAIT_LEN = 4;
-// Lines 2 and 4 lower the swing tripod -- body settled, safe to range-find
-const bool FORWARD_SCAN_SAFE[] PROGMEM = { false, true, false, true };
-
-// ---------------------------------------------------------------------------
-// Backward Gait -- Forward with coxa channels mirrored around 1500.
-// NOT from XML. Bench-test before running under load.
-// ---------------------------------------------------------------------------
-const char BWD_1[] PROGMEM =
-  "#1P1900#2P2000#3P1000#4P1500#5P1500#6P1500#7P1900#8P2000#9P1000"
-  "#24P1500#25P1500#26P1500#27P1100#28P1000#29P2000#30P1500#31P1500#32P1500";
-const char BWD_2[] PROGMEM =
-  "#2P1500#3P1500#8P1500#9P1500#28P1500#29P1500";
-const char BWD_3[] PROGMEM =
-  "#1P1500#4P1900#5P2000#6P1000#7P1500#24P1100#25P1000#26P2000"
-  "#27P1500#30P1100#31P1000#32P2000";
-const char BWD_4[] PROGMEM =
-  "#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500";
-
-const char* const BACKWARD_GAIT[] PROGMEM = { BWD_1, BWD_2, BWD_3, BWD_4 };
-const uint8_t BACKWARD_GAIT_LEN = 4;
-
-// ---------------------------------------------------------------------------
-// Turn Left Gait -- XML group 2, verbatim
-// ---------------------------------------------------------------------------
-const char TURNL_1[] PROGMEM =
-  "#1P1000#2P2500#3P1100#4P1500#5P1500#6P1500#7P1000#8P2500#9P1100"
-  "#24P1500#25P1500#26P1500#27P1000#28P500#29P1900#30P1500#31P1500#32P1500";
-const char TURNL_2[] PROGMEM =
-  "#2P1500#3P1500#8P1500#9P1500#28P1500#29P1500";
-const char TURNL_3[] PROGMEM =
-  "#1P1000#2P1500#3P1500#4P1000#5P2500#6P1100#7P1000#8P1500#9P1500"
-  "#24P1000#25P500#26P1900#27P1000#28P1500#29P1500#30P1000#31P500#32P1900";
-const char TURNL_4[] PROGMEM =
-  "#1P1500#7P1500#27P1500";
-const char TURNL_5[] PROGMEM =
-  "#1P1500#2P1500#3P1500#5P1500#6P1500#7P1500#8P1500#9P1500"
-  "#25P1500#26P1500#27P1500#28P1500#29P1500#31P1500#32P1500";
-const char* const TURN_LEFT_GAIT[] PROGMEM = { TURNL_1, TURNL_2, TURNL_3, TURNL_4, TURNL_5 };
-const uint8_t TURN_LEFT_GAIT_LEN = 5;
-
-// ---------------------------------------------------------------------------
-// Turn Right Gait -- XML group 3, verbatim
-// (Asymmetric vs Turn Left: line 3 omits the 1,7,27 hold and line 5 omits
-//  the 4,24,30 reset. That is how it is in the XML. Left untouched.)
-// ---------------------------------------------------------------------------
-const char TURNR_1[] PROGMEM =
-  "#1P2000#2P2500#3P1000#4P1500#5P1500#6P1500#7P2000#8P2500#9P1000"
-  "#24P1500#25P1500#26P1500#27P2000#28P500#29P2000#30P1500#31P1500#32P1500";
-const char TURNR_2[] PROGMEM =
-  "#2P1500#3P1500#8P1500#9P1500#28P1500#29P1500";
-const char TURNR_3[] PROGMEM =
-  "#4P2000#5P2500#6P1000#24P2000#25P500#26P2000#30P2000#31P500#32P2000";
-const char TURNR_4[] PROGMEM =
-  "#1P1500#7P1500#27P1500#30P2000";
-const char TURNR_5[] PROGMEM =
-  "#5P1500#6P1500#25P1500#26P1500#31P1500#32P1500";
-const char* const TURN_RIGHT_GAIT[] PROGMEM = { TURNR_1, TURNR_2, TURNR_3, TURNR_4, TURNR_5 };
-const uint8_t TURN_RIGHT_GAIT_LEN = 5;
-
-// ---------------------------------------------------------------------------
-// Shutdown Sequence -- XML group 1, verbatim
-// ---------------------------------------------------------------------------
-const char SHUT_1[] PROGMEM =
-  "#1P1500#2P1500#3P1500#4P1500#5P1500#6P1500#7P1500#8P1500#9P1500"
-  "#24P1500#25P1500#26P1500#27P1500#28P1500#29P1500#30P1500#31P1500#32P1500";
-const char SHUT_2[] PROGMEM = "#2P2500#3P1500#8P2500#28P500#29P1500";
-const char SHUT_3[] PROGMEM = "#3P500#9P500#29P2500";
-const char SHUT_4[] PROGMEM = "#3P2500#9P2500#29P500";
-const char SHUT_5[] PROGMEM = "#5P1700#6P1200#25P1200#26P1700#31P1200#32P1700";
-const char SHUT_6[] PROGMEM = "#5P2500#25P500#26P1700#28P500#31P500";
-const char SHUT_7[] PROGMEM = "#6P500#26P2500#32P2500";
-const char SHUT_8[] PROGMEM = "#6P2500#26P500#32P500";
-
-const char* const SHUTDOWN_SEQ[] PROGMEM = { SHUT_1, SHUT_2, SHUT_3, SHUT_4, SHUT_5, SHUT_6, SHUT_7, SHUT_8 };
-const uint8_t SHUTDOWN_SEQ_LEN = 8;
-
-// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 enum SystemState   { SYS_ACTIVE, SYS_TILT_SAFE, SYS_SHUTDOWN };
@@ -376,6 +246,8 @@ ControlMode   controlModeBeforeTilt = CTRL_OBSTACLE;
 MovementState currentMove = MOVE_STAND;
 
 bool abortMovement = false;   // cleared at the top of every loop()
+ik::Frame ikNow;          // where the feet are (the last frame sent)
+bool calibrating = false; // /calib is open: WHIP stands still and takes no drive commands
 
 uint8_t irActiveCmd      = 0;
 uint8_t irCmdAtMoveStart = 0;
@@ -497,12 +369,13 @@ void setup() {
 
   delay(2000);
 
-  auditAllGaits();
-
   Serial2.println(F("Calibrating gyro..."));
   calibrateGyro();
 
-  sendCmdP(STAND_CMD);
+  ik::load();
+  ikNow = ik::home();
+  Serial2.println(ik::calibrated ? F("IK: calibration loaded") : F("IK: default calibration (fine-tune on /calib)"));
+  standNow();
   Serial2.println(F("Sent: stand pose"));
   currentMove = MOVE_STAND;
   delay(1500);
@@ -545,6 +418,8 @@ void loop() {
   pollIR();
   pollWeb();
 
+  if (calibrating) return;   // /calib moves the servos itself; WHIP doesn't walk meanwhile
+
   if (controlMode == CTRL_OBSTACLE) {
     runObstacleMode();
   } else if (controlMode == CTRL_IR) {
@@ -554,12 +429,9 @@ void loop() {
   }
 }
 
-// Parses "#<ch>P<val>" tokens and clamps each value. The gait strings no
-// longer carry a trailing T/\r\n (sendCmdP appends "T<GAIT_MOVE_MS>\r\n"
-// after this runs), so in practice every character here is part of a
-// token -- the passthrough branch just protects against a stray or
-// malformed byte instead of being load-bearing. Reports anything it had to
-// correct.
+// Parses "#<ch>P<val>" tokens and clamps each value to the channel's limits
+// (MECHANICAL SAFETY LIMITS), so a bad trim or a foot asked for out of range
+// can't drive a servo into its stop. Reports anything it had to correct.
 void clampCommand(const char* in, char* out, size_t outSize) {
   size_t o = 0;
   const char* p = in;
@@ -607,70 +479,87 @@ void clampCommand(const char* in, char* out, size_t outSize) {
   out[o] = '\0';
 }
 
-// Runs every stored gait line through the clamp without transmitting, so any
-// value that exceeds a mechanical limit is reported at boot rather than
-// discovered mid-walk. clampCommand() prints each correction it makes.
-void auditTable(const char* const table[], uint8_t len, const __FlashStringHelper* name) {
-  Serial2.print(F("  checking "));
-  Serial2.println(name);
-  for (uint8_t i = 0; i < len; i++) {
-    strncpy_P(cmdBuf, (const char*)pgm_read_ptr(&table[i]), sizeof(cmdBuf) - 1);
-    cmdBuf[sizeof(cmdBuf) - 1] = '\0';
-    clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
+// ---------------------------------------------------------------------------
+// MOVEMENT -- inverse kinematics (ik_gait.h). Each Move*() plays one gait cycle.
+// ---------------------------------------------------------------------------
+
+// One frame to the controller, moving over `ms`. False if a foot is out of reach.
+bool ikSend(const ik::Frame& f, uint16_t ms) {
+  if (!ik::line(f, cmdBuf, sizeof(cmdBuf))) {
+    Serial2.println(F("IK: foot out of reach, frame skipped"));
+    return false;
   }
-}
-
-void auditAllGaits() {
-  Serial2.println(F("Auditing gait tables against servo limits..."));
-  auditTable(FORWARD_GAIT,    FORWARD_GAIT_LEN,    F("FORWARD"));
-  auditTable(BACKWARD_GAIT,   BACKWARD_GAIT_LEN,   F("BACKWARD"));
-  auditTable(TURN_LEFT_GAIT,  TURN_LEFT_GAIT_LEN,  F("TURN LEFT"));
-  auditTable(TURN_RIGHT_GAIT, TURN_RIGHT_GAIT_LEN, F("TURN RIGHT"));
-  auditTable(SHUTDOWN_SEQ,    SHUTDOWN_SEQ_LEN,    F("SHUTDOWN"));
-  strncpy_P(cmdBuf, STAND_CMD, sizeof(cmdBuf) - 1);
-  cmdBuf[sizeof(cmdBuf) - 1] = '\0';
-  clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
-  Serial2.println(F("Audit done. Any CLAMP lines above are values your gaits"));
-  Serial2.println(F("exceed -- fix the XML, or widen the limit if it's safe."));
-}
-
-void sendCmdP(const char* pgmCmd) {
-  strncpy_P(cmdBuf, pgmCmd, sizeof(cmdBuf) - 1);
-  cmdBuf[sizeof(cmdBuf) - 1] = '\0';
   clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
   Serial.print(safeBuf);
   Serial.print('T');
-  Serial.print(GAIT_MOVE_MS);
+  Serial.print(ms);
   Serial.print("\r\n");
+  ikNow = f;
+  return true;
 }
 
-void sendTableLine(const char* const table[], uint8_t index) {
-  sendCmdP((const char*)pgm_read_ptr(&table[index]));
-}
-
-// ---------------------------------------------------------------------------
-// MOVEMENT FUNCTIONS -- each plays one full cycle
-// ---------------------------------------------------------------------------
-bool playGait(const char* const table[], uint8_t len, const bool* scanTable) {
-  for (uint8_t i = 0; i < len; i++) {
-    unsigned long frameStart = millis();      // clock starts BEFORE transmission
-    sendTableLine(table, i);
-    bool scanSafe = scanTable ? (bool)pgm_read_byte(&scanTable[i]) : false;
-    if (!gaitWaitUntil(frameStart, LINE_MS, scanSafe)) return false;
+// Waits like gaitWaitUntil, but a new drive command doesn't cut it short: only
+// tilt safety / shutdown does. For standing up, so feet always land first.
+bool finishWaitUntil(unsigned long start, unsigned long ms) {
+  while (millis() - start < ms) {
+    while (Serial.available()) Serial2.write(Serial.read());
+    server.handleClient();
+    pollTilt();
+    pollIR();
+    pollWeb();
+    if (sysState != SYS_ACTIVE) return false;
   }
   return true;
 }
 
+// From where the feet are to `target`, in ik::STEPS small moves (the reference's
+// interpolation). Each step occupies stepMs + the line's transmit time.
+// finish: don't stop for a new command (standing up between gaits).
+bool ikMoveTo(const ik::Frame& target, bool scanSafe, bool finish) {
+  const ik::Frame from = ikNow;
+  const uint16_t ms = ik::stepMs();
+  for (uint8_t i = 1; i <= ik::STEPS; i++) {
+    unsigned long frameStart = millis();
+    if (!ikSend(ik::lerp(from, target, (float)i / ik::STEPS), ms)) return false;
+    // feet all down at the end of this key frame: safe to range-find
+    bool waited = finish ? finishWaitUntil(frameStart, ms + TIMING_MARGIN_MS)
+                         : gaitWaitUntil(frameStart, ms + TIMING_MARGIN_MS, scanSafe && i == ik::STEPS);
+    if (!waited) return false;
+  }
+  return true;
+}
+
+// One gait cycle: four key frames. scan = the frames that end with every foot down.
+bool ikCycle(ik::Frame (*const frames[4])(), bool scan) {
+  for (uint8_t i = 0; i < 4; i++) {
+    if (!ikMoveTo(frames[i](), scan && (i == 1 || i == 3), false)) return false;
+  }
+  return true;
+}
+
+// Stand at once (tilt safety, boot): one move, no interpolation
+void ikSnapHome() { ikSend(ik::home(), 300); }
+
+ik::Frame (*const IK_FORWARD[4])()  = { ik::W0, ik::W1, ik::W2, ik::W3 };
+ik::Frame (*const IK_BACKWARD[4])() = { ik::W0, ik::W3, ik::W2, ik::W1 };
+ik::Frame (*const IK_LEFT[4])()     = { ik::R0, ik::R1, ik::R2, ik::R3 };
+ik::Frame (*const IK_RIGHT[4])()    = { ik::R0, ik::R3, ik::R2, ik::R1 };
+
+// The stand pose right now (tilt safety, boot): no interpolation
+void standNow() { ikSnapHome(); }
+
+// Every change of gait passes through here, so all six feet are down before the
+// next one starts (the reference only changes state with the feet down, too).
 void Stand() {
-  sendCmdP(STAND_CMD);
+  ikMoveTo(ik::home(), false, true);
   currentMove = MOVE_STAND;
   Serial2.println(F("MOVE -> STAND"));
 }
 
-bool MoveForward()  { return playGait(FORWARD_GAIT,    FORWARD_GAIT_LEN,    FORWARD_SCAN_SAFE); }
-bool MoveBackward() { return playGait(BACKWARD_GAIT,   BACKWARD_GAIT_LEN,   NULL); }
-bool TurnLeft()     { return playGait(TURN_LEFT_GAIT,  TURN_LEFT_GAIT_LEN,  NULL); }
-bool TurnRight()    { return playGait(TURN_RIGHT_GAIT, TURN_RIGHT_GAIT_LEN, NULL); }
+bool MoveForward()   { return ikCycle(IK_FORWARD, true); }
+bool MoveBackward()  { return ikCycle(IK_BACKWARD, false); }
+bool TurnLeft()      { return ikCycle(IK_LEFT, false); }
+bool TurnRight()     { return ikCycle(IK_RIGHT, false); }
 
 // ---------------------------------------------------------------------------
 // Every movement change passes through the standing pose first
@@ -704,9 +593,7 @@ bool requestMove(MovementState next) {
 // gaitWait -- the only wait used inside a movement
 // ---------------------------------------------------------------------------
 // Waits until `ms` have elapsed since `start`. Because the caller timestamps
-// before transmitting, every gait frame occupies exactly LINE_MS regardless of
-// how many channels that line contains -- which is how the RTrobot software
-// schedules its groups. Returns false when the move should be dropped.
+// before transmitting, every step takes the same time however long its line is. Returns false when the move should be dropped.
 bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
   static unsigned long lastPing = 0;
 
@@ -1155,7 +1042,11 @@ void handleStatus() {
   json += "\"controlMode\":" + String((int)controlMode) + ",";
   json += "\"move\":"        + String((int)currentMove) + ",";
   json += "\"wifiMode\":"    + String((int)wifiMode) + ",";
-  json += "\"mpuFound\":"    + String(mpuFound ? 1 : 0);
+  json += "\"mpuFound\":"    + String(mpuFound ? 1 : 0) + ",";
+  json += "\"calibrated\":"  + String(ik::calibrated ? 1 : 0) + ",";
+  json += "\"calibrating\":" + String(calibrating ? 1 : 0) + ",";
+  json += "\"height\":"      + String(ik::height) + ",";
+  json += "\"speed\":"       + String(ik::speed);
   json += "}";
 
   server.send(200, "application/json", json);
@@ -1178,6 +1069,7 @@ void setupWebServer() {
   server.on("/mode",     handleModeCmd);
   server.on("/shutdown", handleShutdownCmd);
   server.on("/status",   handleStatus);
+  setupCalibRoutes();
   server.on("/avatar.jpg",  handleAvatar);
   server.on("/favicon.ico", handleAvatar);
   server.begin();
@@ -1312,6 +1204,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   <div id="status">mode: -- | move: -- | wifi: --</div>
 
+  <a href="/calib" style="color:var(--accent);font-size:0.85rem">CALIBRATION</a>
   <div id="shutdownBtn" onclick="doShutdown()">SHUTDOWN</div>
 
   <script>
@@ -1422,6 +1315,125 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 </body>
 </html>
 )rawhtml";
+
+// ---------------------------------------------------------------------------
+// /calib -- line the IK up with WHIP's servos (page in calib_page.h)
+// ---------------------------------------------------------------------------
+char calibPose = 'h';   // the pose /calib is showing: z(ero) / h(ome) / s(leep)
+
+void calibShow(char pose) {
+  calibPose = pose;
+  if (pose == 'z') {
+    ik::zeroLine(cmdBuf, sizeof(cmdBuf));
+    clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
+    Serial.print(safeBuf); Serial.print("T600\r\n");
+  } else {
+    ikSend(pose == 's' ? ik::sleepPose() : ik::home(), 600);
+  }
+}
+
+bool calibArgs(uint8_t& leg, uint8_t& joint) {
+  leg = server.arg("leg").toInt();
+  joint = server.arg("joint").toInt();
+  return server.hasArg("leg") && server.hasArg("joint") && leg < ik::LEGS && joint < ik::JOINTS;
+}
+
+// Every /calib action drives servos: only the unlocked controller
+bool calibAllowed() {
+  if (isController()) return true;
+  server.send(403, "application/json", "{\"ok\":false,\"error\":\"unlock first\"}");
+  return false;
+}
+
+void calibState() {
+  String j = "{\"calibrating\":" + String(calibrating ? 1 : 0) + ",\"calibrated\":" + String(ik::calibrated ? 1 : 0) +
+             ",\"height\":" + String(ik::height) + ",\"speed\":" + String(ik::speed) +
+             ",\"pose\":\"" + String(calibPose) + "\",\"legs\":[";
+  for (uint8_t l = 0; l < ik::LEGS; l++) {
+    j += String(l ? "," : "") + "{\"name\":\"" + ik::LEG_NAMES[l] + "\",\"servos\":[";
+    for (uint8_t k = 0; k < ik::JOINTS; k++) {
+      const ik::ServoCal& c = ik::cal[l][k];
+      j += String(k ? "," : "") + "{\"joint\":\"" + ik::JOINT_NAMES[k] + "\",\"ch\":" + c.ch +
+           ",\"rev\":" + (c.rev ? 1 : 0) + ",\"trim\":" + c.trim + "}";
+    }
+    j += "]}";
+  }
+  server.send(200, "application/json", j + "]}");
+}
+
+void setupCalibRoutes() {
+  server.on("/calib", []() { server.send_P(200, "text/html", CALIB_HTML); });
+  server.on("/calib/state", calibState);
+  server.on("/calib/start", []() {            // stop walking and hold still
+    if (!calibAllowed()) return;
+    calibrating = true;
+    abortMovement = true;
+    webActiveCmd = 0;
+    currentMove = MOVE_STAND;
+    calibShow('h');
+    calibState();
+  });
+  server.on("/calib/done", []() {
+    if (!calibAllowed()) return;
+    calibrating = false;
+    ikNow = ik::home();
+    standNow();
+    calibState();
+  });
+  server.on("/calib/pose", []() {             // ?p=zero|home|sleep
+    if (!calibAllowed()) return;
+    if (!calibrating) { server.send(409, "application/json", "{\"ok\":false,\"error\":\"press START first\"}"); return; }
+    String p = server.arg("p");
+    calibShow(p == "zero" ? 'z' : p == "sleep" ? 's' : 'h');
+    calibState();
+  });
+  server.on("/calib/set", []() {              // ?leg=&joint=&ch=&rev=&trim=, shown at once
+    if (!calibAllowed()) return;
+    uint8_t leg, joint;
+    if (!calibrating || !calibArgs(leg, joint)) { server.send(400, "application/json", "{\"ok\":false}"); return; }
+    ik::ServoCal& c = ik::cal[leg][joint];
+    if (server.hasArg("ch"))   c.ch   = constrain(server.arg("ch").toInt(), 0, 32);
+    if (server.hasArg("rev"))  c.rev  = server.arg("rev") == "1";
+    if (server.hasArg("trim")) c.trim = constrain(server.arg("trim").toInt(), -400, 400);
+    calibShow(calibPose);
+    calibState();
+  });
+  server.on("/calib/wiggle", []() {           // that one servo 15 degrees out and back: which leg is it?
+    if (!calibAllowed()) return;
+    uint8_t leg, joint;
+    if (!calibrating || !calibArgs(leg, joint)) { server.send(400, "application/json", "{\"ok\":false}"); return; }
+    const ik::ServoCal& c = ik::cal[leg][joint];
+    for (int d : { 15, 0, 15, 0 }) {
+      Serial.printf("#%uP%dT250\r\n", c.ch, constrain(ik::toUs(leg, joint, d), 500, 2500));
+      delay(300);
+    }
+    calibShow(calibPose);
+    calibState();
+  });
+  server.on("/calib/save", []() {
+    if (!calibAllowed()) return;
+    ik::calibrated = true;
+    ik::save();
+    calibState();
+  });
+  server.on("/calib/defaults", []() {
+    if (!calibAllowed()) return;
+    ik::loadDefaults();
+    if (calibrating) calibShow(calibPose);
+    calibState();
+  });
+  server.on("/gait", []() {                    // ?height=0-9 &speed=0-9, saved
+    if (!calibAllowed()) return;
+    if (server.hasArg("height")) ik::height = constrain(server.arg("height").toInt(), 0, 9);
+    if (server.hasArg("speed"))  ik::speed  = constrain(server.arg("speed").toInt(), 0, 9);
+    ik::save();
+    abortMovement = true;            // re-stand at the new height
+    currentMove = MOVE_STAND;
+    if (calibrating && calibPose == 'h') calibShow('h');
+    else if (!calibrating) { ikNow = ik::home(); standNow(); }
+    calibState();
+  });
+}
 
 void handleRoot() {
   server.send_P(200, "text/html", INDEX_HTML);
@@ -1534,7 +1546,7 @@ void enterTiltSafe() {
     controlModeBeforeTilt = controlMode;
     sysState      = SYS_TILT_SAFE;
     abortMovement = true;
-    sendCmdP(STAND_CMD);
+    standNow();
     currentMove = MOVE_STAND;
     Serial2.println(F("TILT SAFE - holding stand pose"));
   }
@@ -1543,7 +1555,7 @@ void enterTiltSafe() {
 void exitTiltSafe() {
   sysState    = SYS_ACTIVE;
   controlMode = controlModeBeforeTilt;
-  sendCmdP(STAND_CMD);
+  standNow();
   currentMove = MOVE_STAND;
   Serial2.println(F("Recovering from tilt"));
   delay(500);
@@ -1581,10 +1593,11 @@ void pollTilt() {
 // ---------------------------------------------------------------------------
 // Shutdown
 // ---------------------------------------------------------------------------
-void ShutdownSequence() {
-  for (uint8_t i = 0; i < SHUTDOWN_SEQ_LEN; i++) {
-    sendTableLine(SHUTDOWN_SEQ, i);
-    delay(LINE_MS);
+void ShutdownSequence() {        // settle slowly into the lowest stance (not onto the battery)
+  const ik::Frame from = ikNow, to = ik::sleepPose();
+  for (uint8_t i = 1; i <= 8; i++) {
+    ikSend(ik::lerp(from, to, i / 8.0f), 250);
+    delay(250 + TIMING_MARGIN_MS);
   }
   Serial2.println(F("Shutdown complete."));
 }

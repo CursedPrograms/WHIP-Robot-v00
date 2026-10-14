@@ -21,7 +21,7 @@ param(
 # ---- what to flash (the only lines that differ between robots) ----
 $Robot  = "WHIP"
 $Sketch = Join-Path $PSScriptRoot "esp32"
-$Fqbn   = "esp32:esp32:esp32"   # default partitions
+$Fqbn   = "esp32:esp32:esp32:PartitionScheme=huge_app"   # his sketch needs the 3 MB app partition (1.9 MB, like NORA)
 $Before = ""   # anything to say before flashing ("" = nothing)
 # --------------------------------------------------------------------
 

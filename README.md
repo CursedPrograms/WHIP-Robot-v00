@@ -143,7 +143,7 @@ The servo controller shares UART0 with the USB-serial bridge, exactly like NORA'
 <details>
 <summary><b>Servo channels</b></summary>
 
-The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per leg). Every pose and gait line comes from `gait.xml`, exported from the RTrobot editor.
+The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per leg). Which channel is which leg and joint, and each servo's trim and direction, are set on `/calib` (defaults in `ik_gait.h`: channels 1-9 the left legs front to back, 24-32 the right).
 
 `scripts/servo_setup/servo_setup.ino` sends every channel to 1500 µs (centre) for fitting the servo horns. It runs on an Arduino with the controller on SoftwareSerial pins 11 (RX) and 10 (TX) at 38400 baud.
 
@@ -197,18 +197,18 @@ Draws a PS2-style pad and drives WHIP over WiFi. It finds her on NORA's network 
 <details>
 <summary><b>Gaits</b></summary>
 
-### What the firmware does
-| Movement | Lines | Source |
-|---|---|---|
-| Forward | 4 | `gait.xml` "Forward" group |
-| Backward | 4 | `gait.xml` |
-| Turn left / turn right | 5 each | `gait.xml` |
-| Stand, rest, shut down | Poses | `gait.xml` "Reset - Shut Down" group |
+### Walking by inverse kinematics
+WHIP walks only by working out every joint from where each foot should be, in millimetres (`scripts/esp32/ik_gait.h`), instead of playing recorded poses (the old `gait.xml` gaits are gone from the firmware). The leg maths, the chassis measurements and the tripod gait come from **Jakob Leander's hexapod** ([code](https://github.com/JakobLeander/hexapod), MIT licence; [video series](https://www.youtube.com/@jakobleander)). WHIP is built on the same chassis. WHIP's own parts are the RTrobot controller link, the channel map, and the calibration page. Everything online stays as it was: web control, fleet, IR, obstacle avoidance and tilt safety.
 
-Each line is sent with a move time of `GAIT_MOVE_MS` (300 ms). Retuning the walking speed is that one constant in `esp32.ino`.
+- **Calibrate once** at `http://<WHIP>:5005/calib`, with the PIN and the feet off the ground.
+  - **ZERO** puts every servo in its middle. Each leg should then point straight out from the body, thigh level, foot hanging down.
+  - Trim each servo until it does. **WIGGLE** checks a servo's channel, and **rev** flips a direction.
+  - **SAVE** keeps it all in flash, so no reflash is needed.
+- Height (0-9) and speed (0-9) are set on the same page.
+- `GET /status` now also reports `gait`, `calibrated`, `height` and `speed`.
 
 ### Gait reference
-The patterns below are the design notes for future gaits. The current firmware walks with the tables above.
+The patterns below are design notes for future gaits. The firmware walks the tripod gait.
 
 | Gait | Logic | Best for |
 | :--- | :--- | :--- |
@@ -312,5 +312,4 @@ WHIP hears the others over **ESP-NOW** (NORA, MILA) and **Bluetooth LE** (NORA, 
 
 **Minds** — [DREAM](https://github.com/CursedPrograms/DREAM) companion · [TINA](https://github.com/CursedPrograms/TINA) engineer · [NINA](https://github.com/CursedPrograms/NINA) caretaker · [RIFT](https://github.com/CursedPrograms/RIFT) fleet hub · [LYCEA](https://github.com/CursedPrograms/LYCEA) training school  
 **Robots** — [NORA](https://github.com/CursedPrograms/NORA-Robot-v00) · [MILA](https://github.com/CursedPrograms/MILA-Robot-v00) · [WHIP](https://github.com/CursedPrograms/WHIP-Robot-v00) · [KIDA-00](https://github.com/CursedPrograms/KIDA-Robot-v00) · [KIDA-01](https://github.com/CursedPrograms/KIDA-Robot-v01) · [IDA](https://github.com/CursedPrograms/IDA-Robot-v00) · [ARM](https://github.com/CursedPrograms/ARM-Robot-v01)  
-**Tools** — [CRUSH](https://github.com/CursedPrograms/CRUSH) compression · [Image-Generator](https://github.com/CursedPrograms/Image-Generator) · [GloriosaAI](https://github.com/CursedPrograms/GloriosaAI) · [SynthWomb](https://github.com/CursedPrograms/SynthWomb) · [PyVitals](https://github.com/CursedPrograms/PyVitals)  
 <!-- DREAM-ECOSYSTEM:END -->
