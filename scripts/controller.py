@@ -506,6 +506,8 @@ class ControllerLayout:
 
 
 def main():
+    from fleet_ladder import FleetLadder   # the fleet's WiFi ladder (fleet TODO, section 2): FLEET_LADDER=1 turns it on
+    FleetLadder("WHIPCTL").start()
     app = ControllerLayout()
     app.run()
     sys.exit(0)

@@ -36,6 +36,33 @@ obstacle avoidance, tilt safety, PIN.
       clear the ground higher near lift-off and touch-down than the old triangle did.
 - [ ] Later, easy with IK: walking sideways, "walk 10 cm", body tilt, more gaits (wave, ripple).
 
+## Network (field test 2026-10-14: "WHIP did not show in RIFT nor did he make his own WiFi")
+
+**Done 2026-10-18: the fleet's ladder** (fleet TODO, section 2): he joins the highest network above him,
+else hosts "WHIP" + the fleet list on :5000, looks again every 60 s and starts over when his network goes
+quiet; the WiFi password is now the fleet's (secrets.h; it was 12345678). Compiles, not flashed. The notes
+below are from before, kept for the history. What the code did (`setupWiFi()` in esp32.ino):
+- At boot he scans for "NORA". If he sees her, he **joins her network** (15 s to connect) and makes no
+  "WHIP" network. His site is then at `http://192.168.4.<n>:5005` (NORA's DHCP), and the only place
+  that address shows up is NORA's fleet list (`http://192.168.4.1:5000/robots`), which he registers
+  with (`registerWithFleet()`). RIFT only learns about him through that list.
+- If NORA isn't there (as last time), he hosts **"WHIP"** (password 12345678) and his site is at
+  `http://192.168.4.1:5005`.
+- So "no WHIP network" most likely means he joined NORA. "Not in RIFT" then follows from RIFT losing NORA
+  (her web server was blocked while her page was open, so RIFT also lost the roster that lists WHIP).
+  Being fixed in RIFT: probe NORA on :5000.
+
+To do:
+- [ ] Check on the robot: Serial2 debug console (GPIO17, 115200) prints "Joined NORA. IP: ..." or
+      "AP "WHIP" up". Or open `http://192.168.4.1:5000/robots` while on NORA's WiFi.
+- [ ] Same problem as MILA had: he decides **once, at boot**. If NORA starts later he hosts his own AP
+      forever, and if NORA reboots he never rejoins. Keep looking for NORA in the background and switch
+      (see the MILA fix in MILA-Robot-v00/scripts/esp8266/esp8266.ino).
+- [ ] Show his IP somewhere you can see it: his own AP name? A beep pattern? NORA's page lists the fleet
+      roster, so check that shows his address with a link.
+- [ ] Registration uses `http.setTimeout(2000)` against NORA's :5000. Fine once NORA's fleet server
+      answers reliably; re-check after the RIFT / NORA fixes.
+
 **Note for the next session (on the other PC):** WHIP's code was changed on the main PC
 (D:\cc\DREAM Robotics Ecosystem). Check `git log` / `git status` before working. If this file or
 `scripts/esp32/ik_gait.h` is missing, the work hasn't been pushed yet: ask the user, don't rewrite it.
