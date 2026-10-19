@@ -13,7 +13,7 @@
 // avoidance stays with the ultrasonic / ToF sensors.
 //
 // Two radios feed the same list:
-//   ESP-NOW   NORA, WHIP and MILA (MILA's ESP8266 only sends)
+//   ESP-NOW   NORA, WHIP, MILA and NIKA (MILA's and NIKA's ESP8266s only send)
 //   BLE       fleet_near_ble.h: NORA and WHIP beacon and scan over Bluetooth LE,
 //             which is how they hear the Pi robots (KIDA-00, KIDA-01) and the
 //             KIDAs hear them. Heard on both = a surer "it's really nearby".
@@ -254,7 +254,7 @@ static void fleetNearLoop() {
 //            and it has right of way: stop, wait, turn away, carry on. Not if
 //            it's already leaving.
 // Right of way: the name earlier in the alphabet goes first (KIDA00 > KIDA01 >
-// NORA > WHIP), except that everyone gives way to MILA: her ESP8266 can't hear
+// NORA > WHIP), except that everyone gives way to MILA and NIKA: their ESP8266s can't hear
 // the others, so she can't yield herself. Every robot applies the same rule, so
 // two robots never both freeze or both push on. Only for modes where the robot
 // drives itself.
@@ -282,11 +282,11 @@ static FleetAdvice fleetNearAdvice(char* who = nullptr) {
     //   it's parked      -> I'm the one closing in, so I steer away
     //   it's yielding    -> it's making way for me: carry on (carefully)
     //   a human drives it -> unpredictable: I make way
-    //   it drives itself -> the alphabet decides; MILA can't hear us, so she always gets the way
+    //   it drives itself -> the alphabet decides; MILA and NIKA can't hear us, so they always get the way
     bool myTurnToWait;
     if (p.state == FLEET_YIELDING) myTurnToWait = false;
     else if (p.state == FLEET_PARKED || p.state == FLEET_USER) myTurnToWait = true;
-    else myTurnToWait = strcmp(p.name, "MILA") == 0 || strcmp(fleetSelf, p.name) > 0;
+    else myTurnToWait = strcmp(p.name, "MILA") == 0 || strcmp(p.name, "NIKA") == 0 || strcmp(fleetSelf, p.name) > 0;
     // coming closer: act sooner (yield from "near", be careful from "medium"); going away: no need to yield
     float yieldAt = coming ? FLEET_CAUTION_RSSI : FLEET_YIELD_RSSI;
     float cautionAt = coming ? -75 : FLEET_CAUTION_RSSI;

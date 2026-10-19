@@ -142,7 +142,7 @@ WebServer server(5005);
 // would disturb her link / ESP-NOW): she scans when /radar is opened. Passive
 // -- she never connects to or touches a network that is not hers.
 const char* const FLEET_SSIDS[] = { "RIFT", "DREAM", "NINA", "TINA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL",
-                                    "ARMCTL", "NORA", "WHIP", "KIDA01", "KIDA00", "ARM", "MILA" };
+                                    "ARMCTL", "NORA", "WHIP", "KIDA01", "KIDA00", "ARM", "MILA", "NIKA" };
 const unsigned long RADAR_MIN_GAP_MS = 10000;
 String radarJson = "{\"scanning\":false,\"nets\":[]}";
 unsigned long lastRadarScan = 0;
