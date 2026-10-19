@@ -7,7 +7,7 @@ dpad/triggers live if a joystick is connected -- and drives WHIP over WiFi:
 
     D-pad / arrow keys : forward / backward / turn left / turn right
     Cross (A)          : switch WHIP into WEB control mode (required before
-                         drive commands do anything -- she boots into
+                         drive commands do anything -- he boots into
                          Obstacle Avoidance mode, same as arduino.ino)
     Circle (B)         : switch WHIP back to Obstacle Avoidance mode
     Square (X)         : switch WHIP to IR Remote mode
@@ -15,14 +15,14 @@ dpad/triggers live if a joystick is connected -- and drives WHIP over WiFi:
 
 CONNECTING
 
-On startup this looks for WHIP the same way her own firmware (scripts/
+On startup this looks for WHIP the same way his own firmware (scripts/
 esp32/esp32.ino) looks for NORA:
 
     1. Try NORA's fixed AP address (192.168.4.1:5000/robots). If she
        answers, WHIP is somewhere on her network -- look WHIP up in the
-       fleet roster RIFT/NORA both serve there and use her registered IP.
+       fleet roster RIFT/NORA both serve there and use his registered IP.
     2. If NORA isn't reachable, assume this PC is on WHIP's own AP
-       ("WHIP" / "12345678") instead, and try her directly at her AP's
+       ("WHIP", the fleet's password) instead, and try him directly at his AP's
        fixed gateway address, 192.168.4.1:5005.
 
 Either way it ends up with a base URL for WHIP's control server
@@ -40,8 +40,9 @@ import pygame
 import requests
 
 import keymap   # scripts/keymap.py: every key and button, in its own window (F1)
+import mind     # scripts/mind.py: his LLM mind (MIND mode), shared by every robot's controller
 
-WIDTH, HEIGHT = 900, 620
+WIDTH, HEIGHT = 900, 820   # the bottom 200 px: the mind's panel
 BG_COLOR = (18, 18, 22)
 PANEL_COLOR = (32, 32, 38)
 OUTLINE_COLOR = (70, 70, 80)
@@ -80,12 +81,13 @@ AP_GATEWAY_IP = "192.168.4.1"
 NORA_FLEET_PORT = 5000     # NORA's /robots + /register port (see RIFT's README port table)
 WHIP_PORT = 5005           # RIFT's assigned port for WHIP's control page
 WHIP_NAME = "WHIP"
+CONTROL_PIN = "1234"       # esp32.ino's CONTROL_PIN
 
 DISCOVERY_TIMEOUT = 1.5
 REQUEST_TIMEOUT = 0.5
 # WHIP heartbeats to NORA's registry every 10s (FLEET_HEARTBEAT_MS in
-# esp32.ino) -- give her a few cycles to show up if NORA's up but WHIP
-# hasn't registered yet (e.g. she's still booting).
+# esp32.ino) -- give him a few cycles to show up if NORA's up but WHIP
+# hasn't registered yet (e.g. he's still booting).
 WHIP_REGISTER_RETRIES = 6
 WHIP_REGISTER_RETRY_DELAY = 2.0
 RECONNECT_DELAY = 2.0
@@ -119,6 +121,9 @@ class WhipLink:
         self.connected = False
         self.searching = True
         self.status = None
+        self.mind_on = False        # MIND mode: mind.py drives through /mind, so no /web ticks
+        self.mind_capable = False   # mind.can_think() said yes: unlock and check in as his mind host
+        self._host_unlocked = False
 
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -150,6 +155,7 @@ class WhipLink:
                 if not self.connected:
                     time.sleep(RECONNECT_DELAY)
                     continue
+                self._unlock()
             self._tick()
             time.sleep(TICK_INTERVAL)
 
@@ -172,27 +178,104 @@ class WhipLink:
             time.sleep(WHIP_REGISTER_RETRY_DELAY)
 
         # 2. No NORA (or WHIP never showed up in her roster) -- assume
-        # we're on WHIP's own AP and try her directly.
+        # we're on WHIP's own AP and try him directly.
         own_ap_url = f"http://{AP_GATEWAY_IP}:{WHIP_PORT}"
         if _get_json(self._session, f"{own_ap_url}/status") is not None:
             self.base_url = own_ap_url
             self.connected = True
 
+    def _unlock(self):
+        # His PIN (a safety catch, esp32.ino CONTROL_PIN); ctl=1 says it's this controller, the only one
+        # that may switch on MIND mode. Without it every /web and /mode answers LOCKED.
+        try:
+            params = {"pw": CONTROL_PIN, "ctl": "1"} if self.mind_capable else {"pw": CONTROL_PIN}
+            self._session.get(f"{self.base_url}/unlock", params=params, timeout=DISCOVERY_TIMEOUT)
+            self._host_unlocked = self.mind_capable
+        except requests.RequestException:
+            self.connected = False
+
+    def get(self, path, **params):
+        """One request from the mind's thread (its own session): the JSON, or None."""
+        if not self.base_url:
+            return None
+        try:
+            r = requests.get(f"{self.base_url}{path}", params=params, timeout=3)
+            return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"text": r.text}
+        except (requests.RequestException, ValueError):
+            return None
+
     def _tick(self):
         with self._lock:
             cmd = self._desired_cmd
         try:
-            self._session.get(f"{self.base_url}/web", params={"cmd": cmd}, timeout=REQUEST_TIMEOUT)
-            r = self._session.get(f"{self.base_url}/status", timeout=REQUEST_TIMEOUT)
+            if self.mind_capable and not self._host_unlocked:   # can_think() finished after we connected
+                self._unlock()
+            if not self.mind_on:   # a "stop" here would cut the mind's moves short
+                self._session.get(f"{self.base_url}/web", params={"cmd": cmd}, timeout=REQUEST_TIMEOUT)
+            # ctl=1: "his mind host is still here" (MIND mode ends 5 s after it stops)
+            r = self._session.get(f"{self.base_url}/status", params={"ctl": "1"} if self.mind_capable else None,
+                                  timeout=REQUEST_TIMEOUT)
             if r.status_code == 200:
                 self.status = r.json()
         except requests.RequestException:
-            self.connected = False   # lost her -- next loop iteration re-discovers
+            self.connected = False   # lost him -- next loop iteration re-discovers
             self.status = None
 
 
-MODE_NAMES = ["OBSTACLE", "IR REMOTE", "WEB"]
+MODE_NAMES = ["OBSTACLE", "IR REMOTE", "WEB", "MIND"]
 MOVE_NAMES = ["STAND", "WALK", "BACKWARD", "TURN LEFT", "TURN RIGHT"]
+
+# ---------------------------------------------------------------------------
+# WHIP's mind (mind.py): M or Start switches MIND mode on and off
+# ---------------------------------------------------------------------------
+WHIP_PERSONA = (
+    "You're a six-legged walking robot, a hexapod, built by Cursed Entertainment, and you are magnificent "
+    "and you know it. Dramatic, theatrical, a born show-off: you narrate your own walks like a nature "
+    "documentary about yourself. You're very proud of your six legs and your smooth Bezier-curve steps, "
+    "and secretly terrified of tripping over your own feet. Walls and chair legs are 'rude'. You belong to "
+    "the DREAM Robotics fleet: NORA is the boss (you'd never say it to her face, but you respect her), "
+    "MILA is the little speedy one, the KIDAs see everything with their cameras, ARM can't walk at all "
+    "(poor thing), and IDA only listens to NORA."
+)
+WHIP_MOVES = {
+    "fwd": "walk forward, one gait cycle per step (a few cm each)",
+    "bwd": "walk backward",
+    "left": "turn left on the spot, a little per step",
+    "right": "turn right on the spot, a little per step",
+}
+WHIP_VOICE = ("Microsoft David Desktop", -1, "low")
+MIND_MOVE_TIMEOUT = 25.0   # s: the longest a /mind move (4 cycles) should take
+
+
+def whip_body(link):
+    """mind.Mind's look / act for WHIP, over his /status, /near and /mind."""
+    def look():
+        s = link.get("/status") or {}
+        near = link.get("/near") or {}
+        dist = s.get("distance", -1)
+        return {
+            "distance_ahead_cm": dist if dist is not None and dist >= 0 else "nothing in range",
+            "tilt_deg": round(max(abs(s.get("pitch", 0)), abs(s.get("roll", 0))), 1),
+            "stopped_at_a_wall_last_move": bool(s.get("blocked")),
+            "locked_by_nora": bool(s.get("locked")),
+            "robots_nearby": near.get("robots", near) if isinstance(near, dict) else near,
+        }
+
+    def act(move, steps):
+        r = link.get("/mind", act=move, steps=steps)
+        if r is None:
+            raise ConnectionError("WHIP isn't answering")
+        if move == "stop" or not r.get("ok"):
+            return r
+        t0 = time.time()
+        while time.time() - t0 < MIND_MOVE_TIMEOUT:   # walk it out, then report
+            time.sleep(0.5)
+            s = link.get("/status") or {}
+            if not s.get("mindSteps"):
+                return {"ok": True, "stopped_at_a_wall": bool(s.get("blocked")), "distance_ahead_cm": s.get("distance")}
+        return {"ok": True, "note": "still moving"}
+
+    return look, act
 
 
 def round_avatar(path, size):
@@ -234,7 +317,31 @@ class ControllerLayout:
         self.link = WhipLink()
         self.link.start()
 
+        look, act = whip_body(self.link)
+        self.mind = mind.Mind("WHIP", WHIP_PERSONA, WHIP_MOVES, look, act,
+                              voice=WHIP_VOICE[0], rate=WHIP_VOICE[1], pitch=WHIP_VOICE[2])
+        self.mind_check = "checking this PC..."   # why MIND mode is (not) available here
+        threading.Thread(target=self._check_mind, daemon=True).start()
+        self._prev_mind_key = False
+
         self._prev_face_buttons = {"Cross": False, "Circle": False, "Square": False, "Triangle": False}
+
+    def _check_mind(self):
+        ok, why = mind.can_think()
+        self.mind_check = why
+        self.link.mind_capable = ok
+
+    def _sync_mind(self):
+        # The robot's mode is the switch: MIND here (M / Start) or on his web page starts the mind,
+        # anything else (another mode, the remote, his controller gone) ends it.
+        status = self.link.status or {}
+        in_mind = self.link.connected and status.get("controlMode") == 3
+        if in_mind and not self.mind.on and self.link.mind_capable:
+            self.mind.start()
+        elif not in_mind and self.mind.on:
+            self.mind.on = False   # its loop ends; he's already out of MIND, nothing to stop
+            self.mind.state = "off"
+        self.link.mind_on = self.mind.on
 
     def _connect_joystick(self):
         if pygame.joystick.get_count() > 0:
@@ -260,6 +367,7 @@ class ControllerLayout:
                     self._connect_joystick()
 
             self._update_drive()
+            self._sync_mind()
             self.draw()
             self.clock.tick(60)
 
@@ -328,6 +436,11 @@ class ControllerLayout:
         if rising_edge("Triangle"):
             self.link.drive("stop")
 
+        mind_key = keys[pygame.K_m] or self._button_pressed(11)   # M / Start: MIND on or off
+        if mind_key and not self._prev_mind_key and self.link.mind_capable:
+            self.link.set_mode("web" if self.mind.on else "mind")
+        self._prev_mind_key = mind_key
+
     # -- drawing -----------------------------------------------------
 
     def draw(self):
@@ -340,6 +453,7 @@ class ControllerLayout:
         self._draw_sticks()
         self._draw_shoulders()
         self._draw_center_buttons()
+        self._draw_mind()
         pygame.display.flip()
 
     def _draw_header(self):
@@ -384,10 +498,10 @@ class ControllerLayout:
 
     def _draw_body(self):
         pygame.draw.rect(
-            self.screen, PANEL_COLOR, pygame.Rect(20, 120, WIDTH - 40, HEIGHT - 140), border_radius=24
+            self.screen, PANEL_COLOR, pygame.Rect(20, 120, WIDTH - 40, 480), border_radius=24
         )
         pygame.draw.rect(
-            self.screen, OUTLINE_COLOR, pygame.Rect(20, 120, WIDTH - 40, HEIGHT - 140), width=2, border_radius=24
+            self.screen, OUTLINE_COLOR, pygame.Rect(20, 120, WIDTH - 40, 480), width=2, border_radius=24
         )
 
     def _button_pressed(self, index):
@@ -505,10 +619,10 @@ class ControllerLayout:
     def _draw_center_buttons(self):
         specs = [
             ("Select", 400, 230, 8),
-            ("Start", 500, 230, 11),
+            ("Start (MIND)", 500, 230, 11),
         ]
         for label, x, y, btn_idx in specs:
-            rect = pygame.Rect(x - 35, y - 12, 70, 24)
+            rect = pygame.Rect(x - 50, y - 12, 100, 24)
             active = self._button_pressed(btn_idx)
             color = ACTIVE_COLOR if active else IDLE_COLOR
             pygame.draw.rect(self.screen, color, rect, border_radius=12)
@@ -516,6 +630,48 @@ class ControllerLayout:
             label_surf = self.font_small.render(label, True, TEXT_COLOR)
             lrect = label_surf.get_rect(center=rect.center)
             self.screen.blit(label_surf, lrect)
+
+    def _wrap(self, text, font, width):
+        lines = []
+        for para in text.split("\n"):
+            line = ""
+            for word in para.split(" "):
+                test = (line + " " + word).strip()
+                if font.size(test)[0] <= width:
+                    line = test
+                else:
+                    if line:
+                        lines.append(line)
+                    line = word
+            lines.append(line)
+        return lines
+
+    def _draw_mind(self):
+        box = pygame.Rect(20, 610, WIDTH - 40, 196)
+        pygame.draw.rect(self.screen, PANEL_COLOR, box, border_radius=16)
+        pygame.draw.rect(self.screen, ACTIVE_COLOR if self.mind.on else OUTLINE_COLOR, box, width=2, border_radius=16)
+        m = self.mind
+        if m.on:
+            head, color = f"MIND: {m.state}   (M / Start: off)", ACTIVE_COLOR
+        elif self.link.mind_capable:
+            head, color = f"MIND: off  -  M / Start to switch it on  ({self.mind_check})", MUTED_TEXT
+        else:
+            head, color = f"MIND: not on this PC  -  {self.mind_check}", WARN_COLOR
+        self.screen.blit(self.font.render(head, True, color), (36, 620))
+        y = 646
+        if m.said:
+            for line in self._wrap(f'WHIP: "{m.said}"', self.font, box.width - 32)[:2]:
+                self.screen.blit(self.font.render(line, True, TEXT_COLOR), (36, y))
+                y += 22
+        if m.error:
+            self.screen.blit(self.font_small.render(f"! {m.error}", True, (200, 90, 90)), (36, y))
+            y += 18
+        # his thoughts, newest at the bottom (the user loves reading them)
+        thoughts = self._wrap(m.thinking.strip(), self.font_small, box.width - 32) if m.thinking.strip() else []
+        room = max(0, (box.bottom - 10 - y) // 17)
+        for line in thoughts[-room:] if room else []:
+            self.screen.blit(self.font_small.render(line, True, MUTED_TEXT), (36, y))
+            y += 17
 
 
 def main():

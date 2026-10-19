@@ -37,7 +37,7 @@
     <div class="eyebrow">A DREAM Robotics Agent &middot; Hexapod</div>
     <h1>WHIP</h1>
     <p class="tagline">Walking Hexapod Intelligence Platform</p>
-    <p class="lede">Eighteen servos on an RTrobot controller, driven by an ESP32 that runs her gaits, WiFi and a browser control page. An MPU6050 stops her before she tips, and an ultrasonic sensor watches the way ahead.</p>
+    <p class="lede">Eighteen servos on an RTrobot controller, driven by an ESP32 that runs his gaits, WiFi and a browser control page. An MPU6050 stops him before he tips, and an ultrasonic sensor watches the way ahead.</p>
     <div class="cta">
       <a class="btn primary" href="https://github.com/CursedPrograms/WHIP-Robot-v00">View on GitHub</a>
       <a class="btn" href="#controls">Controls</a>
@@ -83,27 +83,27 @@
       <div class="card">
         <span class="k">Avoid</span>
         <h4>Obstacle mode</h4>
-        <p>Walks on her own until something is within 20&nbsp;cm, then stands, turns and carries on once it's clear past 35&nbsp;cm.</p>
+        <p>Walks on his own, 5&nbsp;s after power-on, until something is within 20&nbsp;cm, then stands, turns and carries on once it's clear past 35&nbsp;cm.</p>
       </div>
       <div class="card">
         <span class="k">Balance</span>
         <h4>Tilt safety</h4>
-        <p>Past 10&deg; of pitch or roll she stops and stands, and resumes once she's back under 7&deg;.</p>
+        <p>Past 10&deg; of pitch or roll he stops and stands, and resumes once he's back under 7&deg;.</p>
       </div>
       <div class="card">
         <span class="k">Remote</span>
         <h4>IR remote</h4>
-        <p>Arrows walk and turn while held. She stands when you let go.</p>
+        <p>Arrows walk and turn while held. He stands when you let go.</p>
       </div>
       <div class="card">
         <span class="k">Web</span>
         <h4>Browser &amp; gamepad</h4>
-        <p>A control page on port <code>5005</code>, and a Python controller that drives her from a PS2-style gamepad.</p>
+        <p>A control page on port <code>5005</code>, and a Python controller that drives him from a PS2-style gamepad.</p>
       </div>
       <div class="card">
         <span class="k">Fleet</span>
         <h4>RIFT integration</h4>
-        <p>She joins the <code>NORA</code> network and registers with the fleet, or hosts her own access point.</p>
+        <p>He joins the highest fleet network he can see and registers with the fleet, or hosts his own access point.</p>
       </div>
     </div>
   </div>
@@ -112,7 +112,7 @@
 <section id="hardware">
   <div class="wrap">
     <h2>Hardware</h2>
-    <h3 class="title">What she's built from</h3>
+    <h3 class="title">What he's built from</h3>
     <ol class="parts">
       <li><span class="n">01</span> ESP32 (the same module as NORA)</li>
       <li><span class="n">02</span> RTrobot 32-channel servo controller</li>
@@ -169,12 +169,12 @@ All grounds tied together</pre>
       <div class="card mode">
         <span class="k"><kbd>1</kbd> &middot; IR remote</span>
         <h4>Hold to walk</h4>
-        <p>Arrows walk and turn. 350&nbsp;ms without a repeat and she stands.</p>
+        <p>Arrows walk and turn. 350&nbsp;ms without a repeat and he stands.</p>
       </div>
       <div class="card mode">
         <span class="k">Web</span>
         <h4>Browser or gamepad</h4>
-        <p>The page's D-pad or the Python controller. 500&nbsp;ms without a command and she stands.</p>
+        <p>The page's D-pad or the Python controller. 500&nbsp;ms without a command and he stands.</p>
       </div>
     </div>
     <h3 class="sub">Python controller</h3>
@@ -198,10 +198,10 @@ All grounds tied together</pre>
 <section id="quickstart">
   <div class="wrap">
     <h2>Quick start</h2>
-    <h3 class="title">Get her walking</h3>
+    <h3 class="title">Get him walking</h3>
     <ol class="steps">
       <li>Flash <code>scripts/esp32/esp32.ino</code> with the servo controller's wires disconnected, then reconnect them.</li>
-      <li>Power WHIP. She stands, joins NORA's network or starts her own <code>WHIP</code> AP, and starts in Obstacle Avoidance mode.</li>
+      <li>Power WHIP. He stands, calibrates his gyro and walks off in Obstacle Avoidance mode 5&nbsp;s after power-on, while his WiFi joins in the background.</li>
       <li>Open <code>http://&lt;WHIP's IP&gt;:5005/</code>, or run the Python controller.</li>
     </ol>
 <pre><span class="p">$</span> python -m venv venv
@@ -231,7 +231,7 @@ All grounds tied together</pre>
       <div class="card"><span class="k">Talk</span><h4>In Brainfuck</h4><p>Over ESP-NOW each beacon carries a program that prints <code>park</code>, <code>go</code>, <code>wait</code> or <code>hand</code>; the receiver runs it. RIFT decodes them too.</p></div>
       <div class="card"><span class="k">Manners</span><h4>Who makes way</h4><p>A parked robot isn't the one moving; a yielding one is making way; a human-driven one gets space; otherwise the alphabet decides, and everyone makes way for MILA.</p></div>
     </div>
-    <p class="muted spaced">WHIP hears the others over <b>ESP-NOW</b> (NORA, MILA) and <b>Bluetooth LE</b> (NORA, KIDA-00, KIDA-01). In <b>obstacle</b> mode she stands, then turns away, when a robot with right of way is close. <code>GET /near</code> shows her list.</p>
+    <p class="muted spaced">WHIP hears the others over <b>ESP-NOW</b> (NORA, MILA) and <b>Bluetooth LE</b> (NORA, KIDA-00, KIDA-01). In <b>obstacle</b> mode he stands, then turns away, when a robot with right of way is close. <code>GET /near</code> shows her list.</p>
   </div>
 </section>
 

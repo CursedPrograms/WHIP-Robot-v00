@@ -21,6 +21,7 @@ KEYMAP = [
         ("X", "obstacle avoidance: he walks by himself"),
         ("C", "IR-remote mode"),
         ("V", "stop"),
+        ("M", "MIND mode on / off: the LLM on this PC drives him (x86 PC, GTX 1050+)"),
         ("F1", "this window"),
         ("Esc", "quit"),
     ]),
@@ -30,6 +31,7 @@ KEYMAP = [
         ("Circle / B (1)", "obstacle avoidance"),
         ("Square / X (2)", "IR-remote mode"),
         ("Triangle / Y (3)", "stop"),
+        ("Start (11)", "MIND mode on / off"),
         ("", "plug it in any time"),
     ]),
     ("His IR remote", [
@@ -48,7 +50,7 @@ KEYMAP = [
     ]),
     ("Web page (:5005)", [
         ("PIN, then the D-pad", "unlock with the PIN, then walk (hold)"),
-        ("Mode buttons", "obstacle / IR / web"),
+        ("Mode buttons", "obstacle / IR / web, and MIND while his PC controller can think"),
         ("KEYS", "this list"),
         ("/calib", "line the legs up (stand, trims, height, speed)"),
     ]),

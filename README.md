@@ -63,9 +63,11 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 ### Core Features
 - [x] 18-DOF walking: forward, backward, turn left and turn right gaits, plus stand, rest and shut-down poses.
 - [x] Three control modes: Obstacle Avoidance (the boot default), IR Remote, and Web (the browser page or the Python controller).
-- [x] Tilt safety: past 10° of pitch or roll for 250 ms she stops and stands, and resumes once she is back under 7°.
+- [x] Tilt safety: past 10° of pitch or roll for 250 ms he stops and stands, and resumes once he is back under 7°.
 - [x] Obstacle avoidance: walks until something is closer than 20 cm, then stands, turns and walks on once the way is clear past 35 cm.
-- [x] Fleet: joins NORA's network when it's in range and registers with the fleet, or hosts her own `WHIP` access point.
+- [x] Fleet: joins NORA's network when it's in range and registers with the fleet, or hosts his own `WHIP` access point.
+- [x] Starts walking in obstacle avoidance 5 s after power-on (WiFi joins in the background).
+- [x] MIND mode: the LLM on his PC controller drives him, one short move at a time, and talks in his own voice.
 
 </details>
 
@@ -159,24 +161,25 @@ The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per
 <summary><b>Connectivity & Controls</b></summary>
 
 ### Network
-On boot WHIP looks for NORA's access point. If it's there she joins it and registers with the fleet. If not, she starts her own.
+On boot WHIP joins the highest fleet network he can see (the fleet's ladder: RIFT, DREAM, NINA, TINA, the controllers, NORA) and registers with the fleet. With none in range he hosts his own, and he looks again every minute. Joining happens in the background, so he walks off 5 s after power-on either way.
 
 | Parameter | Value |
 | :--- | :--- |
-| **NORA's network** | SSID `NORA`, password `12345678` |
-| **WHIP's own AP** | SSID `WHIP`, password `12345678` |
+| **Fleet networks** | RIFT, DREAM, NINA, TINA, the controllers, NORA (the fleet's password, `scripts/esp32/secrets.h`) |
+| **WHIP's own AP** | SSID `WHIP`, the fleet's password |
 | **Control page** | `http://<WHIP's IP>:5005/` |
 | **Fleet registry** | `192.168.4.1:5000/register` (heartbeat every 10 s) |
 
 ### RIFT Integration
-WHIP's control page is on port `5005`, the port [RIFT](https://github.com/CursedPrograms/RIFT) assigns her. On NORA's network she shows up in RIFT's Registered Fleet list.
+WHIP's control page is on port `5005`, the port [RIFT](https://github.com/CursedPrograms/RIFT) assigns him. On the fleet's network he shows up in RIFT's Registered Fleet list.
 
 ### Control modes
 | Mode | How | What it does |
 |---|---|---|
-| **Obstacle Avoidance** | IR `2`, web, gamepad Circle | Walks on her own and turns away from anything within 20 cm (boot default) |
-| **IR Remote** | IR `1`, gamepad Square | Arrows walk and turn while held. She stands when you let go (350 ms timeout) |
-| **Web** | Web page, gamepad Cross | D-pad on the page or the Python controller. She stands if the browser goes quiet for 500 ms |
+| **Obstacle Avoidance** | IR `2`, web, gamepad Circle | Walks on his own and turns away from anything within 20 cm (starts 5 s after power-on) |
+| **IR Remote** | IR `1`, gamepad Square | Arrows walk and turn while held. He stands when you let go (350 ms timeout) |
+| **Web** | Web page, gamepad Cross | D-pad on the page or the Python controller. He stands if the browser goes quiet for 500 ms |
+| **Mind** | `M` / Start on the Python controller, or MIND on his page | The LLM on his PC controller drives him: he stands while it thinks, then makes one short move, says what he thinks in his own voice, and remembers. Only a controller on an x86 PC with 8 GB+ RAM and a GTX 1050 or better (AMD RX 460 / 560 or better) offers it; the MIND button on his page only shows while one is connected. He stops at walls, and leaves MIND mode 5 s after that controller goes quiet |
 
 ### Driven by NORA (fleet IR link)
 [NORA](https://github.com/CursedPrograms/NORA-Robot-v00) can drive WHIP through her IR transmitter, from her web page, Python controller or Bluetooth. The frames are Samsung-format IR at address `0x0DA3`, with the fleet link's commands: `0x48` forward, `0x49` back, `0x4A` left, `0x4B` right, `0x4C` stop, `0x4D` obstacle mode, `0x4E` manual, `0x4F` speed. Driving switches her into IR Remote mode, and each command runs as the matching remote button. She stands once the link has been quiet for 600 ms (frames can land mid-step). She has one gait speed, so `speed` is ignored. Link frames print as `LINK cmd=0x..`.
@@ -198,6 +201,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | X | obstacle avoidance: he walks by himself |
 | C | IR-remote mode |
 | V | stop |
+| M | MIND mode on / off: the LLM on this PC drives him (x86 PC, GTX 1050+) |
 | F1 | this window |
 | Esc | quit |
 
@@ -210,6 +214,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | Circle / B (1) | obstacle avoidance |
 | Square / X (2) | IR-remote mode |
 | Triangle / Y (3) | stop |
+| Start (11) | MIND mode on / off |
 | | *plug it in any time* |
 
 **His IR remote**
@@ -237,7 +242,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | Key | Does |
 |---|---|
 | PIN, then the D-pad | unlock with the PIN, then walk (hold) |
-| Mode buttons | obstacle / IR / web |
+| Mode buttons | obstacle / IR / web, and MIND while his PC controller can think |
 | KEYS | this list |
 | /calib | line the legs up (stand, trims, height, speed) |
 
@@ -250,7 +255,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 <!-- keymap:end -->
 
 ### Python controller (`scripts/controller.py`)
-Draws a PS2-style pad and drives WHIP over WiFi. It finds her on NORA's network first, and on her own AP otherwise.
+Draws a PS2-style pad and drives WHIP over WiFi. It finds him on NORA's network first, and on his own AP otherwise. It unlocks him with his PIN, and `M` / Start switches on his mind (`scripts/mind.py`).
 
 | Input | Action |
 |---|---|
@@ -303,7 +308,7 @@ The patterns below are design notes for future gaits. The firmware walks the tri
 <summary><b>View How to Run</b></summary>
 
 1. Flash `scripts/esp32/esp32.ino` to the ESP32 (servo controller wires disconnected), then reconnect them.
-2. Power WHIP. She stands, connects to NORA's network or starts her own `WHIP` AP, and starts in Obstacle Avoidance mode.
+2. Power WHIP. He stands at 2 s, holds still while his gyro calibrates, and walks off in Obstacle Avoidance mode at 5 s. His WiFi (the fleet's network, or his own `WHIP` AP) joins in the background.
 3. Open `http://<WHIP's IP>:5005/` in a browser, or run the Python controller:
 
 ```bash
@@ -343,7 +348,7 @@ It's coarse (walls, bodies and antenna angle all change it): for "who's around",
 
 Making way = stop for 2 s, turn away, then drive on (and not yield again for 5 s, so two robots that stay close don't take turns forever). While another robot is near, or coming closer, it drives slower with wider margins.
 
-WHIP hears the others over **ESP-NOW** (NORA, MILA) and **Bluetooth LE** (NORA, KIDA-00, KIDA-01). In **obstacle** mode she stands still and then turns away when a robot with right of way is close. `GET /near` shows her list. Code: `scripts/esp32/fleet_near.h` and `fleet_near_ble.h` (BLE adds a lot of code: she may need the *Huge APP* partition scheme).
+WHIP hears the others over **ESP-NOW** (NORA, MILA) and **Bluetooth LE** (NORA, KIDA-00, KIDA-01). In **obstacle** mode he stands still and then turns away when a robot with right of way is close. `GET /near` shows his list. Code: `scripts/esp32/fleet_near.h` and `fleet_near_ble.h` (BLE adds a lot of code: he may need the *Huge APP* partition scheme).
 
 ---
 

@@ -158,6 +158,12 @@ bool radarRequested = false;
 const char* const CONTROL_PIN = "1234";
 IPAddress controllerIP(0, 0, 0, 0);
 bool controllerUnlocked = false;
+// The mind host: a PC controller that can run the LLM (mind.py can_think()) unlocks with
+// /unlock?pw=&ctl=1 and checks in on every /status?ctl=1. MIND mode needs it there: the
+// button (controller or web page) only works while it is, and only it drives /mind.
+IPAddress mindHostIP(0, 0, 0, 0);
+unsigned long mindHostSeen = 0;
+const unsigned long MIND_HOST_TTL_MS = 5000;   // silent this long: gone, and MIND mode ends
 
 // ---------------------------------------------------------------------------
 // The fleet list he registers with: whoever hosts the network he joined (its gateway: RIFT, DREAM,
@@ -273,7 +279,7 @@ const float COMPLEMENTARY_ALPHA = 0.98;
 // State
 // ---------------------------------------------------------------------------
 enum SystemState   { SYS_ACTIVE, SYS_TILT_SAFE, SYS_SHUTDOWN };
-enum ControlMode   { CTRL_OBSTACLE, CTRL_IR, CTRL_WEB };
+enum ControlMode   { CTRL_OBSTACLE, CTRL_IR, CTRL_WEB, CTRL_MIND };
 enum MovementState { MOVE_STAND, MOVE_WALK, MOVE_BACKWARD, MOVE_TURN_LEFT, MOVE_TURN_RIGHT };
 
 SystemState   sysState    = SYS_ACTIVE;
@@ -284,6 +290,14 @@ MovementState currentMove = MOVE_STAND;
 bool abortMovement = false;   // cleared at the top of every loop()
 ik::Frame ikNow;          // where the feet are (the last frame sent)
 bool calibrating = false; // /calib is open: WHIP stands still and takes no drive commands
+
+// MIND mode: the controller's LLM (mind.py) drives him one short move at a time
+// (/mind?act=fwd&steps=2), and he stands while it thinks. Only his PC controller
+// can switch it on or drive it (not his web page); a wall ahead ends a forward move.
+const uint8_t MIND_MAX_STEPS = 4;   // gait cycles per /mind command
+uint8_t mindAct     = 0;            // WEB_FORWARD ... WEB_RIGHT, 0 = stand
+uint8_t mindSteps   = 0;            // cycles left
+bool    mindBlocked = false;        // the last forward move stopped at a wall
 
 uint8_t irActiveCmd      = 0;
 uint8_t irCmdAtMoveStart = 0;
@@ -463,12 +477,20 @@ void loop() {
 
   if (calibrating) return;   // /calib moves the servos itself; WHIP doesn't walk meanwhile
   if (linkLocked) { requestMove(MOVE_STAND); return; }   // NORA locked his legs
+  if (controlMode == CTRL_MIND && !mindHostAlive()) {    // the mind's controller went quiet
+    controlMode = CTRL_WEB;
+    webActiveCmd = 0;
+    mindSteps = 0;
+    Serial2.println(F("MIND: controller gone -> WEB (standing)"));
+  }
   if (millis() < WALK_AFTER_BOOT_MS) return;            // just booted: standing until it's time
 
   if (controlMode == CTRL_OBSTACLE) {
     runObstacleMode();
   } else if (controlMode == CTRL_IR) {
     runIRMode();
+  } else if (controlMode == CTRL_MIND) {
+    runMindMode();
   } else {
     runWebMode();
   }
@@ -667,7 +689,7 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
     pollWeb();
 
     // While walking, watch for a wall on the settled gait frames only
-    if (scanSafe && controlMode == CTRL_OBSTACLE && currentMove == MOVE_WALK
+    if (scanSafe && (controlMode == CTRL_OBSTACLE || controlMode == CTRL_MIND) && currentMove == MOVE_WALK
         && millis() - lastPing >= 100) {
       lastPing = millis();
       long distance = readDistanceCM();
@@ -680,7 +702,8 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
 
       if (obstacleCount >= OBSTACLE_DEBOUNCE) {
         obstacleCount    = 0;
-        obstacleDetected = true;
+        if (controlMode == CTRL_MIND) { mindSteps = 0; mindBlocked = true; }
+        else obstacleDetected = true;
         abortMovement    = true;   // stop mid-cycle, go stand
       }
     }
@@ -745,6 +768,21 @@ void runWebMode() {
   else {
     requestMove(MOVE_STAND);   // no button held / connection lost -> stand
   }
+}
+
+// ---------------------------------------------------------------------------
+// MIND MODE -- the steps the last /mind command asked for, then stand
+// ---------------------------------------------------------------------------
+void runMindMode() {
+  if (mindSteps == 0) { requestMove(MOVE_STAND); return; }
+
+  bool done = false;
+  if      (mindAct == WEB_FORWARD)  { if (requestMove(MOVE_WALK))       done = MoveForward(); }
+  else if (mindAct == WEB_BACKWARD) { if (requestMove(MOVE_BACKWARD))   done = MoveBackward(); }
+  else if (mindAct == WEB_LEFT)     { if (requestMove(MOVE_TURN_LEFT))  done = TurnLeft(); }
+  else if (mindAct == WEB_RIGHT)    { if (requestMove(MOVE_TURN_RIGHT)) done = TurnRight(); }
+  if (done && mindSteps) mindSteps--;
+  else if (!done) mindSteps = 0;   // cut short (wall, tilt, stop, mode change): stand and report
 }
 
 // Browser repeats the held command every ~200ms (see INDEX_HTML); if none
@@ -1169,6 +1207,40 @@ void handleWebCmd() {
   server.send(200, "text/plain", "OK");
 }
 
+// /mind?act=fwd|bwd|left|right|stop&steps=1-4 (MIND mode only). A forward move
+// with a wall within MIN_DISTANCE_CM is refused: {"ok":false,"blocked":true}.
+bool mindHostAlive() { return mindHostSeen && millis() - mindHostSeen < MIND_HOST_TTL_MS; }
+
+void handleMindCmd() {
+  if (!mindHostAlive() || server.client().remoteIP() != mindHostIP) { server.send(403, "text/plain", "LOCKED"); return; }
+  if (controlMode != CTRL_MIND) { server.send(409, "application/json", "{\"ok\":false,\"error\":\"not in mind mode\"}"); return; }
+  String act = server.arg("act");
+  int steps = server.hasArg("steps") ? server.arg("steps").toInt() : 1;
+  if (steps < 1) steps = 1;
+  if (steps > MIND_MAX_STEPS) steps = MIND_MAX_STEPS;
+
+  uint8_t a = 0;
+  if      (act == "fwd")   a = WEB_FORWARD;
+  else if (act == "bwd")   a = WEB_BACKWARD;
+  else if (act == "left")  a = WEB_LEFT;
+  else if (act == "right") a = WEB_RIGHT;
+  else if (act == "stop")  { mindSteps = 0; abortMovement = true; server.send(200, "application/json", "{\"ok\":true}"); return; }
+  else { server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad act\"}"); return; }
+
+  mindBlocked = false;
+  if (a == WEB_FORWARD) {
+    long d = readDistanceCM();
+    if (d > 0 && d < MIN_DISTANCE_CM) {
+      mindBlocked = true;
+      server.send(200, "application/json", "{\"ok\":false,\"blocked\":true,\"distance\":" + String(d) + "}");
+      return;
+    }
+  }
+  mindAct   = a;
+  mindSteps = steps;
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void handleModeCmd() {
   if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
   if (!server.hasArg("m")) { server.send(400, "text/plain", "missing 'm'"); return; }
@@ -1190,6 +1262,13 @@ void handleModeCmd() {
     webActiveCmd  = 0;
     abortMovement = true;
     Serial2.println(F("CONTROL -> WEB"));
+  } else if (m == "mind") {
+    if (!mindHostAlive()) { server.send(409, "text/plain", "no mind controller running"); return; }
+    controlMode   = CTRL_MIND;
+    mindSteps     = 0;
+    mindBlocked   = false;
+    abortMovement = true;
+    Serial2.println(F("CONTROL -> MIND"));
   } else {
     server.send(400, "text/plain", "bad mode");
     return;
@@ -1206,6 +1285,7 @@ void handleShutdownCmd() {
 }
 
 void handleStatus() {
+  if (server.arg("ctl") == "1" && mindHostSeen && server.client().remoteIP() == mindHostIP) mindHostSeen = millis();
   long distance = readDistanceCM();
 
   String json = "{";
@@ -1221,6 +1301,9 @@ void handleStatus() {
   json += "\"calibrated\":"  + String(ik::calibrated ? 1 : 0) + ",";
   json += "\"calibrating\":" + String(calibrating ? 1 : 0) + ",";
   json += "\"locked\":"      + String(linkLocked ? 1 : 0) + ",";
+  json += "\"mindHost\":"    + String(mindHostAlive() ? 1 : 0) + ",";
+  json += "\"mindSteps\":"   + String(mindSteps) + ",";
+  json += "\"blocked\":"     + String(mindBlocked ? 1 : 0) + ",";
   json += "\"height\":"      + String(ik::height) + ",";
   json += "\"speed\":"       + String(ik::speed);
   json += "}";
@@ -1235,6 +1318,7 @@ void setupWebServer() {
     if (server.hasArg("pw") && server.arg("pw") == CONTROL_PIN) {
       controllerIP = server.client().remoteIP();
       controllerUnlocked = true;
+      if (server.arg("ctl") == "1") { mindHostIP = controllerIP; mindHostSeen = millis(); }
       server.send(200, "application/json", "{\"ok\":true,\"controller\":\"" + controllerIP.toString() + "\"}");
     } else {
       server.send(403, "application/json", "{\"ok\":false,\"error\":\"bad pin\"}");
@@ -1244,6 +1328,7 @@ void setupWebServer() {
   server.on("/",         handleRoot);
   server.on("/web",      handleWebCmd);
   server.on("/mode",     handleModeCmd);
+  server.on("/mind",     handleMindCmd);
   server.on("/shutdown", handleShutdownCmd);
   server.on("/status",   handleStatus);
   setupCalibRoutes();
@@ -1371,6 +1456,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="mode-btn" id="modeObstacle" onclick="setMode('obstacle')">OBSTACLE</div>
     <div class="mode-btn" id="modeIr"       onclick="setMode('ir')">IR REMOTE</div>
     <div class="mode-btn" id="modeWeb"      onclick="setMode('web')">WEB</div>
+    <div class="mode-btn" id="modeMind"     onclick="setMode('mind')" style="display:none" title="the LLM on his PC controller drives him">MIND</div>
   </div>
 
   <div class="dpad">
@@ -1461,7 +1547,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       document.getElementById('modeObstacle').classList.toggle('active', m === 'obstacle');
       document.getElementById('modeIr').classList.toggle('active', m === 'ir');
       document.getElementById('modeWeb').classList.toggle('active', m === 'web');
-      document.querySelectorAll('.dpad .btn').forEach(function (b) {
+      document.getElementById('modeMind').classList.toggle('active', m === 'mind');      document.querySelectorAll('.dpad .btn').forEach(function (b) {
         b.classList.toggle('disabled', m !== 'web');
       });
     }
@@ -1472,7 +1558,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       }
     }
 
-    const MODE_NAMES  = ['OBSTACLE', 'IR', 'WEB'];
+    const MODE_NAMES  = ['OBSTACLE', 'IR', 'WEB', 'MIND'];
     const MOVE_NAMES  = ['STAND', 'WALK', 'BACKWARD', 'TURN L', 'TURN R'];
     const WIFI_NAMES  = ['JOINED', 'HOSTING'];
 
@@ -1480,6 +1566,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       fetch('/status').then(function (r) { return r.json(); }).then(function (j) {
         document.getElementById('sDist').textContent = j.distance >= 0 ? j.distance : '--';
         document.getElementById('sTilt').textContent = Math.max(Math.abs(j.pitch), Math.abs(j.roll)).toFixed(1);
+        document.getElementById('modeMind').style.display = j.mindHost ? '' : 'none';   // only while his controller can think
         document.getElementById('status').textContent =
           'mode: ' + MODE_NAMES[j.controlMode] +
           ' | move: ' + MOVE_NAMES[j.move] +
