@@ -298,6 +298,21 @@ const uint8_t MIND_MAX_STEPS = 4;   // gait cycles per /mind command
 uint8_t mindAct     = 0;            // WEB_FORWARD ... WEB_RIGHT, 0 = stand
 uint8_t mindSteps   = 0;            // cycles left
 bool    mindBlocked = false;        // the last forward move stopped at a wall
+bool    manualBlocked = false;      // driven by hand (IR / web) and there's a wall: he won't walk on
+
+// Driven by hand, like NORA (MANUAL_STOP_CM), MILA and IDA (guardDist): forward is refused while
+// something is within MIN_DISTANCE_CM. One ping per 100 ms at most (HC-SR04 needs ~60 ms between).
+long readDistanceCM();
+bool wallInWay() {
+  static unsigned long lastPing = 0;
+  static long d = -1;
+  if (millis() - lastPing >= 100) {
+    lastPing = millis();
+    d = readDistanceCM();
+  }
+  manualBlocked = d > 0 && d < MIN_DISTANCE_CM;
+  return manualBlocked;
+}
 
 uint8_t irActiveCmd      = 0;
 uint8_t irCmdAtMoveStart = 0;
@@ -689,7 +704,8 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
     pollWeb();
 
     // While walking, watch for a wall on the settled gait frames only
-    if (scanSafe && (controlMode == CTRL_OBSTACLE || controlMode == CTRL_MIND) && currentMove == MOVE_WALK
+    if (scanSafe && currentMove == MOVE_WALK   // every mode: obstacle, mind, and driven by hand
+
         && millis() - lastPing >= 100) {
       lastPing = millis();
       long distance = readDistanceCM();
@@ -703,7 +719,8 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
       if (obstacleCount >= OBSTACLE_DEBOUNCE) {
         obstacleCount    = 0;
         if (controlMode == CTRL_MIND) { mindSteps = 0; mindBlocked = true; }
-        else obstacleDetected = true;
+        else if (controlMode == CTRL_OBSTACLE) obstacleDetected = true;
+        else manualBlocked = true;   // IR / web: stand; wallInWay() keeps him from walking on
         abortMovement    = true;   // stop mid-cycle, go stand
       }
     }
@@ -731,7 +748,8 @@ void runIRMode() {
   irCmdAtMoveStart = irActiveCmd;
 
   if (irActiveCmd == IR_FORWARD) {
-    if (requestMove(MOVE_WALK)) MoveForward();
+    if (wallInWay()) requestMove(MOVE_STAND);   // driven by hand: no walking into a wall
+    else if (requestMove(MOVE_WALK)) MoveForward();
   }
   else if (irActiveCmd == IR_BACKWARD) {
     if (requestMove(MOVE_BACKWARD)) MoveBackward();
@@ -754,7 +772,8 @@ void runWebMode() {
   webCmdAtMoveStart = webActiveCmd;
 
   if (webActiveCmd == WEB_FORWARD) {
-    if (requestMove(MOVE_WALK)) MoveForward();
+    if (wallInWay()) requestMove(MOVE_STAND);   // driven by hand: no walking into a wall
+    else if (requestMove(MOVE_WALK)) MoveForward();
   }
   else if (webActiveCmd == WEB_BACKWARD) {
     if (requestMove(MOVE_BACKWARD)) MoveBackward();
@@ -1303,7 +1322,7 @@ void handleStatus() {
   json += "\"locked\":"      + String(linkLocked ? 1 : 0) + ",";
   json += "\"mindHost\":"    + String(mindHostAlive() ? 1 : 0) + ",";
   json += "\"mindSteps\":"   + String(mindSteps) + ",";
-  json += "\"blocked\":"     + String(mindBlocked ? 1 : 0) + ",";
+  json += "\"blocked\":"     + String(mindBlocked || manualBlocked ? 1 : 0) + ",";
   json += "\"height\":"      + String(ik::height) + ",";
   json += "\"speed\":"       + String(ik::speed);
   json += "}";

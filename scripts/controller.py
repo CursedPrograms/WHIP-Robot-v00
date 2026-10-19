@@ -245,6 +245,8 @@ WHIP_MOVES = {
 }
 WHIP_VOICE = ("Microsoft David Desktop", -1, "low")
 MIND_MOVE_TIMEOUT = 25.0   # s: the longest a /mind move (4 cycles) should take
+RUMBLE_WARN_CM, RUMBLE_STOP_CM = 40, 15   # the pad buzzes from here, full here (gamepad_drive.py's)
+TILT_RUMBLE_DEG = 10.0     # esp32.ino's TILT_LIMIT_DEG: he stands from here, and the pad shakes
 
 
 def whip_body(link):
@@ -323,6 +325,7 @@ class ControllerLayout:
         self.mind_check = "checking this PC..."   # why MIND mode is (not) available here
         threading.Thread(target=self._check_mind, daemon=True).start()
         self._prev_mind_key = False
+        self._rumble_level, self._rumble_at = (0.0, 0.0), 0.0
 
         self._prev_face_buttons = {"Cross": False, "Circle": False, "Square": False, "Triangle": False}
 
@@ -413,6 +416,7 @@ class ControllerLayout:
         # WEB_CMD_TIMEOUT_MS watchdog from dropping back to stand mid-move,
         # so this just needs to record the latest desired command.
         self.link.drive(cmd)
+        self._rumble(cmd)
 
         keys = pygame.key.get_pressed()
         face = {
@@ -440,6 +444,32 @@ class ControllerLayout:
         if mind_key and not self._prev_mind_key and self.link.mind_capable:
             self.link.set_mode("web" if self.mind.on else "mind")
         self._prev_mind_key = mind_key
+
+    def _rumble(self, cmd):
+        # KIDA-01's haptics for his pad (and NORA's / MILA's gamepad_drive.rumble_level): while you
+        # walk him forward the light motor buzzes from 40 cm, full at 15 cm; tipping shakes both.
+        if self.joystick is None:
+            return
+        s = self.link.status or {}
+        tipping = max(abs(s.get("pitch", 0)), abs(s.get("roll", 0))) > TILT_RUMBLE_DEG
+        dist = s.get("distance", -1) if cmd == "fwd" else -1
+        if tipping:
+            level = (1.0, 1.0)
+        elif dist is not None and 0 < dist < RUMBLE_WARN_CM:
+            level = (0.0, min(1.0, (RUMBLE_WARN_CM - dist) / (RUMBLE_WARN_CM - RUMBLE_STOP_CM)))
+        else:
+            level = (0.0, 0.0)
+        now = time.monotonic()
+        if level == self._rumble_level and (not any(level) or now - self._rumble_at < 0.3):
+            return
+        self._rumble_level, self._rumble_at = level, now
+        try:
+            if any(level):
+                self.joystick.rumble(level[0], level[1], 500)
+            else:
+                self.joystick.stop_rumble()
+        except (pygame.error, AttributeError):
+            pass
 
     # -- drawing -----------------------------------------------------
 
