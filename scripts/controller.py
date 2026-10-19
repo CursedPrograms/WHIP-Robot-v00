@@ -39,6 +39,8 @@ import time
 import pygame
 import requests
 
+import keymap   # scripts/keymap.py: every key and button, in its own window (F1)
+
 WIDTH, HEIGHT = 900, 620
 BG_COLOR = (18, 18, 22)
 PANEL_COLOR = (32, 32, 38)
@@ -249,6 +251,8 @@ class ControllerLayout:
                     running = False
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     running = False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
+                    keymap.open_window()
                 elif event.type in (
                     pygame.JOYDEVICEADDED,
                     pygame.JOYDEVICEREMOVED,
@@ -264,14 +268,23 @@ class ControllerLayout:
     # -- driving -------------------------------------------------------
 
     def _dpad_direction(self):
-        """(dx, dy) in [-1,0,1] from the joystick hat, falling back to arrow keys."""
+        """(dx, dy) in [-1,0,1] from the joystick hat, then the left stick (a gamepad's, or
+        ARM's flight stick), then the arrow keys / WASD."""
         hat = self._hat()
         if hat != (0, 0):
             return hat[0], hat[1]
 
+        if self.joystick is not None and self.joystick.get_numaxes() >= 2:
+            try:
+                x, y = self.joystick.get_axis(0), self.joystick.get_axis(1)
+            except pygame.error:
+                x = y = 0.0
+            if max(abs(x), abs(y)) > 0.4:
+                return (0, -1 if y > 0 else 1) if abs(y) >= abs(x) else (1 if x > 0 else -1, 0)
+
         keys = pygame.key.get_pressed()
-        dx = (1 if keys[pygame.K_RIGHT] else 0) - (1 if keys[pygame.K_LEFT] else 0)
-        dy = (1 if keys[pygame.K_UP] else 0) - (1 if keys[pygame.K_DOWN] else 0)
+        dx = (1 if keys[pygame.K_RIGHT] or keys[pygame.K_d] else 0) - (1 if keys[pygame.K_LEFT] or keys[pygame.K_a] else 0)
+        dy = (1 if keys[pygame.K_UP] or keys[pygame.K_w] else 0) - (1 if keys[pygame.K_DOWN] or keys[pygame.K_s] else 0)
         return dx, dy
 
     def _update_drive(self):

@@ -38,11 +38,11 @@
   ---------------------------------------------------------------------------
   WIFI
   ---------------------------------------------------------------------------
-  On boot, WHIP scans for an access point named "NORA". If it's in range,
-  WHIP joins it as a station (same password NORA broadcasts with), so both
-  robots share one network. If NORA's AP isn't found, WHIP starts its own
-  access point instead ("WHIP" / "12345678") so the control page is still
-  reachable directly from a phone or laptop. Either way, WHIP's own
+  The fleet's ladder (see "WiFi" below): at boot WHIP joins the highest fleet
+  network he sees above him (RIFT, DREAM, NINA, TINA, the controllers, NORA);
+  with none, he hosts "WHIP" (the fleet's password, secrets.h) and the fleet
+  list on :5000, so the control page is still reachable directly from a phone
+  or laptop. He checks every minute and moves up when he can. Either way, WHIP's own
   WebServer comes up on port 5005 once the network is ready -- check the
   debug console (Serial2, see above) at boot for the IP to browse to
   (http://<ip>:5005/).
@@ -89,6 +89,7 @@
 #include "fleet_near_ble.h"   // ...and the same beacon over Bluetooth LE, so she and the Pi robots (KIDAs) hear each other
 #include <IRremote.hpp>         // IRremote 4.x -- supports ESP32
 #include "ik_gait.h"            // walking by inverse kinematics (Jakob Leander's hexapod, same chassis)
+#include "keys_page.h"           // /keys: every key and button (generated from scripts/keymap.py)
 #include "calib_page.h"         // /calib: trim each servo, check its channel, pick the gait
 
 // ---------------------------------------------------------------------------
@@ -122,6 +123,12 @@ WifiMode wifiMode = WIFI_OWN_AP;
 int joinedRank = -1;                 // which network in ABOVE_WHIP he's on; -1 = hosting his own
 bool higherSeen = false;             // the last scan saw a network above his
 unsigned long netGoneSince = 0;      // his network (or its fleet list) silent since; 0 = fine
+unsigned long joinFailedMs[ABOVE_N] = { 0 };   // when joining it failed at boot: not "higher" again for a while
+const unsigned long JOIN_RETRY_MS = 600000;    // ...10 minutes, so a network he can't join doesn't restart him every minute
+bool wifiBooting = false;            // still working through the networks he saw at boot (wifiBootLoop())
+bool bootSeen[ABOVE_N] = { false };
+int bootTry = -1;                    // the one he's joining now
+unsigned long bootTryStart = 0;
 WebServer fleetServer(5000);         // the fleet list, while he hosts
 
 // RIFT's assigned port for WHIP's control page (see "RIFT FLEET
@@ -203,6 +210,9 @@ unsigned long irTimeoutMs = IR_CMD_TIMEOUT_MS;   // release timeout for the curr
 #define LINK_OBSTACLE  0x4D
 #define LINK_MANUAL    0x4E   // IR remote control mode
 #define LINK_SPEED     0x4F   // WHIP has one gait speed: ignored
+#define LINK_UNLOCK    0x50   // NORA frees his legs
+#define LINK_LOCK      0x51   // NORA locks them: he stands, and walks for nobody until LINK_UNLOCK
+bool linkLocked = false;      // unlocked at boot
 const unsigned long LINK_HOLD_MS = 600;   // longer than the remote: frames can land mid-step
 
 // ---------------------------------------------------------------------------
@@ -236,6 +246,12 @@ const unsigned long CONTROLLER_BAUD = 38400;
 const uint16_t TIMING_MARGIN_MS  = (uint16_t)((145UL * 10UL * 1000UL) / CONTROLLER_BAUD) + 20;
 const unsigned long STAND_SETTLE_MS = TIMING_MARGIN_MS;   // Stand() itself waits out its move
 const unsigned long STAND_HOLD_MS   = 3000;   // hold the stand pose after hitting a wall
+
+// Boot: he stands, holds still for the gyro, and walks off in obstacle avoidance
+// WALK_AFTER_BOOT_MS after power-on, whatever the WiFi is doing (it joins in the background)
+const unsigned long CONTROLLER_BOOT_MS = 2000;   // the servo controller boots too: no pose before this
+const unsigned long BOOT_SETTLE_MS     = 1500;   // stand pose sent -> legs still -> calibrate the MPU
+const unsigned long WALK_AFTER_BOOT_MS = 5000;
 
 // ---------------------------------------------------------------------------
 // Obstacle avoidance tuning
@@ -303,6 +319,9 @@ void pollIR();
 void pollWeb();
 void runWebMode();
 void setupWiFi();
+void tryNextBootNetwork();
+void wifiBootLoop();
+void hostOwnAP();
 void setupWebServer();
 void pollFleetRegistration();
 
@@ -384,13 +403,11 @@ void setup() {
 
   IrReceiver.begin(IRR_PIN, DISABLE_LED_FEEDBACK);
 
-  setupWiFi();
+  fleetNearBleBegin("WHIP");   // Bluetooth doesn't wait for the WiFi
+  setupWiFi();                 // scans (~2 s) and starts joining; wifiBootLoop() finishes it
   setupWebServer();
 
-  delay(2000);
-
-  Serial2.println(F("Calibrating gyro..."));
-  calibrateGyro();
+  while (millis() < CONTROLLER_BOOT_MS) delay(10);
 
   ik::load();
   ikNow = ik::home();
@@ -398,12 +415,16 @@ void setup() {
   standNow();
   Serial2.println(F("Sent: stand pose"));
   currentMove = MOVE_STAND;
-  delay(1500);
+  delay(BOOT_SETTLE_MS);
 
+  Serial2.println(F("Calibrating gyro..."));   // standing still
+  calibrateGyro();
   if (mpuFound) calibrateTiltOffset();
 
   controlMode = CTRL_OBSTACLE;
-  Serial2.println(F("CONTROL -> OBSTACLE AVOIDANCE"));
+  Serial2.print(F("CONTROL -> OBSTACLE AVOIDANCE, walking at "));
+  Serial2.print(WALK_AFTER_BOOT_MS / 1000);
+  Serial2.println(F(" s"));
 }
 
 void loop() {
@@ -425,6 +446,7 @@ void loop() {
 
   server.handleClient();
   radarLoop();
+  wifiBootLoop();
   pollFleetRegistration();
   wifiLadderLoop();
 
@@ -440,6 +462,8 @@ void loop() {
   pollWeb();
 
   if (calibrating) return;   // /calib moves the servos itself; WHIP doesn't walk meanwhile
+  if (linkLocked) { requestMove(MOVE_STAND); return; }   // NORA locked his legs
+  if (millis() < WALK_AFTER_BOOT_MS) return;            // just booted: standing until it's time
 
   if (controlMode == CTRL_OBSTACLE) {
     runObstacleMode();
@@ -663,7 +687,7 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
 
     if (controlMode == CTRL_IR  && irActiveCmd  != irCmdAtMoveStart)  return false;
     if (controlMode == CTRL_WEB && webActiveCmd != webCmdAtMoveStart) return false;
-    if (abortMovement || sysState != SYS_ACTIVE) return false;
+    if (abortMovement || linkLocked || sysState != SYS_ACTIVE) return false;
   }
   return true;
 }
@@ -862,6 +886,8 @@ void runLinkCommand(uint8_t c) {
     case LINK_STOP:     handleIRCommand(IR_MODE_IRControl); handleIRCommand(IR_OK); break;
     case LINK_OBSTACLE: handleIRCommand(IR_MODE_OBSTACLE);  break;
     case LINK_MANUAL:   handleIRCommand(IR_MODE_IRControl); break;
+    case LINK_UNLOCK:   linkLocked = false; break;
+    case LINK_LOCK:     linkLocked = true; irActiveCmd = 0; webActiveCmd = 0; abortMovement = true; break;
   }
 }
 
@@ -899,38 +925,54 @@ void setupWiFi() {
   Serial2.println(F("Looking for the fleet's networks..."));
   WiFi.mode(WIFI_STA);
   int n = WiFi.scanNetworks();
-  bool seen[ABOVE_N] = { false };
   for (int i = 0; i < n; i++) {
     int r = ladderRank(WiFi.SSID(i));
-    if (r >= 0) seen[r] = true;
+    if (r >= 0) bootSeen[r] = true;
   }
   WiFi.scanDelete();
 
-  for (int r = 0; r < ABOVE_N; r++) {   // the highest he sees first, then down the ladder
-    if (!seen[r]) continue;
+  wifiBooting = true;
+  bootTry = -1;
+  tryNextBootNetwork();
+}
+
+// The highest network he saw at boot that he hasn't tried yet; none left -> he hosts
+void tryNextBootNetwork() {
+  for (int r = bootTry + 1; r < ABOVE_N; r++) {
+    if (!bootSeen[r]) continue;
+    bootTry = r;
+    bootTryStart = millis();
     Serial2.print(F("Joining "));
     Serial2.println(ABOVE_WHIP[r]);
     WiFi.begin(ABOVE_WHIP[r], r == 0 ? FLEET_PASSWORD : NORA_PASSWORD);
-    unsigned long attemptStart = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - attemptStart < WIFI_JOIN_MS) {
-      delay(250);
-      Serial2.print('.');
-    }
-    Serial2.println();
-    if (WiFi.status() == WL_CONNECTED) {
-      wifiMode = WIFI_JOINED;
-      joinedRank = r;
-      Serial2.print(F("Joined "));
-      Serial2.print(ABOVE_WHIP[r]);
-      Serial2.print(F(". IP: "));
-      Serial2.println(WiFi.localIP());
-      fleetNearBegin("WHIP", WIFI_IF_STA);   // on that network's channel, so the fleet hears him
-      fleetNearBleBegin("WHIP");
-      return;
-    }
-    WiFi.disconnect(false);
+    return;
   }
+  hostOwnAP();
+}
 
+// Joining in the background, so he walks while it connects (WIFI_JOIN_MS per network)
+void wifiBootLoop() {
+  if (!wifiBooting) return;
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiBooting = false;
+    wifiMode = WIFI_JOINED;
+    joinedRank = bootTry;
+    Serial2.print(F("Joined "));
+    Serial2.print(ABOVE_WHIP[bootTry]);
+    Serial2.print(F(". IP: "));
+    Serial2.println(WiFi.localIP());
+    fleetNearBegin("WHIP", WIFI_IF_STA);   // on that network's channel, so the fleet hears him
+    return;
+  }
+  if (millis() - bootTryStart < WIFI_JOIN_MS) return;
+  WiFi.disconnect(false);
+  joinFailedMs[bootTry] = millis();
+  Serial2.println(F("  couldn't join (password? full?) -> trying the next one"));
+  tryNextBootNetwork();
+}
+
+void hostOwnAP() {
+  wifiBooting = false;
   Serial2.println(F("Nobody above him around -> hosting \"WHIP\""));
   WiFi.mode(WIFI_AP_STA);                        // AP for the robots below; STA so he can still scan
   WiFi.softAP(AP_SSID, AP_PASSWORD, 1, 0, 8);    // channel 1 like every host, up to 8 robots
@@ -938,7 +980,6 @@ void setupWiFi() {
   joinedRank = -1;
   setupFleetServer();
   fleetNearBegin("WHIP", WIFI_IF_AP);
-  fleetNearBleBegin("WHIP");
   Serial2.print(F("AP \""));
   Serial2.print(AP_SSID);
   Serial2.print(F("\" up. IP: "));
@@ -981,6 +1022,7 @@ void pollFleetRegistration() {
 // Climb the ladder: look around now and then (through the radar's scan, so the two never collide)
 // and start over when a higher network is up or his own has gone quiet. Only while he stands.
 void wifiLadderLoop() {
+  if (wifiBooting) return;   // still joining
   if (wifiMode == WIFI_OWN_AP) fleetServer.handleClient();
 
   static unsigned long lastLook = 0;
@@ -1075,6 +1117,7 @@ String radarEscape(const String& in) {
 }
 
 void radarLoop() {
+  if (wifiBooting) return;   // a scan now would get in the way of joining
   if (!radarInFlight && radarRequested && millis() - lastRadarScan >= RADAR_MIN_GAP_MS) {
     radarRequested = false;
     WiFi.scanNetworks(true, true);   // async, include hidden
@@ -1094,7 +1137,8 @@ void radarLoop() {
       bool fleet = ssid.length() && isFleetSsid(ssid);
       if (!fleet) imposters++;
       int r = ladderRank(ssid);   // the ladder: is a network above his own up?
-      if (r >= 0 && (wifiMode == WIFI_OWN_AP || r < joinedRank)) higherSeen = true;
+      if (r >= 0 && (wifiMode == WIFI_OWN_AP || r < joinedRank)
+          && (!joinFailedMs[r] || millis() - joinFailedMs[r] > JOIN_RETRY_MS)) higherSeen = true;
       if (i) j += ",";
       j += "{\"ssid\":\"" + shown + "\",\"rssi\":" + String(WiFi.RSSI(i)) +
            ",\"imposter\":" + String(fleet ? "false" : "true") + "}";
@@ -1176,6 +1220,7 @@ void handleStatus() {
   json += "\"mpuFound\":"    + String(mpuFound ? 1 : 0) + ",";
   json += "\"calibrated\":"  + String(ik::calibrated ? 1 : 0) + ",";
   json += "\"calibrating\":" + String(calibrating ? 1 : 0) + ",";
+  json += "\"locked\":"      + String(linkLocked ? 1 : 0) + ",";
   json += "\"height\":"      + String(ik::height) + ",";
   json += "\"speed\":"       + String(ik::speed);
   json += "}";
@@ -1195,6 +1240,7 @@ void setupWebServer() {
       server.send(403, "application/json", "{\"ok\":false,\"error\":\"bad pin\"}");
     }
   });
+  server.on("/keys",     []() { server.send_P(200, "text/html", KEYS_HTML); });
   server.on("/",         handleRoot);
   server.on("/web",      handleWebCmd);
   server.on("/mode",     handleModeCmd);
@@ -1263,6 +1309,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       background: var(--panel); color: var(--text-dim);
     }
     .mode-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
+    .keys-link { text-decoration: none; }
 
     .dpad {
       display: grid;
@@ -1309,6 +1356,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   <img id="avatar" src="/avatar.jpg" alt="WHIP avatar">
   <h1>WHIP</h1>
   <h2>Hexapod Control</h2>
+  <a class="mode-btn keys-link" href="/keys" target="whip_keys">KEYS</a>
 
   <div id="sensors">
     <div class="sensor-box">
@@ -1668,8 +1716,9 @@ void updateTilt() {
   float pitchAcc = atan2(-accXg, sqrt(accYg * accYg + accZg * accZg)) * RAD_TO_DEG;
   float rollAcc  = atan2(accYg, accZg) * RAD_TO_DEG;
 
-  pitchDeg = COMPLEMENTARY_ALPHA * (pitchDeg + gyroXdps * dt) + (1.0 - COMPLEMENTARY_ALPHA) * pitchAcc;
-  rollDeg  = COMPLEMENTARY_ALPHA * (rollDeg  + gyroYdps * dt) + (1.0 - COMPLEMENTARY_ALPHA) * rollAcc;
+  // pitch turns about Y (accX), roll about X (accY): each integrates its own gyro axis
+  pitchDeg = COMPLEMENTARY_ALPHA * (pitchDeg + gyroYdps * dt) + (1.0 - COMPLEMENTARY_ALPHA) * pitchAcc;
+  rollDeg  = COMPLEMENTARY_ALPHA * (rollDeg  + gyroXdps * dt) + (1.0 - COMPLEMENTARY_ALPHA) * rollAcc;
 }
 
 void enterTiltSafe() {
