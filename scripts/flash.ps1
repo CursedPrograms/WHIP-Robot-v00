@@ -23,6 +23,7 @@ $Robot  = "WHIP"
 $Sketch = Join-Path $PSScriptRoot "esp32"
 $Fqbn   = "esp32:esp32:esp32:PartitionScheme=huge_app"   # his sketch needs the 3 MB app partition (1.9 MB, like NORA)
 $Before = ""   # anything to say before flashing ("" = nothing)
+$Libs   = @("IRremote")   # installed on the first run if missing
 # --------------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
@@ -33,17 +34,58 @@ Add-Type -AssemblyName System.Speech
 $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer
 function Say([string]$text) { Write-Host ">> $text" -ForegroundColor Cyan; $voice.Speak($text) }
 
-# ---- tools: arduino-cli from the Arduino IDE (or PATH), esptool from the ESP32 core ----
+# ---- tools: arduino-cli (the Arduino IDE's, PATH, or downloaded once), the ESP32 core and the
+# libraries, all set up on the first run, so a fresh PC needs nothing installed by hand ----
+$CliVersion  = "1.1.1"
+$CoreVersion = "3.3.12"   # the core every DREAM Robotics ESP32 sketch is built and tested with
+$EspUrl      = "https://espressif.github.io/arduino-esp32/package_esp32_index.json"
 $cli = @(
     "$env:ProgramFiles\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe",
-    "$env:LOCALAPPDATA\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe"
+    "$env:LOCALAPPDATA\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe",
+    "$env:LOCALAPPDATA\arduino-cli\arduino-cli.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $cli) { $cli = (Get-Command arduino-cli -ErrorAction SilentlyContinue).Source }
-if (-not $cli) { Say "I can't find the Arduino IDE. Install it first."; exit 1 }
+if (-not $cli) {
+    Say "I'll download the Arduino command line tool first. Just this once."
+    $dir = "$env:LOCALAPPDATA\arduino-cli"
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $zip = Join-Path $env:TEMP "arduino-cli.zip"
+    Invoke-WebRequest "https://downloads.arduino.cc/arduino-cli/arduino-cli_${CliVersion}_Windows_64bit.zip" -OutFile $zip -UseBasicParsing
+    Expand-Archive $zip $dir -Force
+    Remove-Item $zip
+    $cli = Join-Path $dir "arduino-cli.exe"
+}
+# Libraries go in Documents\Arduino like the IDE's. When Documents can't be written to (no folder,
+# or Windows Security's controlled folder access), they go next to the cores instead.
+$userDir = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Arduino"
+$canWrite = $false   # New-Item -Force can "succeed" there without making anything
+try { New-Item -ItemType Directory -Force (Join-Path $userDir "libraries") -ErrorAction Stop | Out-Null
+      $canWrite = Test-Path (Join-Path $userDir "libraries") } catch {}
+if (-not $canWrite) { $env:ARDUINO_DIRECTORIES_USER = "$env:LOCALAPPDATA\Arduino15\user" }
+
+$cores = & $cli core list --format json 2>$null | ConvertFrom-Json
+$have = @($cores.platforms + $cores) | Where-Object { $_.id -eq "esp32:esp32" } | Select-Object -First 1
+if (-not $have) {
+    Say "Installing the E S P 32 board package. It's big, so this takes a few minutes, once."
+    & $cli core update-index --additional-urls $EspUrl
+    & $cli core install "esp32:esp32@$CoreVersion" --additional-urls $EspUrl
+    if ($LASTEXITCODE -ne 0) { Say "Installing the E S P 32 board package failed. Check the internet connection."; exit 1 }
+}
+if ($Libs.Count) {
+    $libList = (& $cli lib list --format json 2>$null | ConvertFrom-Json)
+    $installed = @(@($libList.installed_libraries + $libList) | ForEach-Object { $_.library.name }) | Where-Object { $_ }
+    foreach ($lib in $Libs) {
+        if ($installed -notcontains $lib) {
+            Say "Installing the $lib library."
+            & $cli lib install $lib
+            if ($LASTEXITCODE -ne 0) { Say "Installing $lib failed."; exit 1 }
+        }
+    }
+}
 
 $esptool = Get-ChildItem "$env:LOCALAPPDATA\Arduino15\packages\esp32\tools\esptool_py\*\esptool.exe" -ErrorAction SilentlyContinue |
     Sort-Object { [version]($_.Directory.Name -replace '[^\d.].*$', '') } -Descending | Select-Object -First 1
-if (-not $esptool) { Say "The E S P 32 board package isn't installed in the Arduino IDE."; exit 1 }
+if (-not $esptool) { Say "I can't find esptool in the E S P 32 board package."; exit 1 }
 
 # ---- port ----
 if (-not $Port -and -not $CompileOnly) {
