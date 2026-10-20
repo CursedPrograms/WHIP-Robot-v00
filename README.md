@@ -68,7 +68,9 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 - [x] Obstacle avoidance: walks until something is closer than 20 cm, then stands, turns and walks on once the way is clear past 35 cm.
 - [x] Fleet: joins NORA's network when it's in range and registers with the fleet, or hosts his own `WHIP` access point.
 - [x] Starts walking in obstacle avoidance 5 s after power-on (WiFi joins in the background).
-- [x] MIND mode: the LLM on his PC controller drives him, one short move at a time, and talks in his own voice.
+- [x] MIND mode: the LLM on his PC controller drives him, one short move at a time, and talks in his own voice (a theatrical show-off, David). M / Start on the Python controller, or MIND on his page while it's connected.
+- [x] Wall stop when driven by hand: from the remote or the web he won't walk forward into something within 20 cm, and a step already under way stops (`/status` says `blocked`).
+- [x] Gamepad rumble: the pad buzzes harder as he walks towards a wall (from 40 cm, full at 15 cm), and shakes when he tips past 10°.
 
 </details>
 
