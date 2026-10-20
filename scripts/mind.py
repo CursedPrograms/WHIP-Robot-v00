@@ -247,13 +247,62 @@ def windows_wav(text, voice=VOICE, rate=0, pitch="medium"):
     return None
 
 
+# ---- Eyes: a vision model looks at a picture for the mind (qwen3 can't see) ----
+
+VISION_MODEL = os.environ.get("MIND_VISION_MODEL", "")   # "" = the first vision model Ollama has
+VISION_FAMILIES = ("gemma3", "qwen2.5vl", "llama3.2-vision", "llava", "minicpm-v")
+_vision_model = None
+
+
+def vision_model():
+    """The vision model to look with, or None if Ollama has none (ollama pull gemma3:4b-it-qat)."""
+    global _vision_model
+    if _vision_model is None:
+        if VISION_MODEL:
+            _vision_model = VISION_MODEL
+        else:
+            try:
+                names = [m.get("name", "") for m in requests.get(f"{OLLAMA_HOST}/api/tags", timeout=3).json().get("models", [])]
+            except (requests.RequestException, ValueError):
+                return None
+            _vision_model = next((n for f in VISION_FAMILIES for n in names if n.startswith(f)), "") or ""
+    return _vision_model or None
+
+
+def see(jpeg, question, timeout=120):
+    """Ask the vision model `question` about a JPEG (bytes). Its answer as a dict when it answered
+    in JSON (ask for JSON in the question), else {"answer": text}; {"error": why} when it can't look."""
+    import base64
+    model = vision_model()
+    if not model:
+        return {"error": "no vision model in Ollama (ollama pull gemma3:4b-it-qat)"}
+    try:
+        r = requests.post(f"{OLLAMA_HOST}/api/chat", timeout=timeout, json={
+            "model": model, "stream": False,
+            "messages": [{"role": "user", "content": question, "images": [base64.b64encode(jpeg).decode()]}],
+        })
+        r.raise_for_status()
+        text = r.json().get("message", {}).get("content", "")
+    except (requests.RequestException, ValueError) as e:
+        return {"error": f"vision: {type(e).__name__}"}
+    m = re.search(r"\{.*\}", text, re.S)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except ValueError:
+            pass
+    return {"answer": text.strip()[:300]}
+
+
 # ---- The mind ----
 
 class Mind:
     def __init__(self, name, persona, moves, look, act, robot_say=None, phrases=None, robot_phrase=None,
-                 voice=VOICE, rate=0, pitch="medium"):
+                 voice=VOICE, rate=0, pitch="medium", safety=None):
         self.name = name
         self.persona = persona
+        # what her body won't let her do, whatever she decides (each robot says its own)
+        self.safety = safety or "it stops at walls, when it tilts, and when it's locked"
         self.voice = (voice, rate, pitch)   # windows_say(text, *self.voice)
         self.moves = dict(moves)
         self.moves.setdefault("stop", "stand still and look again")
@@ -352,7 +401,7 @@ class Mind:
             f"You are {self.name}. {self.persona}\n\nYou are the mind of a real robot in a real room, "
             "with people around. Stay in character: talk like yourself, with feeling and humour, never like "
             "a manual. You decide one small move at a time; the robot stands still while you think. "
-            "Your body has reflexes you can't turn off: it stops at walls, when it tilts, and when it's locked. "
+            f"Your body has reflexes you can't turn off: {self.safety}. "
             "Be careful and curious. Never try to get around a lock or a safety stop.\n\n"
             f"Your goal: {self.goal}\n\nYour moves:\n{moves}\n{phrases}\n"
             "Answer with JSON only, no other text:\n"
