@@ -1333,6 +1333,17 @@ void handleStatus() {
 void setupWebServer() {
   server.on("/near",     []() { server.send(200, "application/json", fleetNearStatusJson()); });   // nearby robots, nearest first
   server.on("/radar",    []() { radarRequested = true; server.send(200, "application/json", radarJson); });
+  // His leg lock over WiFi, as NORA's wheel lock (RIFT's Lock all / Unlock all): the same lock as
+  // NORA's IR LOCK / UNLOCK. Locking is free, unlocking needs his PIN.
+  server.on("/motorlockOn", []() {
+    linkLocked = true; irActiveCmd = 0; webActiveCmd = 0; abortMovement = true;
+    server.send(200, "text/plain", "OK");
+  });
+  server.on("/motorlockOff", []() {
+    if (server.arg("pw") != CONTROL_PIN) { server.send(403, "text/plain", "DENIED"); return; }
+    linkLocked = false;
+    server.send(200, "text/plain", "OK");
+  });
   server.on("/unlock",   []() {
     if (server.hasArg("pw") && server.arg("pw") == CONTROL_PIN) {
       controllerIP = server.client().remoteIP();

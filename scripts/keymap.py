@@ -47,6 +47,7 @@ KEYMAP = [
         ("STOP", "stop"),
         ("AUTO / MANUAL", "obstacle avoidance / IR-remote mode"),
         ("LOCK / UNLOCK", "lock his legs (he stands, walks for nobody) / free them"),
+        ("", "the same lock over WiFi: /motorlockOn, /motorlockOff?pw=<his PIN> (RIFT's Lock all / Unlock all)"),
     ]),
     ("Web page (:5005)", [
         ("PIN, then the D-pad", "unlock with the PIN, then walk (hold)"),
