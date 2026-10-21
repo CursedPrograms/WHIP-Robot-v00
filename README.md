@@ -91,7 +91,7 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 | **Component** | **Details** |
 |-----------|---------|
 | Microcontroller | ESP32 (the same module as NORA) |
-| Servo controller | RTrobot 32-channel servo controller (UART, 38400 baud) |
+| Servo controller | RTrobot 32-channel servo controller (UART, 9600 baud) |
 | Chassis | 18-DOF hexapod chassis |
 | Servos | 18 × MG995 180° |
 | Battery | 3S LiPo |
@@ -152,7 +152,7 @@ The servo controller shares UART0 with the USB-serial bridge, exactly like NORA'
 
 The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per leg). Which channel is which leg and joint, and each servo's trim and direction, are set on `/calib` (defaults in `ik_gait.h`: channels 1-9 the left legs front to back, 24-32 the right).
 
-`scripts/servo_setup/servo_setup.ino` sends every channel to 1500 µs (centre) for fitting the servo horns. It runs on an Arduino with the controller on SoftwareSerial pins 11 (RX) and 10 (TX) at 38400 baud.
+`scripts/servo_setup/servo_setup.ino` sends every channel to 1500 µs (centre) for fitting the servo horns. It runs on an Arduino with the controller on SoftwareSerial pins 11 (RX) and 10 (TX) at 9600 baud.
 
 </details>
 

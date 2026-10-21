@@ -244,10 +244,10 @@ const unsigned long WEB_CMD_TIMEOUT_MS = 500;
 // software), NOT something this sketch can change. If it doesn't match, WHIP
 // loses the controller (garbled/no response) and stand-up does nothing;
 // nothing gets damaged. RTrobot-family 32ch controllers document
-// 4800/9600/19200/38400/57600 (some revisions 115200); 38400 is a safe
-// middle ground. A faster baud makes the walk smoother (shorter margin).
+// 4800/9600/19200/38400/57600 (some revisions 115200). WHIP's board is set to
+// 9600: don't change this unless the board itself was reconfigured to match.
 // ---------------------------------------------------------------------------
-const unsigned long CONTROLLER_BAUD = 38400;
+const unsigned long CONTROLLER_BAUD = 9600;
 
 const uint16_t TIMING_MARGIN_MS  = (uint16_t)((145UL * 10UL * 1000UL) / CONTROLLER_BAUD) + 20;
 const unsigned long STAND_SETTLE_MS = TIMING_MARGIN_MS;   // Stand() itself waits out its move
