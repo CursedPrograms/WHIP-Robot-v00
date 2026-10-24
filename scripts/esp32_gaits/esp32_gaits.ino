@@ -2353,6 +2353,23 @@ void setupCalibRoutes() {
     calibShow(calibPose);
     calibState();
   });
+  // /servo?l=<line>: a line straight to the servo controller (Servo Studio): "#1P1500#2P1600T300",
+  // a stored group "G1F3", or "~ST" / "~RE" (RTrobot's commands). He holds still meanwhile (as on
+  // /calib: DONE there, or /calib/done, gives him back). Pulses are clamped as everything he sends.
+  server.on("/servo", []() {
+    if (!calibAllowed()) return;
+    const String l = server.arg("l");
+    if (!(l.startsWith("#") || l.startsWith("G") || l == "~ST" || l == "~RE")) {
+      server.send(400, "application/json", "{\"ok\":false,\"error\":\"use l=#1P1500T300, G1F1, ~ST or ~RE\"}");
+      return;
+    }
+    calibrating = true; abortMovement = true; webActiveCmd = 0; currentMove = MOVE_STAND;
+    static char out[320];
+    clampCommand(l.c_str(), out, sizeof out);
+    Serial.print(out);
+    Serial.print("\r\n");
+    server.send(200, "application/json", "{\"ok\":true}");
+  });
   server.on("/calib/wiggle", []() {           // that one servo 15 degrees out and back: which leg is it?
     if (!calibAllowed()) return;
     uint8_t leg, joint;

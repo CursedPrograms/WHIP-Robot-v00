@@ -1,0 +1,93 @@
+"""whip_body.py - WHIP's legs in Python: his IK (ik_gait.h's solve) and its exact reverse.
+
+    angles(leg, foot)        foot position (mm, body frame) -> (hip, knee, foot) degrees, or None if out of reach
+    joints(leg, hip, knee, foot)  degrees -> the leg's points: hip anchor, knee, ankle, foot tip (x, y, z mm)
+    to_us(deg, trim, rev) / to_deg(us, trim, rev)   a servo's pulse <-> its angle (1500 us + trim at 0 degrees)
+
+The numbers are ik_gait.h's (Jakob Leander's chassis): change them there and here together. x is
+forward, y left, z up; the hip joints sit at z = 0.
+"""
+
+import math
+
+THIGH_LENGTH = 84.0        # knee servo horn to foot servo horn
+FOOT_LENGTH = 127.0        # foot servo horn to the tip of the foot
+HIP_TO_KNEE_LENGTH = 28.0  # hip servo horn to knee servo horn
+FOOT_TIP_DEG = 14.0        # the foot's tip isn't straight below its servo
+US_PER_DEG = 10.49
+US_CENTER = 1500
+LEGS = ("LF", "LM", "LB", "RF", "RM", "RB")
+JOINTS = ("hip", "knee", "foot")
+ANCHOR = ((74, 39), (0, 64), (-74, 39), (74, -39), (0, -64), (-74, -39))
+BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))   # the outline, round the body
+# His channels, directions and trims until he's calibrated (ik_gait.h's DEFAULT_CAL): (ch, rev, trim)
+DEFAULT_CAL = (((1, False, 0), (2, False, 0), (3, False, 0)), ((4, False, 0), (5, False, 0), (6, False, 0)),
+               ((7, False, 0), (8, False, 0), (9, False, 0)), ((24, False, 0), (25, True, 0), (26, True, 0)),
+               ((27, False, 0), (28, True, 0), (29, True, 0)), ((30, False, 0), (31, True, 0), (32, True, 0)))
+HOME_Z = -134.0            # height 5 of WHIP's stance (WHIP_HOME_Z_MIN / MAX)
+HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # feet, mm (FB_X, WIDTH_*)
+
+
+def to_us(deg, trim=0, rev=False):
+    deg = max(-90.0, min(90.0, deg))
+    return US_CENTER + trim + round((-deg if rev else deg) * US_PER_DEG)
+
+
+def to_deg(us, trim=0, rev=False):
+    d = (us - US_CENTER - trim) / US_PER_DEG
+    return -d if rev else d
+
+
+def angles(leg, foot):
+    """ik_gait.h's solve(): foot (x, y, z) -> (hip, knee, foot) degrees, or None if out of reach."""
+    ax, ay = ANCHOR[leg]
+    anchor_deg = math.degrees(math.atan2(ay, ax))
+    x, y, z = foot[0] - ax, foot[1] - ay, foot[2]
+    hip = math.degrees(math.atan2(y, x)) - anchor_deg
+    while hip > 180: hip -= 360
+    while hip < -180: hip += 360
+    length = math.hypot(x, y)
+    if length < 1:
+        return None
+    x = foot[0] - (ax + x * HIP_TO_KNEE_LENGTH / length)
+    y = foot[1] - (ay + y * HIP_TO_KNEE_LENGTH / length)
+    h = math.hypot(x, y)
+    l = math.hypot(h, z)
+    try:
+        foot_deg = math.degrees(math.acos((THIGH_LENGTH ** 2 + FOOT_LENGTH ** 2 - l * l)
+                                          / (2 * THIGH_LENGTH * FOOT_LENGTH))) - 90 - FOOT_TIP_DEG
+        vb = math.acos((l * l + THIGH_LENGTH ** 2 - FOOT_LENGTH ** 2) / (2 * l * THIGH_LENGTH))
+    except ValueError:
+        return None
+    knee = math.degrees(vb + math.atan2(z, h))
+    return hip, knee, foot_deg
+
+
+def joints(leg, hip, knee, foot):
+    """The reverse of angles(): the leg's points for these joint angles, as (x, y, z) mm:
+    [hip anchor, knee, ankle, foot tip]. In the leg's own upright plane the thigh rises at `knee`
+    degrees from the knee joint, and the foot's angle at the ankle is foot + 90 + FOOT_TIP_DEG."""
+    ax, ay = ANCHOR[leg]
+    yaw = math.atan2(ay, ax) + math.radians(hip)
+    c, s = math.cos(yaw), math.sin(yaw)
+    kx, ky = ax + HIP_TO_KNEE_LENGTH * c, ay + HIP_TO_KNEE_LENGTH * s
+    k = math.radians(knee)
+    ah, az = THIGH_LENGTH * math.cos(k), THIGH_LENGTH * math.sin(k)       # ankle, in (out, up)
+    f = k + math.pi + math.radians(foot + 90 + FOOT_TIP_DEG)               # the foot's direction from the ankle
+    fh, fz = ah + FOOT_LENGTH * math.cos(f), az + FOOT_LENGTH * math.sin(f)
+    return [(ax, ay, 0.0), (kx, ky, 0.0), (kx + ah * c, ky + ah * s, az), (kx + fh * c, ky + fh * s, fz)]
+
+
+if __name__ == "__main__":   # the reverse really is the reverse: random feet there and back
+    import random
+    worst = 0.0
+    for _ in range(20000):
+        leg = random.randrange(6)
+        hx, hy = HOME[leg]
+        p = (hx + random.uniform(-60, 60), hy + random.uniform(-50, 50), random.uniform(-180, -60))
+        a = angles(leg, p)
+        if a is None:
+            continue
+        q = joints(leg, *a)[-1]
+        worst = max(worst, math.dist(p, q))
+    print(f"worst round trip: {worst:.6f} mm")

@@ -342,6 +342,30 @@ His ESP32 drives the servo controller with text lines (`#1P1500#2P1500...T70`) o
 | **Emulated** | XML on the controller with EMULATE on, or `python scripts/serial_to_xml.py --emulate` | `gait_emulated.xml`: his own IK and gait code (`gaits.h`, built on the PC by `scripts/gait_test/serial_emu.cpp`) plays Stand, Zero and every gait forward, backward, turning and crabbing, from standing to standing, with the exact lines, timing and clamping his ESP32 sends |
 | **Real** | XML on the controller while driving the real WHIP with his ESP32 on this PC's USB (XML again to stop), or `python scripts/serial_to_xml.py --port auto` | `gait_real.xml`: what he really sent, one macro per movement, named after what you drove (`Ripple Forward`, `Tripod Turn Left`) |
 
+### WHIP Servo Studio (`servo_studio.bat` / `.ps1` / `.sh`)
+What RTrobot's ServoController program does, as our own, plus WHIP on screen:
+
+- **ROBOT**: WHIP from above and from the side, drawn from the servo pulses with his IK run backwards
+  (`scripts/whip_body.py`, exact to the micrometre against `ik_gait.h`). Click a joint for its servo, wheel or
+  drag to move it, or drag a foot and his IK sets all three of that leg's servos.
+- **LAYOUT**: your own linkage drawing: servo dials anywhere, linked, each horn turning with its servo. It
+  starts laid out like WHIP; EDIT moves (drag), links (right-drag), adds (+SERVO) and removes (Del) them,
+  kept in `scripts/servo_layout.json`, so it works for any robot on the board.
+- **SLIDERS**: all 32 channels, to play with.
+- **PIN < >**: put the picked servo on another board pin. A servo already there swaps with it, the poses in
+  every group follow, and the map is kept in `whip_calibration.json` (and on WHIP over WHIP WIFI).
+- **Groups**: 255, each a list of poses: ADD the servos as a pose, INSERT / UPDATE / DELETE / UP / DOWN, RUN,
+  LOOP; open and save RTrobot XML (`gait.xml` itself is saved as `gait_studio.xml`).
+- **Connect**: EMULATE (just the drawing), SERIAL (the servo board's own USB, 115200; or a USB-TTL on its
+  UART at the baud set on the board, 4800-115200, 9600 out of the box) or WHIP WIFI (through his `/servo`
+  route: he holds still meanwhile, STAND gives him back).
+- **The board's commands** (from RTrobot's manual): `G<n>F<times>` runs a group stored on the board, `~ST`
+  stops it, `~RE` restarts the board; its replies ("OK") show under the connection.
+- **Not yet**: the board's own settings (its UART baud, start positions, deviation -99..99, buzzer, auto
+  run) and Download / Read / Erase of its stored groups. RTrobot doesn't publish those commands; the clean
+  way to learn them is to listen to what RTrobot's program sends when you click them (a serial "sniff"
+  between it and the board, through a virtual COM pair such as com0com), then the studio can send the same.
+
 ### His IK calibration (`scripts/ik_values.py`)
 ```bash
 python scripts/ik_values.py show        # his live calibration + the IK constants in ik_gait.h
