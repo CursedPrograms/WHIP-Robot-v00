@@ -207,19 +207,22 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | W / Up | walk forward (hold) |
 | S / Down | walk back (hold) |
 | A / Left, D / Right | turn left / right (hold) |
-| Z | the controller drives (web mode) |
-| X | obstacle avoidance: he walks by himself |
-| C | IR-remote mode |
-| V | stop |
+| 1 | the controller drives (web mode) |
+| 2 | obstacle avoidance: he walks by himself |
+| 3 | IR-remote mode |
+| V | stop: he stands, in any mode (switches to web mode) |
 | M | MIND mode on / off: the LLM on this PC drives him (x86 PC, GTX 1050+) |
-| G | next gait: tripod, ripple, wave (gaits firmware; or click the Gait dropdown) |
-| 1 / 2 / 3 | tripod / ripple / wave |
+| G | next gait: tripod, ripple, wave, quad (gaits firmware; or click the Gait dropdown) |
+| Z / X / C | tripod / ripple / wave |
 | T | tilt safety on / off (on again at every boot) |
 | B | buzzer on / off |
 | Q / E | crab left / right (hold; gaits firmware) |
 | F | follow-me mode: he keeps your hand 30 cm from his sonar |
 | H / N | wave hello / a little dance |
 | R | lie down / get up (he lies down by himself after a minute standing still) |
+| Mouse | every function is a button: the strip along the top (modes, STOP, CENTER, HELLO, DANCE, REST, EMULATE), the pad's buttons, and the D-pad (hold) |
+| CENTER | stop, every servo to its middle (1500 us + its trim); again: stand up |
+| EMULATE | a pretend WHIP on this PC, to try the controller with no robot (scripts/fake_whip.py) |
 | F1 | this window |
 | Esc | quit |
 
@@ -268,7 +271,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 |---|---|
 | PIN, then the D-pad | unlock with the PIN, then walk (hold) |
 | Mode buttons | obstacle / IR / web, and MIND while his PC controller can think |
-| Gait dropdown, G, 1 2 3 | tripod / ripple / wave, with a little animation of the one picked |
+| Gait dropdown, G, 1 2 3 4 | tripod / ripple / wave / quad, with a little animation of the one picked |
 | TILT, T | tilt safety on / off |
 | SOUND, B | buzzer on / off |
 | FOLLOW, F | follow-me mode |
@@ -286,15 +289,40 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 <!-- keymap:end -->
 
 ### Python controller (`scripts/controller.py`)
-Draws a PS2-style pad and drives WHIP over WiFi. It finds him on NORA's network first, and on his own AP otherwise. It unlocks him with his PIN, and `M` / Start switches on his mind (`scripts/mind.py`).
+Draws a PS2-style pad and drives WHIP over WiFi (`run.bat` / `run.ps1` / `run.sh`). It finds him on the fleet's network first, and on his own AP otherwise. It unlocks him with his PIN, and `M` / Start switches on his mind (`scripts/mind.py`).
 
-| Input | Action |
-|---|---|
-| D-pad / arrow keys | Forward, backward, turn left, turn right |
-| Cross (A) | Web control mode (needed before driving) |
-| Circle (B) | Obstacle Avoidance mode |
-| Square (X) | IR Remote mode |
-| Triangle (Y) | Emergency stop (stand) |
+- **Every function is a button**: the strip along the top (OBSTACLE, IR, WEB, FOLLOW, MIND, STOP, CENTER, HELLO, DANCE, REST, EMULATE), the pad's own buttons, and the D-pad (hold the mouse on it to walk).
+- **Driving takes over**: touch the D-pad, a stick or an arrow key while he walks by himself (OBSTACLE, FOLLOW) or listens to the remote, and he switches to WEB, does what's pressed and stands when you let go.
+- **STOP** stands him in any mode. **CENTER** stops him and puts every servo at its middle (1500 us + its trim, `/calib`'s ZERO); again to stand up.
+- **Settings stick**: mode, gait, tilt and sound are sent again until his status says so (mid-step he can miss a request).
+- **Gamepads and joysticks**: a pad SDL knows (Xbox, PlayStation, Switch, most USB pads) goes through SDL's controller layer, so every one has the same buttons; anything else (ARM's flight stick, a pad SDL doesn't know) is read by the PS2-style pad's button numbers.
+- **EMULATE**: a pretend WHIP on this PC (`scripts/fake_whip.py`), to try every button with no robot. He walks in a pretend room, his sonar reading drops as he nears a wall, and the status line shows what he just did. `python scripts/fake_whip.py` runs one on its own.
+- **THEME**: DEFAULT, LIGHT or CUSTOM, all from `colour_scheme.xml` (sampled from his avatar). CUSTOM puts the scheme's colours in `scripts/controller_settings.json` for you to change.
+- **XML**: his movements as RTrobot macros (below).
+- The gait animation only plays while he walks.
+
+<div align="center">
+  <img src="images/screenshots/controller-python.png" alt="Python controller, connected to the emulated WHIP" width="560"/>
+</div>
+
+### His movements as RTrobot XML (`scripts/serial_to_xml.py`)
+His ESP32 drives the servo controller with text lines (`#1P1500#2P1500...T70`) on the serial port that's also wired to its USB plug, so whatever he does can be written down as macros for the RTrobot editor, one pose per line, in the editor's own format. `gait.xml`, the hand-recorded original, is never touched.
+
+| | How | Writes |
+|---|---|---|
+| **Emulated** | XML on the controller with EMULATE on, or `python scripts/serial_to_xml.py --emulate` | `gait_emulated.xml`: his own IK and gait code (`gaits.h`, built on the PC by `scripts/gait_test/serial_emu.cpp`) plays Stand, Zero and every gait forward, backward, turning and crabbing, from standing to standing, with the exact lines, timing and clamping his ESP32 sends |
+| **Real** | XML on the controller while driving the real WHIP with his ESP32 on this PC's USB (XML again to stop), or `python scripts/serial_to_xml.py --port auto` | `gait_real.xml`: what he really sent, one macro per movement, named after what you drove (`Ripple Forward`, `Tripod Turn Left`) |
+
+### His IK calibration (`scripts/ik_values.py`)
+```bash
+python scripts/ik_values.py show        # his live calibration + the IK constants in ik_gait.h
+python scripts/ik_values.py get         # save it to whip_calibration.json (edit it by hand if you like)
+python scripts/ik_values.py set         # send whip_calibration.json to him and save it in his flash
+```
+`serial_to_xml.py --emulate` uses `whip_calibration.json` when it's there, so the emulated XML has his real pulses.
+
+### MIND log
+Every step of his mind goes into `~/.robot_minds/logs/WHIP-<date>.log`: what he sensed, his whole thinking, what he said, the move and how it went.
 
 </details>
 
@@ -316,8 +344,8 @@ WHIP walks only by working out every joint from where each foot should be, in mi
 ### Gaits sketch: `scripts/esp32_gaits`
 The firmware WHIP runs now (flashed 2026-10-24, and he walks better than on the old one). It moves into `scripts/esp32` once it's been checked on the robot. Flash it with `flash_gaits.bat`.
 
-- **Three gaits** from one engine (`gaits.h`): **tripod** (3 feet down, fastest), **ripple** (4 down, the most insect-like) and **wave** (5 down, one leg at a time, easiest on the servos). Every leg runs the same cycle from its own starting point; feet on the ground slide back together, and a swinging foot leaves and lands at the ground's speed, so nothing jerks. He speeds up over a cycle, and stops by stepping his feet home. Changing gait mid-walk: he steps to a stop and carries on in the new one. Checked on a PC: all three, heights 0-9, walking, turning, sideways and stopping, every foot in reach, no foot slipping, never fewer than 3 down.
-- **Pick the gait** from the dropdown on his web page or the controller (each shows a little animation of it: WHIP from above and the step chart), or with G / 1 2 3, or L1 / R1 on a gamepad. Saved in flash. IR 3 steps through them.
+- **Four gaits** from one engine (`gaits.h`): **tripod** (3 feet down, fastest), **ripple** (4 down, the most insect-like), **wave** (5 down, one leg at a time, easiest on the servos) and **quad**, the tetrapod (4 down, three pairs taking turns back to front: LB + RM, LM + RF, LF + RB; between tripod and ripple). Every leg runs the same cycle from its own starting point; feet on the ground slide back together, and a swinging foot leaves and lands at the ground's speed, so nothing jerks. He speeds up over a cycle, and stops by stepping his feet home. Changing gait mid-walk: he steps to a stop and carries on in the new one. Checked on a PC: all four, heights 0-9, walking, turning, sideways and stopping, every foot in reach, no foot slipping, never fewer than 3 down.
+- **Pick the gait** from the dropdown on his web page or the controller (each shows a little animation of it: WHIP from above and the step chart), or with G / Z X C (1 2 3 4 on his web page), or L1 / R1 on a gamepad. Saved in flash. IR 3 steps through them.
 - **Tilt safety on / off**: the TILT button, T, or Select. On again at every boot.
 - **4x4 RGB LED grid** (WS2812, Adafruit NeoPixel) on GPIO18 (`leds.h`): WHIP from above, head at the top. The outer columns are his legs and light up while that foot is in the air; the middle shows his mode, the top row goes red at a wall, the bottom row orange while tilt safety is off, and the whole grid flashes orange on a tilt stop.
 - **Buzzer** (passive) on GPIO19 (`buzzer.h`): chirps at boot, walls, tilt stops, gait and mode changes, and shutdown. SOUND button or B mutes it.
@@ -330,11 +358,12 @@ The firmware WHIP runs now (flashed 2026-10-24, and he walks better than on the 
 - IR 3-7 run on from 1 = 0x0 on the fleet's remote (the same as MILA, NIKA and IDA use; not NORA's).
 
 ### Gait reference
-The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scripts/esp32_gaits` has tripod, ripple and wave.
+The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scripts/esp32_gaits` has tripod, ripple, wave and quad.
 
 | Gait | Logic | Best for |
 | :--- | :--- | :--- |
 | **Tripod** | `{L1, R2, L3}` then `{R1, L2, R3}`: three legs move, three hold a triangle | Speed on flat ground |
+| **Quad (tetrapod)** | `{L3, R2} → {L2, R1} → {L1, R3}`: two legs swing while four stay anchored (2/3 duty factor) | Between tripod and ripple: transitions between speeds |
 | **Wave** | `L3 → L2 → L1 → R3 → R2 → R1`, one leg at a time | Maximum stability |
 | **Ripple** | `{L3, R1} → {L2, R3} → {L1, R2}`, two legs at a time | Smooth, lifelike motion |
 | **Amble** | Two non-opposite legs lifted together | Spreading load differently |
@@ -366,7 +395,7 @@ The gaits firmware is flashed and he walks. What's left:
 <details>
 <summary><b>View How to Run</b></summary>
 
-1. Flash `scripts/esp32_gaits` with `flash_gaits.bat` (the firmware WHIP runs now), or `scripts/esp32/esp32.ino` with `flash.bat`, to the ESP32 (servo controller wires disconnected), then reconnect them. `flash.bat` does it all for the ESP32: on a fresh PC it installs the Arduino command line tool, the ESP32 board package (3.3.12) and the libraries by itself, then finds the port, compiles and flashes, talking you through it.
+1. Flash `scripts/esp32_gaits` with `flash_gaits.bat` / `.ps1` / `.sh` (the firmware WHIP runs now), or `scripts/esp32/esp32.ino` with `flash.bat`, to the ESP32 (servo controller wires disconnected), then reconnect them. `flash.bat` does it all for the ESP32: on a fresh PC it installs the Arduino command line tool, the ESP32 board package (3.3.12) and the libraries by itself, then finds the port, compiles and flashes, talking you through it.
 2. Power WHIP. He stands at 2 s, holds still while his gyro calibrates, and walks off in Obstacle Avoidance mode at 5 s. His WiFi (the fleet's network, or his own `WHIP` AP) joins in the background.
 3. Open `http://<WHIP's IP>:5005/` in a browser, or run the Python controller:
 
@@ -374,8 +403,10 @@ The gaits firmware is flashed and he walks. What's left:
 python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-python scripts/controller.py      # or ./scripts/launch_controller.sh
+python scripts/controller.py      # or run.bat / run.ps1 / ./run.sh (they make the venv first)
 ```
+
+Every launcher comes in `.bat`, `.ps1` and `.sh` (Linux / macOS): `setup` (venv + requirements), `run` (the controller), `flash` / `flash_gaits`, `options`, `freeze_requirements`, `clear_commits`, `scripts/launch_controller`. `make_executables.sh` is Linux / macOS only (`chmod +x`).
 </details>
 
 ---
@@ -417,7 +448,7 @@ WHIP hears the others over **ESP-NOW** (NORA, MILA) and **Bluetooth LE** (NORA, 
   <img src="images/screenshots/controller-python.png" alt="Python controller" width="420"/>
 </div>
 
-<p align="center"><i>Python controller. Captured without a robot connected, so live values show their offline state.</i></p>
+<p align="center"><i>Python controller, connected to the emulated WHIP (EMULATE) while he walks.</i></p>
 
 ---
 

@@ -1,11 +1,6 @@
 #!/bin/bash
-
-echo "🔧 Setting execute permissions..."
-
-chmod +x install_requirements
-chmod +x freeze_requirements
-chmod +x setup
-chmod +x run_server
-
-echo "✅ Permissions set!"
-
+# make_executables.sh - sets the execute bit on every .sh in the repo (git clones on some
+# systems lose it). Linux / macOS only: Windows has no execute bit.
+cd "$(dirname "$0")"
+find . -name "*.sh" -not -path "./venv/*" -not -path "./build/*" -exec chmod +x {} \; -print
+echo "Permissions set."

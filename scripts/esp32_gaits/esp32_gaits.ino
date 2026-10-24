@@ -719,7 +719,7 @@ void outputsTick(bool force) {
     else if (sysState == SYS_HELD && !wasHeld) buzzer::play(buzzer::HELD);
     else if (linkLocked != wasLocked)          buzzer::play(linkLocked ? buzzer::LOCK : buzzer::ON);
     else if (tiltGuard != wasTiltGuard)        buzzer::play(tiltGuard ? buzzer::ON : buzzer::OFF);
-    else if (ik::gait != wasGait)              buzzer::play(ik::gait == 0 ? buzzer::GAIT1 : ik::gait == 1 ? buzzer::GAIT2 : buzzer::GAIT3);
+    else if (ik::gait != wasGait)              buzzer::play(ik::gait == 0 ? buzzer::GAIT1 : ik::gait == 1 ? buzzer::GAIT2 : ik::gait == 2 ? buzzer::GAIT3 : buzzer::GAIT4);
     else if ((uint8_t)controlMode != wasMode)  buzzer::play(buzzer::MODE);
     else if (wall && !wasWall)                 buzzer::play(buzzer::WALL);
   }
@@ -1909,7 +1909,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   <div id="gaitBox" class="sensor-box">
     <div class="gait-row">
-      <label>Gait <select id="gaitSel" title="G: next gait, 1 2 3: tripod / ripple / wave"></select></label>
+      <label>Gait <select id="gaitSel" title="G: next gait, 1 2 3 4: tripod / ripple / wave / quad"></select></label>
       <div class="mode-btn active" id="tiltBtn" title="T: tilt safety on / off (on again at every boot)">TILT ON</div>
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
     </div>
@@ -2060,7 +2060,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     const GAITS = [   // as gaits.h: sixths of the cycle a foot is in the air, and when each leg lifts (LF LM LB RF RM RB)
       { name: 'TRIPOD', air: 3, lift: [0, 3, 0, 3, 0, 3], note: '3 feet down, two groups of 3 by turns: fastest' },
       { name: 'RIPPLE', air: 2, lift: [4, 2, 0, 1, 5, 3], note: '4 feet down, a step runs front to back each side' },
-      { name: 'WAVE',   air: 1, lift: [2, 1, 0, 5, 4, 3], note: '5 feet down, one leg at a time: slowest, easiest on the servos' }
+      { name: 'WAVE',   air: 1, lift: [2, 1, 0, 5, 4, 3], note: '5 feet down, one leg at a time: slowest, easiest on the servos' },
+      { name: 'QUAD',   air: 2, lift: [4, 2, 0, 2, 0, 4], note: '4 feet down, 3 pairs step by turns: between tripod and ripple' }
     ];
     const LEG_NAMES = ['LF', 'LM', 'LB', 'RF', 'RM', 'RB'];
     const LEG_HOME  = [[150, 123], [0, 177], [-150, 123], [150, -123], [0, -177], [-150, -123]];   // mm, x forward, y left
@@ -2121,7 +2122,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       if (e.repeat || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
       const k = e.key.toLowerCase();
       if (k === 'g') setGait(gaitNow + 1);
-      else if (k === '1' || k === '2' || k === '3') setGait(+k - 1);
+      else if (k >= '1' && k <= '4') setGait(+k - 1);
       else if (k === 't') toggleTilt();
       else if (k === 'b') toggleSound();
       else if (k === 'h') act('hello');
@@ -2309,7 +2310,7 @@ void setupCalibRoutes() {
     if (calibrating) calibShow(calibPose);
     calibState();
   });
-  server.on("/gait", []() {                    // ?gait=0-2 (tripod / ripple / wave) &height=0-9 &speed=0-9, saved
+  server.on("/gait", []() {                    // ?gait=0-3 (tripod / ripple / wave / quad) &height=0-9 &speed=0-9, saved
     if (!calibAllowed()) return;
     if (server.hasArg("gait")) {
       // he changes over while walking (gaitCycle steps to a stop in the old gait first)

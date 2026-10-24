@@ -1,16 +1,5 @@
 #!/bin/bash
-
-VENV_DIR="psdenv"
-
-# Check if the virtual environment directory exists
-if [ ! -d "$VENV_DIR" ]; then
-    # Create the virtual environment
-    python -m venv "$VENV_DIR"
-fi
-
-# Activate the virtual environment and run the Python script
-source "$VENV_DIR/bin/activate"
-python main.py
-
-# Pause for user input before closing (optional)
-read -p "Press Enter to continue..."
+# run.sh - starts WHIP's controller (setup first if there's no venv yet). Buddies: run.bat, run.ps1.
+cd "$(dirname "$0")"
+[ -x venv/bin/python ] || ./setup.sh || exit 1
+exec venv/bin/python scripts/controller.py "$@"

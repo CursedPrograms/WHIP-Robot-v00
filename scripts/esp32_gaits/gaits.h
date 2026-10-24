@@ -1,5 +1,5 @@
 /*
-  gaits.h - WHIP's gait engine: tripod, ripple and wave from one set of rules.
+  gaits.h - WHIP's gait engine: tripod, ripple, wave and quad from one set of rules.
 
   Every leg runs through the same cycle, each starting at its own point in it
   (its phase offset). For part of the cycle the foot is in the air, swinging
@@ -11,6 +11,7 @@
     tripod  3 feet down, 2 groups of 3 step by turns         fastest
     ripple  4 feet down, a step runs front to back each side  looks the most like an insect
     wave    5 feet down, one leg at a time, back to front     slowest, easiest on the servos
+    quad    4 feet down, 3 pairs step by turns, back to front a tetrapod: between tripod and ripple
 
   Smooth on purpose (the legs worked loose on their horns when the old gait
   jerked them):
@@ -27,8 +28,8 @@
 
 namespace ik {
 
-enum GaitId : uint8_t { GAIT_TRIPOD, GAIT_RIPPLE, GAIT_WAVE, GAITS };
-const char* const GAIT_NAMES[GAITS] = { "tripod", "ripple", "wave" };
+enum GaitId : uint8_t { GAIT_TRIPOD, GAIT_RIPPLE, GAIT_WAVE, GAIT_QUAD, GAITS };   // new ones go last: the number is saved
+const char* const GAIT_NAMES[GAITS] = { "tripod", "ripple", "wave", "quad" };
 
 // How many sixths of the cycle a foot is in the air, and where in the cycle (in
 // sixths) each leg lifts: LF, LM, LB, RF, RM, RB.
@@ -37,6 +38,7 @@ const GaitDef GAIT_DEFS[GAITS] = {
   { 3, { 0, 3, 0, 3, 0, 3 } },   // tripod: LF LB RM, then RF RB LM (as W0-W3)
   { 2, { 4, 2, 0, 1, 5, 3 } },   // ripple: LB LM LF on the left, RB RM RF half a cycle on
   { 1, { 2, 1, 0, 5, 4, 3 } },   // wave: LB LM LF RB RM RF
+  { 2, { 4, 2, 0, 2, 0, 4 } },   // quad (tetrapod): LB+RM, then LM+RF, then LF+RB; always 2 up, 4 down
 };
 
 // A step reaches STRIDE_X ahead of / behind home (WALK_X less room for the swing

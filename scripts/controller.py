@@ -6,13 +6,13 @@ Draws a PS2/DualShock-style controller layout and lights up buttons/sticks/
 dpad/triggers live if a joystick is connected -- and drives WHIP over WiFi:
 
     D-pad / arrow keys : forward / backward / turn left / turn right
-    Cross (A)          : switch WHIP into WEB control mode (required before
+    Cross (A), 1       : switch WHIP into WEB control mode (required before
                          drive commands do anything -- he boots into
                          Obstacle Avoidance mode, same as arduino.ino)
-    Circle (B)         : switch WHIP back to Obstacle Avoidance mode
-    Square (X)         : switch WHIP to IR Remote mode
+    Circle (B), 2      : switch WHIP back to Obstacle Avoidance mode
+    Square (X), 3      : switch WHIP to IR Remote mode
     Triangle (Y)       : emergency stop (drops back to standing immediately)
-    G / 1 2 3, L1 / R1 : gait: next / tripod, ripple, wave (the gait dropdown, gaits firmware)
+    G / Z X C, L1 / R1 : gait: next / tripod, ripple, wave (G and L1 / R1 also reach quad) (the gait dropdown, gaits firmware)
     T, Select          : tilt safety on / off        B : buzzer on / off
     Q / E              : crab left / right           F : follow-me mode
     H, L2 / N, R2      : wave hello / dance          R : lie down / get up
@@ -36,7 +36,9 @@ runs on a background thread (WhipLink) so a slow or dropped WiFi frame
 never stalls the pygame render loop.
 """
 
+import json
 import os
+import re
 import sys
 import threading
 import time
@@ -48,26 +50,77 @@ import math
 
 import keymap   # scripts/keymap.py: every key and button, in its own window (F1)
 import mind     # scripts/mind.py: his LLM mind (MIND mode), shared by every robot's controller
+import serial_to_xml   # scripts/serial_to_xml.py: his servo serial -> RTrobot XML macros (the XML button)
 
 WIDTH, HEIGHT = 900, 820   # the bottom 200 px: the mind's panel
-BG_COLOR = (18, 18, 22)
-PANEL_COLOR = (32, 32, 38)
-OUTLINE_COLOR = (70, 70, 80)
-TEXT_COLOR = (220, 220, 225)
-MUTED_TEXT = (130, 130, 140)
-IDLE_COLOR = (55, 55, 65)
-ACTIVE_COLOR = (90, 200, 120)
-WARN_COLOR = (220, 160, 80)
-STICK_COLOR = (45, 45, 55)
-STICK_DOT_COLOR = (90, 200, 120)
+# Colours: always from colour_scheme.xml (sampled from his avatar: red and blue spider on night
+# black), the same file his site and options.py use. THEME (top right) picks DEFAULT (the scheme as
+# it is), LIGHT (the scheme's accents on light surfaces made from its own text colours) or CUSTOM
+# (the scheme with your colours over it: controller_settings.json's "custom", the XML's names).
+HERE = os.path.dirname(os.path.abspath(__file__))
+SCHEME_XML = os.path.join(HERE, "..", "colour_scheme.xml")
+SETTINGS_JSON = os.path.join(HERE, "controller_settings.json")   # theme + custom colours (not in git)
+THEMES = ["DEFAULT", "LIGHT", "CUSTOM"]
+SCHEME_FALLBACK = {   # colour_scheme.xml as of writing, if the file can't be read
+    "background": "#080A12", "panel": "#0E1120", "border": "#1D223F", "divider": "#15192E",
+    "text": "#F2E9EA", "text_sec": "#A89497", "text_dim": "#6B575A", "accent": "#D34859",
+    "accent_hover": "#DA6473", "accent2": "#1A7BD9", "accent3": "#CC4A82",
+    "button_hover_bg": "#250E11", "danger_bg": "#210F0D",
+}
+
+
+def _rgb(v):
+    v = v.lstrip("#")
+    return tuple(int(v[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _mix(a, b, t):
+    return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
+
+
+def load_scheme():
+    """colour_scheme.xml as {name: "#RRGGBB"} (its format: name="..." value="#RRGGBB")."""
+    try:
+        with open(SCHEME_XML, encoding="utf-8") as f:
+            found = dict(re.findall(r'name="([^"]+)"\s+value="(#[0-9A-Fa-f]{6})"', f.read()))
+    except OSError:
+        found = {}
+    return {**SCHEME_FALLBACK, **found}
+
+
+def theme_colours(name, custom=None):
+    c = {k: _rgb(v) for k, v in load_scheme().items()}
+    if name == "LIGHT":
+        white = (255, 255, 255)
+        c.update(background=c["text"], panel=_mix(c["text"], white, 0.7), border=_mix(c["text"], c["text_sec"], 0.45),
+                 divider=_mix(c["text"], c["text_sec"], 0.18), text=c["background"], text_sec=c["text_dim"],
+                 text_dim=c["text_sec"], button_hover_bg=_mix(c["accent"], white, 0.82),
+                 danger_bg=_mix(c["accent"], white, 0.88))
+    elif name == "CUSTOM":
+        c.update({k: _rgb(v) for k, v in (custom or {}).items()
+                  if isinstance(v, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", v)})
+    return c
+
+
+def apply_theme(name, custom=None):
+    c = theme_colours(name, custom)
+    globals().update(
+        BG_COLOR=c["background"], PANEL_COLOR=c["panel"], OUTLINE_COLOR=c["border"], TEXT_COLOR=c["text"],
+        MUTED_TEXT=c["text_sec"], DIM_TEXT=c["text_dim"], IDLE_COLOR=c["divider"], STICK_COLOR=c["divider"],
+        ACTIVE_COLOR=c["accent"], OK_COLOR=c["accent_hover"], ACCENT2=c["accent2"], WARN_COLOR=c["accent3"],
+        ERROR_COLOR=c["accent"], STICK_DOT_COLOR=c["accent"], SELECTED_BG=c["button_hover_bg"],
+        DANGER_BG=c["danger_bg"])
+
+
+apply_theme("DEFAULT")
 AXIS_DEADZONE = 0.15
 
 FACE_BUTTON_LAYOUT = [
-    # label, offset (x, y) relative to face-button cluster center, color when active
-    ("Triangle", (0, -42), (100, 200, 220)),
-    ("Circle", (42, 0), (220, 100, 100)),
-    ("Cross", (0, 42), (100, 140, 220)),
-    ("Square", (-42, 0), (200, 100, 200)),
+    # label, offset (x, y) relative to face-button cluster center, its colour (a theme colour's name)
+    ("Triangle", (0, -42), "OK_COLOR"),
+    ("Circle", (42, 0), "ACTIVE_COLOR"),
+    ("Cross", (0, 42), "ACCENT2"),
+    ("Square", (-42, 0), "WARN_COLOR"),
 ]
 
 DPAD_DIRS = [
@@ -106,13 +159,17 @@ GAITS = [
     ("TRIPOD", 3, (0, 3, 0, 3, 0, 3), "3 feet down, two groups of 3 by turns: fastest"),
     ("RIPPLE", 2, (4, 2, 0, 1, 5, 3), "4 feet down, a step runs front to back each side"),
     ("WAVE", 1, (2, 1, 0, 5, 4, 3), "5 feet down, one leg at a time: slowest, easiest on the servos"),
+    ("QUAD", 2, (4, 2, 0, 2, 0, 4), "4 feet down, 3 pairs step by turns: between tripod and ripple"),
 ]
 LEG_NAMES = ("LF", "LM", "LB", "RF", "RM", "RB")
 LEG_HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # mm, x forward, y left
 LEG_HIP = ((74, 39), (0, 64), (-74, 39), (74, -39), (0, -64), (-74, -39))
 BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))
 STRIDE = 45
-SETTING_HOLD = 1.5   # s: a gait / tilt / sound just picked shows here before his status catches up
+SETTING_RESEND = 0.6    # s: a setting he hasn't confirmed yet is sent again this often...
+SETTING_GIVE_UP = 6.0   # ...until his status says so, or this long has gone by
+MODES = ["obstacle", "ir", "web", "mind", "follow"]   # his controlMode numbers, in order
+FAKE_URL = "http://127.0.0.1:5005"                    # EMULATE: fake_whip.py on this PC
 
 
 def leg_at(gait, leg, phase):
@@ -156,7 +213,14 @@ class WhipLink:
         self.mind_on = False        # MIND mode: mind.py drives through /mind, so no /web ticks
         self.mind_capable = False   # mind.can_think() said yes: unlock and check in as his mind host
         self._host_unlocked = False
+        self.url_override = None    # EMULATE: the fake WHIP's address instead of looking for him
+        # Settings (mode, gait, tilt, sound) are re-sent until his /status says so: mid-step he
+        # can miss a request (his web server only answers between moves), and a one-shot that
+        # missed used to snap back after a moment (the gait "going back to tripod").
+        self._pending = {}          # status key -> [value, path, params, first sent, last sent]
+        self._calls = []            # one-shots (hello, dance, the CENTER steps), sent in order
 
+        self._wake = threading.Event()   # use_url(): stop waiting and look again now
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self):
@@ -167,28 +231,54 @@ class WhipLink:
             self._desired_cmd = cmd
             self._desired_params = params
 
-    def set_mode(self, mode):
-        # One-shot, fire-and-forget -- doesn't need to share the tick loop's
-        # cadence, and mode switches are rare compared to drive commands.
-        if self.base_url:
-            threading.Thread(target=self._send_mode, args=(self.base_url, mode), daemon=True).start()
+    def use_url(self, url):
+        """EMULATE on (the fake WHIP's URL) or off (None: look for the real one again)."""
+        self.url_override = url
+        self.base_url, self.connected, self.status = None, False, None
+        self._wake.set()
 
-    def _send_mode(self, base_url, mode):
-        try:
-            self._session.get(f"{base_url}/mode", params={"m": mode}, timeout=REQUEST_TIMEOUT)
-        except requests.RequestException:
-            pass
+    def setting(self, key, value, path, **params):
+        with self._lock:
+            self._pending[key] = [value, path, params, time.monotonic(), 0.0]
+
+    def pending(self, key):
+        """The value just picked for a setting he hasn't confirmed yet, else None."""
+        p = self._pending.get(key)
+        return None if p is None else p[0]
+
+    def set_mode(self, mode):
+        self.setting("controlMode", MODES.index(mode), "/mode", m=mode)
 
     def send(self, path, **params):
-        """One-shot setting (gait, tilt safety, buzzer), fire-and-forget like set_mode."""
-        if self.base_url:
-            threading.Thread(target=self._send, args=(self.base_url, path, params), daemon=True).start()
+        """A one-shot (hello, dance, rest, the CENTER steps): queued, sent in order."""
+        with self._lock:
+            self._calls.append((path, params))
 
-    def _send(self, base_url, path, params):
-        try:
-            self._session.get(f"{base_url}{path}", params=params, timeout=REQUEST_TIMEOUT)
-        except requests.RequestException:
-            pass
+    def _send_queued(self):
+        with self._lock:
+            calls, self._calls = self._calls, []
+            now = time.monotonic()
+            due = [(k, p) for k, p in self._pending.items() if now - p[4] > SETTING_RESEND]
+            for _, p in due:
+                p[4] = now
+        for path, params in calls:
+            try:
+                self._session.get(f"{self.base_url}{path}", params=params, timeout=REQUEST_TIMEOUT * 2)
+            except requests.RequestException:
+                pass   # the /status below finds out if he's really gone
+        for _, (value, path, params, _, _) in due:
+            try:
+                self._session.get(f"{self.base_url}{path}", params=params, timeout=REQUEST_TIMEOUT)
+            except requests.RequestException:
+                pass   # sent again in SETTING_RESEND
+
+    def _check_pending(self):
+        now = time.monotonic()
+        with self._lock:
+            for key in list(self._pending):
+                p = self._pending[key]
+                if (self.status or {}).get(key) == p[0] or now - p[3] > SETTING_GIVE_UP:
+                    del self._pending[key]
 
     def _run(self):
         while True:
@@ -197,16 +287,28 @@ class WhipLink:
                 self._discover()
                 self.searching = False
                 if not self.connected:
-                    time.sleep(RECONNECT_DELAY)
+                    self._wake.wait(RECONNECT_DELAY)
+                    self._wake.clear()
                     continue
                 self._unlock()
             self._tick()
             time.sleep(TICK_INTERVAL)
 
     def _discover(self):
+        # 0. EMULATE, or WHIP_URL set (fake_whip.py does): talk to that and nothing else.
+        url = self.url_override or os.environ.get("WHIP_URL")
+        if url:
+            url = url.rstrip("/")
+            if _get_json(self._session, f"{url}/status") is not None:
+                self.base_url = url
+                self.connected = True
+            return
+
         # 1. NORA's fleet registry -- only answers if we're on her network.
         nora_url = f"http://{AP_GATEWAY_IP}:{NORA_FLEET_PORT}"
         for attempt in range(WHIP_REGISTER_RETRIES):
+            if self.url_override:
+                return   # EMULATE was pressed meanwhile
             data = _get_json(self._session, f"{nora_url}/robots")
             if data is None:
                 break   # NORA isn't reachable at all -- no point retrying this path
@@ -254,6 +356,7 @@ class WhipLink:
         try:
             if self.mind_capable and not self._host_unlocked:   # can_think() finished after we connected
                 self._unlock()
+            self._send_queued()
             if not self.mind_on:   # a "stop" here would cut the mind's moves short
                 self._session.get(f"{self.base_url}/web", params={"cmd": cmd, **params}, timeout=REQUEST_TIMEOUT)
             # ctl=1: "his mind host is still here" (MIND mode ends 5 s after it stops)
@@ -261,6 +364,7 @@ class WhipLink:
                                   timeout=REQUEST_TIMEOUT)
             if r.status_code == 200:
                 self.status = r.json()
+                self._check_pending()
         except requests.RequestException:
             self.connected = False   # lost him -- next loop iteration re-discovers
             self.status = None
@@ -339,6 +443,88 @@ def round_avatar(path, size):
     return out
 
 
+class Pad:
+    """The gamepad or joystick plugged in, by PlayStation names whatever it really is.
+
+    A pad SDL knows (Xbox, PlayStation, Switch and most USB pads, from SDL's controller
+    database) goes through SDL's GameController layer, which puts every one of them on the same
+    buttons: Cross = A, L2 / R2 = the triggers, Select = Back / Share, and so on. Anything else (a
+    flight stick like ARM's, a pad SDL doesn't know) is read raw, by the button numbers of the
+    PS2-style USB pad this controller was made with (RAW_BUTTONS)."""
+
+    RAW_BUTTONS = {"cross": 0, "circle": 1, "square": 2, "triangle": 3, "l1": 4, "r1": 5, "l2": 6, "r2": 7,
+                   "select": 8, "l3": 9, "r3": 10, "start": 11}
+    RAW_AXES = {"lx": 0, "ly": 1, "rx": 2, "ry": 3}
+
+    def __init__(self, index):
+        self.joy = pygame.joystick.Joystick(index)
+        self.joy.init()
+        self.ctl = None
+        try:
+            from pygame._sdl2 import controller as gc
+            gc.init()
+            if gc.is_controller(index):
+                self.ctl = gc.Controller(index)
+        except (ImportError, pygame.error):
+            pass
+        self.name = (self.ctl.name if self.ctl else None) or self.joy.get_name()
+        if self.ctl:
+            self._buttons = {"cross": pygame.CONTROLLER_BUTTON_A, "circle": pygame.CONTROLLER_BUTTON_B,
+                             "square": pygame.CONTROLLER_BUTTON_X, "triangle": pygame.CONTROLLER_BUTTON_Y,
+                             "l1": pygame.CONTROLLER_BUTTON_LEFTSHOULDER, "r1": pygame.CONTROLLER_BUTTON_RIGHTSHOULDER,
+                             "select": pygame.CONTROLLER_BUTTON_BACK, "start": pygame.CONTROLLER_BUTTON_START,
+                             "l3": pygame.CONTROLLER_BUTTON_LEFTSTICK, "r3": pygame.CONTROLLER_BUTTON_RIGHTSTICK}
+            self._axes = {"lx": pygame.CONTROLLER_AXIS_LEFTX, "ly": pygame.CONTROLLER_AXIS_LEFTY,
+                          "rx": pygame.CONTROLLER_AXIS_RIGHTX, "ry": pygame.CONTROLLER_AXIS_RIGHTY}
+            self._triggers = {"l2": pygame.CONTROLLER_AXIS_TRIGGERLEFT, "r2": pygame.CONTROLLER_AXIS_TRIGGERRIGHT}
+
+    @property
+    def kind(self):
+        return "gamepad" if self.ctl else "joystick"
+
+    def has_right_stick(self):
+        # raw: a flight stick's throttle sits on axis 2 and never centres, so only 5+ axes count as a pad
+        return self.ctl is not None or self.joy.get_numaxes() >= 5
+
+    def button(self, name):
+        try:
+            if self.ctl:
+                if name in self._triggers:
+                    return self.ctl.get_axis(self._triggers[name]) > 16000
+                return bool(self.ctl.get_button(self._buttons[name]))
+            i = self.RAW_BUTTONS[name]
+            return i < self.joy.get_numbuttons() and bool(self.joy.get_button(i))
+        except (pygame.error, KeyError):
+            return False
+
+    def axis(self, name):
+        """-1..1 (y: down is +, as SDL)."""
+        try:
+            if self.ctl:
+                return max(-1.0, self.ctl.get_axis(self._axes[name]) / 32767)
+            i = self.RAW_AXES[name]
+            return self.joy.get_axis(i) if i < self.joy.get_numaxes() else 0.0
+        except (pygame.error, KeyError):
+            return 0.0
+
+    def hat(self):
+        """The D-pad as (x, y), y up = +1 (pygame's hat)."""
+        try:
+            if self.ctl:
+                b = self.ctl.get_button
+                return (b(pygame.CONTROLLER_BUTTON_DPAD_RIGHT) - b(pygame.CONTROLLER_BUTTON_DPAD_LEFT),
+                        b(pygame.CONTROLLER_BUTTON_DPAD_UP) - b(pygame.CONTROLLER_BUTTON_DPAD_DOWN))
+            return self.joy.get_hat(0) if self.joy.get_numhats() else (0, 0)
+        except pygame.error:
+            return (0, 0)
+
+    def rumble(self, low, high, ms):
+        try:
+            (self.ctl or self.joy).rumble(low, high, ms)
+        except (pygame.error, AttributeError):
+            pass
+
+
 class ControllerLayout:
     def __init__(self):
         pygame.init()
@@ -374,9 +560,16 @@ class ControllerLayout:
 
         self._prev_face_buttons = {"Cross": False, "Circle": False, "Square": False, "Triangle": False}
 
-        # gait dropdown, tilt safety, buzzer: what was picked here, until his status says so too
-        self._picked = {}   # "gait" / "tiltGuard" / "sound" -> (value, time picked)
+        self.settings = self._load_settings()
+        self.theme = self.settings.get("theme") if self.settings.get("theme") in THEMES else "DEFAULT"
+        apply_theme(self.theme, self.settings.get("custom"))
+        self.recorder = None   # XML on the real WHIP: his USB serial, recorded while you drive
+        self.xml_note, self._xml_note_at = "", 0.0
+        self.fake = None    # EMULATE: the fake WHIP (fake_whip.py) running in here
+        self.fake_error = ""
+        self._hits = []     # (rect, action) of every clickable thing, refilled each frame
         self.gait_open = False
+        self._anim_phase, self._anim_at = 0.0, time.monotonic()   # the gait animation: runs only while he walks
         self._gait_box = pygame.Rect(40, 508, 200, 30)
         self._tilt_btn = pygame.Rect(40, 548, 96, 30)
         self._sound_btn = pygame.Rect(144, 548, 96, 30)
@@ -399,54 +592,196 @@ class ControllerLayout:
         self.link.mind_on = self.mind.on
 
     def _connect_joystick(self):
-        if pygame.joystick.get_count() > 0:
-            self.joystick = pygame.joystick.Joystick(0)
-            self.joystick.init()
-        else:
-            self.joystick = None
+        self.joystick = Pad(0) if pygame.joystick.get_count() > 0 else None
 
     def run(self):
         running = True
         while running:
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    running = False
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
-                    keymap.open_window()
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
-                    self._set_gait(self._setting("gait", 0) + 1)
-                elif event.type == pygame.KEYDOWN and event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
-                    self._set_gait(event.key - pygame.K_1)
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_t:
-                    self._toggle("tiltGuard", "/tilt")
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_b:
-                    self._toggle("sound", "/buzzer")
-                elif event.type == pygame.JOYBUTTONDOWN and event.button in (4, 5):   # L1 / R1
-                    self._set_gait(self._setting("gait", 0) + (1 if event.button == 5 else -1))
-                elif event.type == pygame.JOYBUTTONDOWN and event.button == 8:        # Select
-                    self._toggle("tiltGuard", "/tilt")
-                elif event.type == pygame.JOYBUTTONDOWN and event.button in (6, 7):   # L2 hello / R2 dance
-                    self.link.send("/act", do="hello" if event.button == 6 else "dance")
-                elif event.type == pygame.KEYDOWN and event.key in (pygame.K_h, pygame.K_n, pygame.K_r):
-                    self.link.send("/act", do={pygame.K_h: "hello", pygame.K_n: "dance", pygame.K_r: "rest"}[event.key])
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_f:
-                    self.link.set_mode("follow")
-                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    self._click(event.pos)
-                elif event.type in (
-                    pygame.JOYDEVICEADDED,
-                    pygame.JOYDEVICEREMOVED,
-                ):
-                    self._connect_joystick()
+                running = self._handle(event) and running
 
             self._update_drive()
             self._sync_mind()
             self.draw()
             self.clock.tick(60)
 
+        if self.fake:
+            self.fake.stop()
+        if self.recorder:   # closed while recording: keep what was recorded
+            macros = self.recorder.stop()
+            if macros:
+                serial_to_xml.write(serial_to_xml.REAL_XML, macros)
         pygame.quit()
+
+    def _handle(self, event):
+        """One pygame event (a key, a click, a pad plugged in). False: quit."""
+        if event.type == pygame.QUIT:
+            return False
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            return False
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
+            keymap.open_window()
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
+            self._set_gait(self._setting("gait", 0) + 1)
+        elif event.type == pygame.KEYDOWN and event.key in (pygame.K_z, pygame.K_x, pygame.K_c):
+            self._set_gait((pygame.K_z, pygame.K_x, pygame.K_c).index(event.key))
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_t:
+            self._toggle("tiltGuard", "/tilt")
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_b:
+            self._toggle("sound", "/buzzer")
+        elif event.type == pygame.KEYDOWN and event.key in (pygame.K_h, pygame.K_n, pygame.K_r):
+            self.link.send("/act", do={pygame.K_h: "hello", pygame.K_n: "dance", pygame.K_r: "rest"}[event.key])
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_f:
+            self.link.set_mode("follow")
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            self._click(event.pos)
+        elif event.type in (
+            pygame.JOYDEVICEADDED,
+            pygame.JOYDEVICEREMOVED,
+        ):
+            self._connect_joystick()
+        return True
+
+    # -- the button strip: every function on a click ---------------------
+
+    def _stop(self):
+        """STOP: he stands, whatever he was doing. In OBSTACLE / FOLLOW he walks by himself, so a
+        stop alone wouldn't hold him: WEB mode with nothing pressed is standing still."""
+        self.link.drive("stop")
+        self.link.send("/web", cmd="stop")
+        self.link.set_mode("web")
+
+    # -- XML: his movements as RTrobot macros (serial_to_xml.py) --------
+
+    def _note(self, text):
+        self.xml_note, self._xml_note_at = text, time.monotonic()
+
+    def _xml(self):
+        """XML: EMULATE on -> gait_emulated.xml, every movement from his own IK code with the fake's
+        calibration. The real WHIP -> record his USB serial while you drive; XML again writes
+        gait_real.xml, one macro per movement, named after what you drove."""
+        if self.fake:
+            threading.Thread(target=self._xml_emulated, daemon=True).start()
+        elif self.recorder:
+            macros = self.recorder.stop()
+            self.recorder = None
+            if macros:
+                serial_to_xml.write(serial_to_xml.REAL_XML, macros)
+                self._note(f"Wrote gait_real.xml: {len(macros)} macros, {sum(len(l) for _, l in macros)} lines")
+            else:
+                self._note("No servo lines came in: nothing written (is it his ESP32 on that port?)")
+        else:
+            port, why = serial_to_xml.usb_port()
+            if not port:
+                self._note(f"XML: {why}")
+                return
+            try:
+                self.recorder = serial_to_xml.Recorder(port, self._macro_name)
+                self._note(f"Recording his serial on {port}: drive him, then XML again to write gait_real.xml")
+            except Exception as e:
+                self._note(f"XML: can't open {port}: {e}")
+
+    def _xml_emulated(self):
+        self._note("Emulating every movement with his IK...")
+        try:
+            macros = serial_to_xml.emulate(self.link.get("/calib/state"))
+            serial_to_xml.write(serial_to_xml.EMULATED_XML, macros)
+            self._note(f"Wrote gait_emulated.xml: {len(macros)} macros, {sum(len(l) for _, l in macros)} lines")
+        except Exception as e:
+            self._note(f"XML: {e}")
+
+    def _macro_name(self):
+        """What he's doing as a recorded macro starts: "Ripple Forward", "Tripod Turn Left", ..."""
+        with self.link._lock:
+            cmd, params = self.link._desired_cmd, dict(self.link._desired_params)
+        what = {"fwd": "Forward", "bwd": "Backward", "left": "Turn Left", "right": "Turn Right",
+                "sleft": "Crab Left", "sright": "Crab Right"}.get(cmd)
+        if cmd == "drive":
+            f, l, t = params.get("f", 0), params.get("l", 0), params.get("t", 0)
+            what = ("Forward" if f > 0 else "Backward") if abs(f) >= max(abs(l), abs(t)) else \
+                   ("Crab Left" if l > 0 else "Crab Right") if abs(l) >= abs(t) else ("Turn Left" if t > 0 else "Turn Right")
+        if not what:
+            s = self.link.status or {}
+            what = MOVE_NAMES[s.get("move", 0)].title() if s.get("move") else "Move"
+        return f"{GAITS[self._setting('gait', 0) % len(GAITS)][0].title()} {what}"
+
+    def _load_settings(self):
+        try:
+            with open(SETTINGS_JSON, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _cycle_theme(self):
+        """THEME: DEFAULT -> LIGHT -> CUSTOM. The first CUSTOM writes the scheme's colours into
+        controller_settings.json's "custom" for you to change."""
+        self.theme = THEMES[(THEMES.index(self.theme) + 1) % len(THEMES)]
+        if self.theme == "CUSTOM" and not self.settings.get("custom"):
+            self.settings["custom"] = load_scheme()
+        self.settings["theme"] = self.theme
+        apply_theme(self.theme, self.settings.get("custom"))
+        try:
+            with open(SETTINGS_JSON, "w", encoding="utf-8") as f:
+                json.dump(self.settings, f, indent=2)
+        except OSError:
+            pass
+
+    def _center(self):
+        """CENTER: stop and put every servo at its middle (1500 us + its trim, /calib's ZERO
+        pose); again: back to standing. Same as START + ZERO / DONE on the /calib page."""
+        if (self.link.status or {}).get("calibrating"):
+            self.link.send("/calib/done")
+        else:
+            self.link.drive("stop")
+            self.link.send("/web", cmd="stop")
+            self.link.send("/calib/start")
+            self.link.send("/calib/pose", p="zero")
+
+    def _emulate(self):
+        """EMULATE: a pretend WHIP (fake_whip.py) on this PC, to try every button with no robot."""
+        if self.fake:
+            self.fake.stop()
+            self.fake = None
+            self.link.use_url(None)
+            return
+        import fake_whip
+        try:
+            self.fake = fake_whip.start(quiet=True)
+            self.fake_error = ""
+            self.link.use_url(FAKE_URL)
+        except OSError as e:
+            self.fake_error = f"can't start the fake WHIP: {e}"
+
+    def _strip(self):
+        """(label, action, lit) for the strip along the top of the pad."""
+        s = self.link.status or {}
+        mode = self.link.pending("controlMode")
+        mode = s.get("controlMode") if mode is None else mode
+        return [
+            ("OBSTACLE", lambda: self.link.set_mode("obstacle"), mode == 0),
+            ("IR", lambda: self.link.set_mode("ir"), mode == 1),
+            ("WEB", lambda: self.link.set_mode("web"), mode == 2),
+            ("FOLLOW", lambda: self.link.set_mode("follow"), mode == 4),
+            ("MIND", lambda: self.link.mind_capable and self.link.set_mode("web" if self.mind.on else "mind"), mode == 3),
+            ("STOP", self._stop, False),
+            ("CENTER", self._center, bool(s.get("calibrating"))),
+            ("HELLO", lambda: self.link.send("/act", do="hello"), False),
+            ("DANCE", lambda: self.link.send("/act", do="dance"), False),
+            ("REST", lambda: self.link.send("/act", do="rest"), bool(s.get("resting"))),
+            ("EMULATE", self._emulate, self.fake is not None),
+        ]
+
+    def _draw_strip(self):
+        x, y, w, gap = 40, 128, 70, 5
+        for label, action, lit in self._strip():
+            rect = pygame.Rect(x, y, w, 28)
+            color = WARN_COLOR if label in ("EMULATE", "CENTER") else ACTIVE_COLOR
+            if label == "STOP":
+                self._pill(rect, label, True, ACTIVE_COLOR, DANGER_BG)
+            else:
+                self._pill(rect, label, lit, color)
+            self._hits.append((rect, action))
+            x += w + gap
 
     # -- driving -------------------------------------------------------
 
@@ -457,18 +792,36 @@ class ControllerLayout:
         if hat != (0, 0):
             return hat[0], hat[1]
 
-        if self.joystick is not None and self.joystick.get_numaxes() >= 2:
-            try:
-                x, y = self.joystick.get_axis(0), self.joystick.get_axis(1)
-            except pygame.error:
-                x = y = 0.0
+        if self.joystick is not None:
+            x, y = self._axis("lx"), self._axis("ly")
             if max(abs(x), abs(y)) > 0.4:
                 return (0, -1 if y > 0 else 1) if abs(y) >= abs(x) else (1 if x > 0 else -1, 0)
 
         keys = pygame.key.get_pressed()
         dx = (1 if keys[pygame.K_RIGHT] or keys[pygame.K_d] else 0) - (1 if keys[pygame.K_LEFT] or keys[pygame.K_a] else 0)
         dy = (1 if keys[pygame.K_UP] or keys[pygame.K_w] else 0) - (1 if keys[pygame.K_DOWN] or keys[pygame.K_s] else 0)
+        if not dx and not dy:
+            return self._mouse_dpad()
         return dx, dy
+
+    def _dpad_rects(self):
+        """(dx, dy) on screen -> the D-pad segment's rect."""
+        cx, cy, seg, gap = 240, 330, 26, 6
+        rects = {}
+        for _, (dx, dy) in DPAD_DIRS:
+            w, h = (seg, seg + 14) if dx == 0 else (seg + 14, seg)
+            rects[(dx, dy)] = pygame.Rect(cx + dx * (seg // 2 + gap) - w // 2, cy + dy * (seg // 2 + gap) - h // 2, w, h)
+        return rects
+
+    def _mouse_dpad(self):
+        """Holding the mouse down on a D-pad segment walks him, like the arrow keys."""
+        if not pygame.mouse.get_pressed()[0]:
+            return 0, 0
+        pos = pygame.mouse.get_pos()
+        for (dx, dy), rect in self._dpad_rects().items():
+            if rect.collidepoint(pos):
+                return dx, -dy
+        return 0, 0
 
     def _sticks(self):
         """Analog (forward, left, turn) from the sticks, or None if they're centred. Only with the
@@ -480,14 +833,15 @@ class ControllerLayout:
         def dz(v):
             return 0.0 if abs(v) < AXIS_DEADZONE else max(-1.0, min(1.0, v))
 
-        fwd, turn = -dz(self._axis(1)), -dz(self._axis(0))
-        left = -dz(self._axis(2)) if self.joystick.get_numaxes() >= 5 else 0.0
+        fwd, turn = -dz(self._axis("ly")), -dz(self._axis("lx"))
+        left = -dz(self._axis("rx")) if self.joystick.has_right_stick() else 0.0
         return (fwd, left, turn) if any((fwd, left, turn)) else None
 
     def _update_drive(self):
         sticks = self._sticks()
         if sticks is not None and self._hat() == (0, 0):
             f, l, t = sticks
+            self._take_over()
             self.link.drive("drive", f=round(f, 2) + 0.0, l=round(l, 2) + 0.0, t=round(t, 2) + 0.0)   # + 0.0: no "-0.0"
             self._rumble("fwd" if f > 0.3 else "drive")
             self._update_buttons()
@@ -514,23 +868,48 @@ class ControllerLayout:
         # every TICK_INTERVAL on its own -- that repeat is what keeps WHIP's
         # WEB_CMD_TIMEOUT_MS watchdog from dropping back to stand mid-move,
         # so this just needs to record the latest desired command.
+        if cmd != "stop":
+            self._take_over()
         self.link.drive(cmd)
         self._rumble(cmd)
         self._update_buttons()
 
+    def _take_over(self):
+        """Driving him by hand while he walks by himself (he boots in OBSTACLE) or listens to the
+        remote: switch him to WEB, so he does what's pressed and stands when it's let go. His
+        firmware only takes /web drive commands in WEB mode, so without this a press did nothing
+        and letting go didn't stop him."""
+        mode = self.link.pending("controlMode")
+        mode = (self.link.status or {}).get("controlMode") if mode is None else mode
+        if self.link.connected and mode is not None and mode not in (MODES.index("web"), MODES.index("mind")):
+            self.link.set_mode("web")
+
     def _update_buttons(self):
         keys = pygame.key.get_pressed()
         face = {
-            "Cross": self._button_pressed(0) or keys[pygame.K_z],
-            "Circle": self._button_pressed(1) or keys[pygame.K_x],
-            "Square": self._button_pressed(2) or keys[pygame.K_c],
-            "Triangle": self._button_pressed(3) or keys[pygame.K_v],
+            "Cross": self._button_pressed("cross") or keys[pygame.K_1],
+            "Circle": self._button_pressed("circle") or keys[pygame.K_2],
+            "Square": self._button_pressed("square") or keys[pygame.K_3],
+            "Triangle": self._button_pressed("triangle") or keys[pygame.K_v],
         }
+        for name in ("l1", "r1", "l2", "r2", "select"):
+            face[name] = self._button_pressed(name)
 
         def rising_edge(name):
-            was = self._prev_face_buttons[name]
+            was = self._prev_face_buttons.get(name, False)
             self._prev_face_buttons[name] = face[name]
             return face[name] and not was
+
+        if rising_edge("l1"):
+            self._set_gait(self._setting("gait", 0) - 1)
+        if rising_edge("r1"):
+            self._set_gait(self._setting("gait", 0) + 1)
+        if rising_edge("select"):
+            self._toggle("tiltGuard", "/tilt")
+        if rising_edge("l2"):
+            self.link.send("/act", do="hello")
+        if rising_edge("r2"):
+            self.link.send("/act", do="dance")
 
         if rising_edge("Cross"):
             self.link.set_mode("web")
@@ -539,9 +918,9 @@ class ControllerLayout:
         if rising_edge("Square"):
             self.link.set_mode("ir")
         if rising_edge("Triangle"):
-            self.link.drive("stop")
+            self._stop()
 
-        mind_key = keys[pygame.K_m] or self._button_pressed(11)   # M / Start: MIND on or off
+        mind_key = keys[pygame.K_m] or self._button_pressed("start")   # M / Start: MIND on or off
         if mind_key and not self._prev_mind_key and self.link.mind_capable:
             self.link.set_mode("web" if self.mind.on else "mind")
         self._prev_mind_key = mind_key
@@ -568,30 +947,28 @@ class ControllerLayout:
             if any(level):
                 self.joystick.rumble(level[0], level[1], 500)
             else:
-                self.joystick.stop_rumble()
+                self.joystick.rumble(0, 0, 1)
         except (pygame.error, AttributeError):
             pass
 
     # -- gait, tilt safety, buzzer ---------------------------------------
 
     def _setting(self, key, default):
-        """A setting as it is now: just picked here, else his status, else the default."""
-        picked = self._picked.get(key)
-        if picked and time.monotonic() - picked[1] < SETTING_HOLD:
-            return picked[0]
+        """A setting as it is now: just picked here (until he confirms it), else his status, else the default."""
+        picked = self.link.pending(key)
+        if picked is not None:
+            return picked
         value = (self.link.status or {}).get(key)
         return default if value is None else int(value)
 
     def _set_gait(self, i):
         i %= len(GAITS)
-        self._picked["gait"] = (i, time.monotonic())
-        self.link.send("/gait", gait=i)
+        self.link.setting("gait", i, "/gait", gait=i)
         self.gait_open = False
 
     def _toggle(self, key, path):
         on = 0 if self._setting(key, 1) else 1
-        self._picked[key] = (on, time.monotonic())
-        self.link.send(path, on=on)
+        self.link.setting(key, on, path, on=on)
 
     def _option_rect(self, i):
         # the dropdown opens upwards (the mind's panel is below)
@@ -610,16 +987,21 @@ class ControllerLayout:
             self._toggle("tiltGuard", "/tilt")
         elif self._sound_btn.collidepoint(pos):
             self._toggle("sound", "/buzzer")
+        else:
+            for rect, action in self._hits:
+                if rect.collidepoint(pos):
+                    action()
+                    return
 
-    def _pill(self, rect, text, on, on_color):
-        pygame.draw.rect(self.screen, PANEL_COLOR, rect, border_radius=6)
+    def _pill(self, rect, text, on, on_color, fill=None):
+        pygame.draw.rect(self.screen, fill or (SELECTED_BG if on else IDLE_COLOR), rect, border_radius=6)
         pygame.draw.rect(self.screen, on_color if on else OUTLINE_COLOR, rect, width=2, border_radius=6)
         surf = self.font_small.render(text, True, on_color if on else MUTED_TEXT)
         self.screen.blit(surf, surf.get_rect(center=rect.center))
 
     def _draw_gait(self):
         status = self.link.status or {}
-        known = "gait" in status or "gait" in self._picked   # the old firmware has one gait
+        known = "gait" in status or self.link.pending("gait") is not None   # the old firmware has one gait
         gi = self._setting("gait", 0) % len(GAITS)
         gait = GAITS[gi]
 
@@ -633,26 +1015,32 @@ class ControllerLayout:
 
         tilt_on, sound_on = self._setting("tiltGuard", 1), self._setting("sound", 1)
         self._pill(self._tilt_btn, "TILT ON" if tilt_on else "TILT OFF", True, ACTIVE_COLOR if tilt_on else WARN_COLOR)
-        self._pill(self._sound_btn, "SOUND" if sound_on else "MUTED", sound_on, (100, 150, 230))
+        self._pill(self._sound_btn, "SOUND" if sound_on else "MUTED", sound_on, ACCENT2)
 
         note = gait[3] if known else "his firmware has one gait: flash esp32_gaits for more"
         self.screen.blit(self.font_tiny.render(note, True, MUTED_TEXT), (440, 578))
 
         # the little animation: WHIP from above, head up, and the step chart
+        # it plays only while he's walking: stopped, he stands on all six feet and the chart holds still
         speed = int(status.get("speed", 5))
         period = (60 / gait[1]) * (120 - speed * 10) / 1000   # s: his cycle, ticks * ms per tick
-        phase = (time.monotonic() % period) / period
+        now = time.monotonic()
+        walking = self.link.connected and status.get("move", 0) != 0 and not status.get("calibrating")
+        if walking:
+            self._anim_phase = (self._anim_phase + (now - self._anim_at) / period) % 1
+        self._anim_at = now
+        phase = self._anim_phase
         bx, by, sc = 340, 540, 0.17
 
         def P(x, y):
             return int(bx - y * sc), int(by - x * sc)
 
         pygame.draw.polygon(self.screen, OUTLINE_COLOR, [P(x, y) for x, y in BODY])
-        pygame.draw.circle(self.screen, (100, 150, 230), P(92, 0), 3)
+        pygame.draw.circle(self.screen, ACCENT2, P(92, 0), 3)
         for i in range(6):
-            ahead, up = leg_at(gait, i, phase)
+            ahead, up = leg_at(gait, i, phase) if walking else (0, 0.0)
             hip, foot = P(*LEG_HIP[i]), P(LEG_HOME[i][0] + ahead, LEG_HOME[i][1])
-            pygame.draw.line(self.screen, (100, 150, 230) if up else MUTED_TEXT, hip, foot, 2)
+            pygame.draw.line(self.screen, ACCENT2 if up else MUTED_TEXT, hip, foot, 2)
             pygame.draw.circle(self.screen, ACTIVE_COLOR if up else MUTED_TEXT, foot, 2 + int(3 * up))
 
         x0, x1, top, row_h = 440, 860, 496, 12
@@ -660,7 +1048,7 @@ class ControllerLayout:
             y = top + i * row_h
             self.screen.blit(self.font_tiny.render(LEG_NAMES[i], True, MUTED_TEXT), (x0 - 20, y - 1))
             pygame.draw.rect(self.screen, STICK_COLOR, pygame.Rect(x0, y, x1 - x0, row_h - 2))
-            color = ACTIVE_COLOR if leg_at(gait, i, phase)[1] else (100, 150, 230)
+            color = ACTIVE_COLOR if walking and leg_at(gait, i, phase)[1] else ACCENT2
             for wrap in (-1, 0):   # a bar can wrap round the end of the cycle
                 a = gait[2][i] / 6 + wrap
                 ca, cb = max(a, 0), min(a + gait[1] / 6, 1)
@@ -672,17 +1060,19 @@ class ControllerLayout:
         if self.gait_open:   # drawn last: over everything else
             for i, g in enumerate(GAITS):
                 r = self._option_rect(i)
-                pygame.draw.rect(self.screen, (44, 44, 52) if i != gi else (40, 70, 52), r)
+                pygame.draw.rect(self.screen, PANEL_COLOR if i != gi else SELECTED_BG, r)
                 pygame.draw.rect(self.screen, OUTLINE_COLOR, r, width=1)
                 self.screen.blit(self.font.render(f"{i + 1}  {g[0]}", True, TEXT_COLOR), (r.x + 10, r.y + 5))
 
     # -- drawing -----------------------------------------------------
 
     def draw(self):
+        self._hits = []
         self.screen.fill(BG_COLOR)
         self._draw_header()
         self._draw_link_status()
         self._draw_body()
+        self._draw_strip()
         self._draw_dpad()
         self._draw_face_buttons()
         self._draw_sticks()
@@ -696,29 +1086,43 @@ class ControllerLayout:
         if self.avatar:
             self.screen.blit(self.avatar, (20, 12))
         tx = 84 if self.avatar else 20
-        title = self.font_large.render("WHIP Robot - Controller", True, TEXT_COLOR)
-        self.screen.blit(title, (tx, 16))
+        title = self.font_large.render("WHIP", True, ACTIVE_COLOR)
+        self.screen.blit(title, (tx, 14))
+        self.screen.blit(self.font_large.render(" Controller", True, TEXT_COLOR), (tx + title.get_width(), 14))
 
         if self.joystick is not None:
-            status = f"Connected: {self.joystick.get_name()}"
-            color = ACTIVE_COLOR
+            status = f"{self.joystick.kind.capitalize()}: {self.joystick.name}"
+            color = OK_COLOR
         else:
-            status = "No pad - arrows + Z/X/C/V; Q/E crab, G gait, H hello, F1 all keys"
+            status = "No pad: arrows, 1/2/3 mode, V stop, Z/X/C gait, Q/E crab, F1 all keys"
             color = MUTED_TEXT
-        status_surf = self.font.render(status, True, color)
-        self.screen.blit(status_surf, (tx, 50))
+        self.screen.blit(self.font.render(self._fit(status, self.font, WIDTH - tx - 20), True, color), (tx, 50))
 
-        hint = self.font_small.render("ESC or close window to quit", True, MUTED_TEXT)
-        self.screen.blit(hint, (WIDTH - hint.get_width() - 20, 20))
+        xml = pygame.Rect(WIDTH - 330, 14, 150, 26)
+        rec = self.recorder is not None
+        self._pill(xml, f"REC XML {self.recorder.lines()}" if rec else "XML", rec, ACTIVE_COLOR if rec else ACCENT2)
+        self._hits.append((xml, self._xml))
+
+        theme = pygame.Rect(WIDTH - 170, 14, 150, 26)
+        self._pill(theme, f"THEME: {self.theme}", True, ACCENT2)
+        self._hits.append((theme, self._cycle_theme))
 
     def _draw_link_status(self):
-        if self.link.searching:
-            text, color = "WHIP: searching (NORA's network, then WHIP's own AP)...", WARN_COLOR
+        if self.xml_note and time.monotonic() - self._xml_note_at < 8:
+            text, color = self.xml_note, OK_COLOR
+        elif self.fake_error:
+            text, color = self.fake_error, ERROR_COLOR
+        elif self.fake and self.link.connected:
+            text, color = f"EMULATED WHIP @ {self.link.base_url}  -  {self.fake.last_log()}", WARN_COLOR
+        elif self.fake:
+            text, color = "EMULATED WHIP: starting...", WARN_COLOR
+        elif self.link.searching:
+            text, color = "WHIP: searching (NORA's network, then WHIP's own AP)...", MUTED_TEXT
         elif self.link.connected:
-            text, color = f"WHIP: connected @ {self.link.base_url}", ACTIVE_COLOR
+            text, color = f"WHIP: connected @ {self.link.base_url}", OK_COLOR
         else:
-            text, color = "WHIP: not found -- retrying", (200, 90, 90)
-        surf = self.font.render(text, True, color)
+            text, color = "WHIP: not found -- retrying (EMULATE to try without him)", ERROR_COLOR
+        surf = self.font.render(self._fit(text, self.font, WIDTH - 40), True, color)
         self.screen.blit(surf, (20, 74))
 
         status = self.link.status
@@ -740,70 +1144,59 @@ class ControllerLayout:
             self.screen, OUTLINE_COLOR, pygame.Rect(20, 120, WIDTH - 40, 480), width=2, border_radius=24
         )
 
-    def _button_pressed(self, index):
-        if self.joystick is None:
-            return False
-        try:
-            return bool(self.joystick.get_button(index))
-        except pygame.error:
-            return False
+    def _button_pressed(self, name):
+        return self.joystick is not None and self.joystick.button(name)
 
-    def _axis(self, index):
-        if self.joystick is None:
-            return 0.0
-        try:
-            return self.joystick.get_axis(index)
-        except pygame.error:
-            return 0.0
+    def _axis(self, name):
+        return 0.0 if self.joystick is None else self.joystick.axis(name)
 
     def _hat(self):
-        if self.joystick is None or self.joystick.get_numhats() == 0:
-            return (0, 0)
-        try:
-            return self.joystick.get_hat(0)
-        except pygame.error:
-            return (0, 0)
+        return (0, 0) if self.joystick is None else self.joystick.hat()
 
-    def _draw_circle_button(self, center, radius, active, label, active_color=ACTIVE_COLOR):
-        color = active_color if active else IDLE_COLOR
-        pygame.draw.circle(self.screen, color, center, radius)
-        pygame.draw.circle(self.screen, OUTLINE_COLOR, center, radius, width=2)
-        label_surf = self.font_small.render(label, True, TEXT_COLOR)
-        rect = label_surf.get_rect(center=(center[0], center[1] + radius + 14))
-        self.screen.blit(label_surf, rect)
+    def _draw_face(self, center, radius, active, label, color, does, side):
+        """A face button with its PlayStation symbol, and what it does written on the outside."""
+        pygame.draw.circle(self.screen, color if active else IDLE_COLOR, center, radius)
+        pygame.draw.circle(self.screen, color, center, radius, width=2)
+        ink, x, y, k = BG_COLOR if active else color, center[0], center[1], radius * 0.45
+        if label == "Triangle":
+            pygame.draw.polygon(self.screen, ink, [(x, y - k), (x + k, y + k * 0.75), (x - k, y + k * 0.75)], width=2)
+        elif label == "Circle":
+            pygame.draw.circle(self.screen, ink, center, int(k), width=2)
+        elif label == "Cross":
+            pygame.draw.line(self.screen, ink, (x - k, y - k), (x + k, y + k), 3)
+            pygame.draw.line(self.screen, ink, (x - k, y + k), (x + k, y - k), 3)
+        else:
+            pygame.draw.rect(self.screen, ink, pygame.Rect(x - k, y - k, 2 * k, 2 * k), width=2)
+        surf = self.font_small.render(does, True, MUTED_TEXT)
+        dx, dy = side
+        pos = (x + dx * (radius + 8 + surf.get_width() / 2), y + dy * (radius + 12))
+        self.screen.blit(surf, surf.get_rect(center=pos))
 
     def _draw_face_buttons(self):
         # Standard SDL/pygame mapping: 0=A/Cross 1=B/Circle 2=X/Square 3=Y/Triangle
-        button_index = {"Cross": 0, "Circle": 1, "Square": 2, "Triangle": 3}
         cluster_center = (660, 330)
+        does = {"Cross": lambda: self.link.set_mode("web"), "Circle": lambda: self.link.set_mode("obstacle"),
+                "Square": lambda: self.link.set_mode("ir"),
+                "Triangle": self._stop}
+        words = {"Triangle": ("STOP", (0, -1)), "Circle": ("AUTO", (1, 0)), "Cross": ("WEB", (0, 1)), "Square": ("IR", (-1, 0))}
         for label, offset, color in FACE_BUTTON_LAYOUT:
             center = (cluster_center[0] + offset[0], cluster_center[1] + offset[1])
-            active = self._button_pressed(button_index[label])
-            self._draw_circle_button(center, 20, active, label, color)
+            active = self._button_pressed(label.lower())
+            self._draw_face(center, 20, active, label, globals()[color], *words[label])
+            self._hits.append((pygame.Rect(center[0] - 20, center[1] - 20, 40, 40), does[label]))
 
     def _draw_dpad(self):
         cx, cy = 240, 330
-        seg = 26
-        gap = 6
-        hat = self._hat()
+        held = self._dpad_direction()   # pad, stick, keys or mouse
 
-        for label, (dx, dy) in DPAD_DIRS:
-            rect_w, rect_h = (seg, seg + 14) if dx == 0 else (seg + 14, seg)
-            rx = cx + dx * (seg // 2 + gap) - rect_w // 2
-            ry = cy + dy * (seg // 2 + gap) - rect_h // 2
-            rect = pygame.Rect(rx, ry, rect_w, rect_h)
-
-            active = (dx, dy) == (hat[0], hat[1]) if (dx, dy) != (0, 0) else False
-            if dx != 0 and hat[0] == dx and dy == 0:
-                active = True
-            if dy != 0 and hat[1] == -dy and dx == 0:
-                active = True
+        for (dx, dy), rect in self._dpad_rects().items():
+            active = held != (0, 0) and (dx == held[0] if dx else -dy == held[1])
 
             color = ACTIVE_COLOR if active else IDLE_COLOR
             pygame.draw.rect(self.screen, color, rect, border_radius=4)
             pygame.draw.rect(self.screen, OUTLINE_COLOR, rect, width=2, border_radius=4)
 
-        label_surf = self.font_small.render("D-Pad", True, TEXT_COLOR)
+        label_surf = self.font_small.render("D-Pad: walk", True, MUTED_TEXT)
         rect = label_surf.get_rect(center=(cx, cy + 60))
         self.screen.blit(label_surf, rect)
 
@@ -824,48 +1217,44 @@ class ControllerLayout:
         dot_color = ACTIVE_COLOR if pressed else STICK_DOT_COLOR
         pygame.draw.circle(self.screen, dot_color, (dot_x, dot_y), 10)
 
-        label_surf = self.font_small.render(label, True, TEXT_COLOR)
+        label_surf = self.font_small.render(label, True, MUTED_TEXT)
         rect = label_surf.get_rect(center=(center[0], center[1] + radius + 14))
         self.screen.blit(label_surf, rect)
 
     def _draw_sticks(self):
-        # Left stick: axes 0/1, click button 9 (common SDL mapping)
-        # Right stick: axes 2/3, click button 10
-        self._draw_stick((360, 425), 40, 0, 1, 9, "L-Stick")
-        self._draw_stick((540, 425), 40, 2, 3, 10, "R-Stick")
+        self._draw_stick((360, 425), 40, "lx", "ly", "l3", "L: walk + turn")
+        self._draw_stick((540, 425), 40, "rx", "ry", "r3", "R: crab")
 
     def _draw_shoulders(self):
         # L1/R1 as buttons 4/5 (they pick the gait), L2/R2 as buttons 6/7 (fallback) or axes 4/5 on many pads
         specs = [
-            ("L2 hello", 120, 180, 6),
-            ("L1 gait-", 120, 220, 4),
-            ("R2 dance", 780, 180, 7),
-            ("R1 gait+", 780, 220, 5),
+            ("L2 hello", 120, 180, "l2", lambda: self.link.send("/act", do="hello")),
+            ("L1 gait-", 120, 220, "l1", lambda: self._set_gait(self._setting("gait", 0) - 1)),
+            ("R2 dance", 780, 180, "r2", lambda: self.link.send("/act", do="dance")),
+            ("R1 gait+", 780, 220, "r1", lambda: self._set_gait(self._setting("gait", 0) + 1)),
         ]
-        for label, x, y, btn_idx in specs:
+        for label, x, y, btn_idx, action in specs:
             rect = pygame.Rect(x - 45, y - 16, 90, 32)
-            active = self._button_pressed(btn_idx)
-            color = ACTIVE_COLOR if active else IDLE_COLOR
-            pygame.draw.rect(self.screen, color, rect, border_radius=6)
-            pygame.draw.rect(self.screen, OUTLINE_COLOR, rect, width=2, border_radius=6)
-            label_surf = self.font_small.render(label, True, TEXT_COLOR)
-            lrect = label_surf.get_rect(center=rect.center)
-            self.screen.blit(label_surf, lrect)
+            self._hits.append((rect, action))
+            self._pill(rect, label, self._button_pressed(btn_idx), ACTIVE_COLOR)
 
     def _draw_center_buttons(self):
         specs = [
-            ("Select (tilt)", 400, 230, 8),
-            ("Start (MIND)", 500, 230, 11),
+            ("Select: tilt", 385, 230, "select", lambda: self._toggle("tiltGuard", "/tilt")),
+            ("Start: MIND", 515, 230, "start",
+             lambda: self.link.mind_capable and self.link.set_mode("web" if self.mind.on else "mind")),
         ]
-        for label, x, y, btn_idx in specs:
-            rect = pygame.Rect(x - 50, y - 12, 100, 24)
-            active = self._button_pressed(btn_idx)
-            color = ACTIVE_COLOR if active else IDLE_COLOR
-            pygame.draw.rect(self.screen, color, rect, border_radius=12)
-            pygame.draw.rect(self.screen, OUTLINE_COLOR, rect, width=2, border_radius=12)
-            label_surf = self.font_small.render(label, True, TEXT_COLOR)
-            lrect = label_surf.get_rect(center=rect.center)
-            self.screen.blit(label_surf, lrect)
+        for label, x, y, btn_idx, action in specs:
+            rect = pygame.Rect(x - 60, y - 12, 120, 24)
+            self._hits.append((rect, action))
+            self._pill(rect, label, self._button_pressed(btn_idx), ACTIVE_COLOR)
+
+    def _fit(self, text, font, width):
+        if font.size(text)[0] <= width:
+            return text
+        while text and font.size(text + "...")[0] > width:
+            text = text[:-1]
+        return text + "..."
 
     def _wrap(self, text, font, width):
         lines = []
@@ -885,22 +1274,22 @@ class ControllerLayout:
     def _draw_mind(self):
         box = pygame.Rect(20, 610, WIDTH - 40, 196)
         pygame.draw.rect(self.screen, PANEL_COLOR, box, border_radius=16)
-        pygame.draw.rect(self.screen, ACTIVE_COLOR if self.mind.on else OUTLINE_COLOR, box, width=2, border_radius=16)
+        pygame.draw.rect(self.screen, OK_COLOR if self.mind.on else OUTLINE_COLOR, box, width=2, border_radius=16)
         m = self.mind
         if m.on:
-            head, color = f"MIND: {m.state}   (M / Start: off)", ACTIVE_COLOR
+            head, color = f"MIND: {m.state}   (M / Start: off)", OK_COLOR
         elif self.link.mind_capable:
             head, color = f"MIND: off  -  M / Start to switch it on  ({self.mind_check})", MUTED_TEXT
         else:
             head, color = f"MIND: not on this PC  -  {self.mind_check}", WARN_COLOR
-        self.screen.blit(self.font.render(head, True, color), (36, 620))
+        self.screen.blit(self.font.render(self._fit(head, self.font, box.width - 32), True, color), (36, 620))
         y = 646
         if m.said:
             for line in self._wrap(f'WHIP: "{m.said}"', self.font, box.width - 32)[:2]:
                 self.screen.blit(self.font.render(line, True, TEXT_COLOR), (36, y))
                 y += 22
         if m.error:
-            self.screen.blit(self.font_small.render(f"! {m.error}", True, (200, 90, 90)), (36, y))
+            self.screen.blit(self.font_small.render(self._fit(f"! {m.error}", self.font_small, box.width - 32), True, ERROR_COLOR), (36, y))
             y += 18
         # his thoughts, newest at the bottom (the user loves reading them)
         thoughts = self._wrap(m.thinking.strip(), self.font_small, box.width - 32) if m.thinking.strip() else []

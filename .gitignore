@@ -162,3 +162,6 @@ cython_debug/
 # gait_test build
 scripts/gait_test/*.exe
 scripts/gait_test/test
+
+# controller theme / custom colours (per PC)
+scripts/controller_settings.json
