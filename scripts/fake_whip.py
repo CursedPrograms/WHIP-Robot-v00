@@ -147,10 +147,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):   # quiet: log() says what matters
         pass
 
-    def reply(self, code, body):
-        data = (json.dumps(body) if isinstance(body, dict) else body).encode()
+    def reply(self, code, body, ctype=None):
+        data = body if isinstance(body, bytes) else (json.dumps(body) if isinstance(body, dict) else body).encode()
         self.send_response(code)
-        self.send_header("Content-Type", "application/json" if isinstance(body, dict) else "text/plain")
+        self.send_header("Content-Type", ctype or ("application/json" if isinstance(body, dict) else "text/plain"))
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -167,6 +167,16 @@ class Handler(BaseHTTPRequestHandler):
             if q.get("ctl") == "1" and w.mind_host_seen:
                 w.mind_host_seen = now
             return self.reply(200, w.status())
+        if path == "/":            # his own web page, straight out of his firmware (esp32_gaits.ino)
+            page = web_page()
+            if q.get("unlocked") == "1":   # for screenshots: the page as it looks once the PIN's in
+                page = page.replace('<div id="lockOverlay" style="', '<div id="lockOverlay" style="display:none !important;', 1)
+            return self.reply(200, page, "text/html; charset=utf-8")
+        if path in ("/avatar.jpg", "/favicon.ico"):
+            with open(os.path.join(HERE, "..", "images", "whip_avatar.jpg"), "rb") as f:
+                return self.reply(200, f.read(), "image/jpeg")
+        if path == "/pose":        # his 18 joint angles and body pose (the page's 3D view), from his IK
+            return self.reply(200, pose_json(w))
         if path == "/near":
             return self.reply(200, {"robots": []})
         if path == "/unlock":
@@ -312,6 +322,33 @@ class Handler(BaseHTTPRequestHandler):
             log(path[1:])
             return self.reply(200, "OK")
         return self.reply(404, "not found")
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def web_page():
+    """INDEX_HTML from esp32_gaits.ino: the page he serves, as it is in his firmware."""
+    with open(os.path.join(HERE, "esp32_gaits", "esp32_gaits.ino"), encoding="utf-8") as f:
+        src = f.read()
+    key = 'INDEX_HTML[] PROGMEM = R"rawhtml('
+    start = src.index(key) + len(key)
+    return src[start:src.index(')rawhtml"', start)]
+
+
+def pose_json(w):
+    """/pose as he answers it: joint angles of his stance (with the body pose), walking or not."""
+    import whip_body as wb
+    z = -90 + (-80) * w.height / 9
+    feet = [(x, y, z) for x, y in wb.HOME]
+    if w.move != STAND:   # walking: one tripod in the air at a time, swinging (just for the drawing)
+        t = time.monotonic() * 2.5
+        for l in range(6):
+            off = 0 if l in (0, 2, 4) else math.pi
+            feet[l] = (feet[l][0] + 30 * math.sin(t + off), feet[l][1], z + max(0.0, 40 * math.sin(t + off + 1.57)))
+    a = [wb.angles(l, f) or (0, 0, 0) for l, f in enumerate(wb.body_frame(feet, *w.body))]
+    return {"a": [[round(v, 1) for v in leg] for leg in a], "b": [round(v, 1) for v in w.body],
+            "walk": int(w.move != STAND), "bm": 0}
 
 
 def world(w, stop):

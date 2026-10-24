@@ -1853,6 +1853,20 @@ void setupWebServer() {
   server.on("/mind",     handleMindCmd);
   server.on("/shutdown", handleShutdownCmd);
   server.on("/status",   handleStatus);
+  server.on("/pose",     []() {                 // his joint angles now (deg, LF..RB x hip knee foot) + body pose
+    float a[ik::LEGS][ik::JOINTS];
+    String j = "{\"a\":[";
+    const bool ok = ik::anglesOf(ikNow, a);
+    for (uint8_t l = 0; l < ik::LEGS; l++) {
+      j += String(l ? ",[" : "[");
+      for (uint8_t k = 0; k < ik::JOINTS; k++) j += String(k ? "," : "") + String(ok ? a[l][k] : 0.0f, 1);
+      j += "]";
+    }
+    j += "],\"b\":[" + String(bodyNow.x, 1) + "," + String(bodyNow.y, 1) + "," + String(bodyNow.z, 1) + "," +
+         String(bodyNow.roll, 1) + "," + String(bodyNow.pitch, 1) + "," + String(bodyNow.yaw, 1) + "]";
+    j += ",\"walk\":" + String(gaitNow.running ? 1 : 0) + ",\"bm\":" + String(bodyMode ? 1 : 0) + "}";
+    server.send(200, "application/json", j);
+  });
   server.on("/body",     []() {                 // ?x=&y=&z= mm &roll=&pitch=&yaw= deg: his body over planted feet
     if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
     ik::BodyPose b;
@@ -1905,15 +1919,16 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
   <link rel="icon" href="/avatar.jpg">
   <style>
     :root {
-      /* same palette as the rest of the fleet's HUDs -- one look throughout */
-      --bg:          #07090f;
-      --panel:       #0a0e1a;
-      --border:      #1e3458;
-      --accent:      #6496e6;
-      --accent-rgb:  100,150,230;
-      --text:        #a0b8e8;
-      --text-dim:    #4a5f80;
-      --text-val:    #d7e6ff;
+      /* his colour_scheme.xml (sampled from his avatar: red and blue spider on night black) */
+      --bg:          #080A12;
+      --panel:       #0E1120;
+      --border:      #1D223F;
+      --accent:      #D34859;
+      --accent-rgb:  211,72,89;
+      --accent2:     #1A7BD9;
+      --text:        #A89497;
+      --text-dim:    #6B575A;
+      --text-val:    #F2E9EA;
       --green:       #46d764;
       --green-rgb:   70,215,100;
       --orange:      #ffbe50;
@@ -2037,6 +2052,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     </div>
     <canvas id="gaitAnim" width="300" height="120"></canvas>
     <div id="gaitNote"></div>
+  </div>
+
+  <div id="body3dBox" class="sensor-box" title="WHIP as he stands right now: drag to turn the view">
+    <div class="gait-row"><span>WHIP in 3D</span><span id="body3dInfo" style="font-size:0.75rem"></span></div>
+    <canvas id="body3d" width="300" height="230" style="width:100%;max-width:300px;touch-action:none;cursor:grab"></canvas>
   </div>
 
   <div id="actRow">
@@ -2318,6 +2338,95 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
     showGait(0);
     requestAnimationFrame(drawGait);
+
+    // --- WHIP in 3D: his joint angles (/pose) through his own leg geometry (ik_gait.h, the reverse of
+    // solve: as whip_body.joints), drawn from a camera you turn by dragging; the ground, the support
+    // polygon under the feet that are down, and his centre over it. Plain canvas, no libraries.
+    var B3 = { HK: 28, TH: 84, FT: 127, TIP: 14,
+               ANCHOR: [[74, 39], [0, 64], [-74, 39], [74, -39], [0, -64], [-74, -39]],
+               BODY: [[74, 39], [0, 64], [-74, 39], [-74, -39], [0, -64], [74, -39]],
+               az: -0.65, el: 0.55, pose: null };
+    var c3 = document.getElementById('body3d'), g3 = c3.getContext('2d');
+    function legPoints(l, hip, knee, foot) {
+      var ax = B3.ANCHOR[l][0], ay = B3.ANCHOR[l][1], R = Math.PI / 180;
+      var yaw = Math.atan2(ay, ax) + hip * R, c = Math.cos(yaw), s = Math.sin(yaw);
+      var kx = ax + B3.HK * c, ky = ay + B3.HK * s, k = knee * R;
+      var ah = B3.TH * Math.cos(k), az = B3.TH * Math.sin(k);
+      var f = k + Math.PI + (foot + 90 + B3.TIP) * R;
+      var fh = ah + B3.FT * Math.cos(f), fz = az + B3.FT * Math.sin(f);
+      return [[ax, ay, 0], [kx, ky, 0], [kx + ah * c, ky + ah * s, az], [kx + fh * c, ky + fh * s, fz]];
+    }
+    function toWorld(p, b) {   // R p + t, R = Rz(yaw) Ry(pitch) Rx(roll)
+      var R = Math.PI / 180, cr = Math.cos(b[3] * R), sr = Math.sin(b[3] * R), cp = Math.cos(b[4] * R),
+          sp = Math.sin(b[4] * R), cy = Math.cos(b[5] * R), sy = Math.sin(b[5] * R), x = p[0], y = p[1], z = p[2];
+      return [cy * cp * x + (cy * sp * sr - sy * cr) * y + (cy * sp * cr + sy * sr) * z + b[0],
+              sy * cp * x + (sy * sp * sr + cy * cr) * y + (sy * sp * cr - cy * sr) * z + b[1],
+              -sp * x + cp * sr * y + cp * cr * z + b[2]];
+    }
+    function proj(p) {
+      var ca = Math.cos(B3.az), sa = Math.sin(B3.az), ce = Math.cos(B3.el), se = Math.sin(B3.el);
+      var xr = p[0] * ca - p[1] * sa, yr = p[0] * sa + p[1] * ca, k = 0.62;
+      return [c3.width / 2 - yr * k, c3.height * 0.42 - (p[2] * ce + xr * se) * k];
+    }
+    function hull(pts) {
+      pts = pts.slice().sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+      if (pts.length < 3) return pts;
+      var cr = function (o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); };
+      var lo = [], up = [];
+      pts.forEach(function (q) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); });
+      pts.slice().reverse().forEach(function (q) { while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); });
+      return lo.slice(0, -1).concat(up.slice(0, -1));
+    }
+    function draw3d() {
+      var P = B3.pose, css = getComputedStyle(document.documentElement);
+      var acc = css.getPropertyValue('--accent').trim(), acc2 = css.getPropertyValue('--accent2').trim() || '#1A7BD9';
+      g3.clearRect(0, 0, c3.width, c3.height);
+      if (!P) return;
+      var legs = P.a.map(function (a, l) { return legPoints(l, a[0], a[1], a[2]).map(function (q) { return toWorld(q, P.b); }); });
+      var gz = Math.min.apply(null, legs.map(function (pts) { return pts[3][2]; }));
+      g3.strokeStyle = 'rgba(160,160,180,0.12)'; g3.lineWidth = 1;
+      for (var k = -5; k <= 5; k++) {
+        [[[k * 50, -250, gz], [k * 50, 250, gz]], [[-250, k * 50, gz], [250, k * 50, gz]]].forEach(function (ln) {
+          var a = proj(ln[0]), b = proj(ln[1]); g3.beginPath(); g3.moveTo(a[0], a[1]); g3.lineTo(b[0], b[1]); g3.stroke();
+        });
+      }
+      var down = legs.filter(function (pts) { return pts[3][2] <= gz + 4; }).map(function (pts) { return [pts[3][0], pts[3][1]]; });
+      var h = hull(down);
+      if (h.length >= 3) {
+        g3.beginPath(); h.forEach(function (q, i) { var s = proj([q[0], q[1], gz]); i ? g3.lineTo(s[0], s[1]) : g3.moveTo(s[0], s[1]); });
+        g3.closePath(); g3.fillStyle = 'rgba(26,123,217,0.22)'; g3.fill(); g3.strokeStyle = acc2; g3.stroke();
+      }
+      var cog = proj([P.b[0], P.b[1], gz]), mid = proj(toWorld([0, 0, 0], P.b));
+      g3.strokeStyle = acc2; g3.beginPath(); g3.moveTo(mid[0], mid[1]); g3.lineTo(cog[0], cog[1]); g3.stroke();
+      g3.fillStyle = acc2; g3.beginPath(); g3.arc(cog[0], cog[1], 4, 0, 7); g3.fill();
+      g3.beginPath();
+      B3.BODY.forEach(function (q, i) { var s = proj(toWorld([q[0], q[1], 0], P.b)); i ? g3.lineTo(s[0], s[1]) : g3.moveTo(s[0], s[1]); });
+      g3.closePath(); g3.fillStyle = 'rgba(' + css.getPropertyValue('--accent-rgb').trim() + ',0.3)'; g3.fill();
+      g3.strokeStyle = acc; g3.lineWidth = 2; g3.stroke();
+      legs.forEach(function (pts) {
+        g3.strokeStyle = acc; g3.lineWidth = 3; g3.beginPath();
+        pts.forEach(function (q, i) { var s = proj(q); i ? g3.lineTo(s[0], s[1]) : g3.moveTo(s[0], s[1]); });
+        g3.stroke();
+        pts.forEach(function (q, i) { var s = proj(q); g3.fillStyle = i == 3 ? '#F2E9EA' : acc; g3.beginPath(); g3.arc(s[0], s[1], i == 3 ? 3 : 2.5, 0, 7); g3.fill(); });
+      });
+      document.getElementById('body3dInfo').textContent = P.bm ? 'BODY mode' : (P.walk ? 'walking' : 'standing');
+    }
+    (function () {   // drag to turn the view
+      var drag = null;
+      c3.addEventListener('pointerdown', function (e) { drag = [e.clientX, e.clientY, B3.az, B3.el]; c3.setPointerCapture(e.pointerId); });
+      c3.addEventListener('pointermove', function (e) {
+        if (!drag) return;
+        B3.az = drag[2] + (e.clientX - drag[0]) * 0.01;
+        B3.el = Math.max(0.1, Math.min(1.45, drag[3] + (e.clientY - drag[1]) * 0.01));
+        draw3d();
+      });
+      c3.addEventListener('pointerup', function () { drag = null; });
+    })();
+    function updatePose() {
+      fetch('/pose').then(function (r) { return r.json(); }).then(function (j) { B3.pose = j; draw3d(); }).catch(function () {});
+    }
+    updatePose();
+    setInterval(updatePose, 300);
 
     showMode('obstacle');   // the status poll shows his real mode
     updateStatus();
