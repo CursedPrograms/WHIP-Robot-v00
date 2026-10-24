@@ -82,11 +82,11 @@ const float WHIP_HOME_Z_MAX  = -170;   // WHIP's: height 9 (height 5 = -134, thi
 const float HOME_Z_MIN = WHIP_HOME_Z_MIN;   // in use: swap to JAKOB_* to try his stance
 const float HOME_Z_MAX = WHIP_HOME_Z_MAX;
 const float SLEEP_Z    = HOME_Z_MIN;   // resting: lowest stance, not on the floor (the battery's there)
-const float LIFT       = 30;      // how high a foot lifts when stepping
+const float LIFT       = 50;      // how high a foot lifts when stepping (60 still in reach, joints ~75 deg)
 const float FB_X       = 150;     // front / back feet ahead / behind the centre
 const float WIDTH_FB   = 123;     // front / back feet out to the side
 const float WIDTH_M    = 177;     // middle feet out to the side
-const float WALK_X     = 40;      // how far a foot moves back and forth per step
+const float WALK_X     = 50;      // how far a foot moves back and forth per step (55 is out of reach at height 9)
 
 // Servo: 1500 us + trim at 0 degrees. 10.49 us a degree is the reference's
 // Maestro range (576-2464 us for 180 degrees); MG995/MG996R are close to it.
@@ -199,6 +199,11 @@ inline void zeroLine(char* out, size_t n) {
       used += snprintf(out + used, n - used, "#%uP%d", cal[leg][j].ch, toUs(leg, j, 0));
 }
 
+// Ease in and out (smootherstep, 10t^3 - 15t^4 + 6t^5): 0 to 1 starting and ending at
+// zero speed and zero acceleration, so a joint never jumps to full speed or stops dead
+// between steps -- the jerk that worked the legs off their servo horns.
+inline float ease(float t) { return t * t * t * (10 + t * (6 * t - 15)); }
+
 inline Pos lerp(Pos a, Pos b, float t) { return { a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t }; }
 
 inline Frame lerp(const Frame& a, const Frame& b, float t) {
@@ -213,19 +218,20 @@ inline Frame lerp(const Frame& a, const Frame& b, float t) {
 // gradually instead of reversing at once. The peak is 10/16 of `up`, hence 1.6.
 inline Pos swing(Pos a, Pos b, float lift, float t) {
   const float u = 1 - t;
-  const float toB = t * t * t * (10 * u * u + 5 * t * u + t * t);   // Bernstein 3 + 4 + 5
+  const float toB = ease(t);   // Bernstein 3 + 4 + 5 = smootherstep
   const float up  = 10 * t * t * u * u * 1.6f * lift;              // (Bernstein 2 + 3) * up
   return { a.x + (b.x - a.x) * toB, a.y + (b.y - a.y) * toB, a.z + (b.z - a.z) * toB + up };
 }
 
 // One step, `from` to `land`, t 0..1. `lift` is the key frame in between that says
 // which feet step (the ones it raises) and how high; they arc over on swing(), the
-// feet on the ground keep moving in straight lines.
+// feet on the ground move in straight lines, eased the same way so all six feet
+// start and stop together.
 inline Frame step(const Frame& from, const Frame& lift, const Frame& land, float t) {
   Frame f;
   for (uint8_t i = 0; i < LEGS; i++) {
     const float up = lift.leg[i].z - land.leg[i].z;
-    f.leg[i] = up > 1 ? swing(from.leg[i], land.leg[i], up, t) : lerp(from.leg[i], land.leg[i], t);
+    f.leg[i] = up > 1 ? swing(from.leg[i], land.leg[i], up, t) : lerp(from.leg[i], land.leg[i], ease(t));
   }
   return f;
 }
@@ -269,5 +275,8 @@ inline uint16_t stepMs() { return 120 - speed * 10; }
 // Interpolation steps between key frames, as in the reference: a foot only follows its
 // path (a straight line, or the swing arc) if every joint is worked out again along the way.
 const uint8_t STEPS = 5;
+// Walking and turning: at 9600 baud a line takes ~150 ms to send whatever stepMs says,
+// so speed sets how many moves a key frame takes instead: speed 0 = 6, speed 9 = 3.
+inline uint8_t walkSteps() { return 6 - speed / 3; }
 
 }  // namespace ik

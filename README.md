@@ -64,8 +64,8 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 ### Core Features
 - [x] 18-DOF walking: forward, backward, turn left and turn right gaits, plus stand, rest and shut-down poses.
 - [x] Three control modes: Obstacle Avoidance (the boot default), IR Remote, and Web (the browser page or the Python controller).
-- [x] Tilt safety: past 10° of pitch or roll for 250 ms he stops and stands, and resumes once he is back under 7°.
-- [x] Obstacle avoidance: walks until something is closer than 20 cm, then stands, turns and walks on once the way is clear past 35 cm.
+- [x] Tilt safety: past 20° of pitch or roll for 500 ms he stops and stands, and resumes once he is back under 12°.
+- [x] Obstacle avoidance: walks until something is closer than 35 cm, then stands, turns (left and right by turns) and walks on once the way is clear past 50 cm.
 - [x] Fleet: joins NORA's network when it's in range and registers with the fleet, or hosts his own `WHIP` access point.
 - [x] Starts walking in obstacle avoidance 5 s after power-on (WiFi joins in the background).
 - [x] MIND mode: the LLM on his PC controller drives him, one short move at a time, and talks in his own voice (a theatrical show-off, David). M / Start on the Python controller, or MIND on his page while it's connected.
@@ -91,7 +91,7 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 | **Component** | **Details** |
 |-----------|---------|
 | Microcontroller | ESP32 (the same module as NORA) |
-| Servo controller | RTrobot 32-channel servo controller (UART, 9600 baud) |
+| Servo controller | RTrobot 32-channel servo controller (UART, 115200 baud) |
 | Chassis | 18-DOF hexapod chassis |
 | Servos | 18 × MG995 180° |
 | Battery | 3S LiPo |
@@ -179,7 +179,7 @@ WHIP's control page is on port `5005`, the port [RIFT](https://github.com/Cursed
 ### Control modes
 | Mode | How | What it does |
 |---|---|---|
-| **Obstacle Avoidance** | IR `2`, web, gamepad Circle | Walks on his own and turns away from anything within 20 cm (starts 5 s after power-on) |
+| **Obstacle Avoidance** | IR `2`, web, gamepad Circle | Walks on his own and turns away from anything within 35 cm (starts 5 s after power-on) |
 | **IR Remote** | IR `1`, gamepad Square | Arrows walk and turn while held. He stands when you let go (350 ms timeout) |
 | **Web** | Web page, gamepad Cross | D-pad on the page or the Python controller. He stands if the browser goes quiet for 500 ms |
 | **Mind** | `M` / Start on the Python controller, or MIND on his page | The LLM on his PC controller drives him: he stands while it thinks, then makes one short move, says what he thinks in his own voice, and remembers. Only a controller on an x86 PC with 8 GB+ RAM and a GTX 1050 or better (AMD RX 460 / 560 or better) offers it; the MIND button on his page only shows while one is connected. He stops at walls, and leaves MIND mode 5 s after that controller goes quiet |

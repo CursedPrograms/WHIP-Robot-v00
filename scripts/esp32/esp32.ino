@@ -245,13 +245,17 @@ const unsigned long WEB_CMD_TIMEOUT_MS = 500;
 // loses the controller (garbled/no response) and stand-up does nothing;
 // nothing gets damaged. RTrobot-family 32ch controllers document
 // 4800/9600/19200/38400/57600 (some revisions 115200). WHIP's board is set to
-// 9600: don't change this unless the board itself was reconfigured to match.
+// 115200 (since 2026-10-24, was 9600): a line takes ~12 ms instead of ~150 ms.
+// Don't change this unless the board itself was reconfigured to match.
 // ---------------------------------------------------------------------------
-const unsigned long CONTROLLER_BAUD = 9600;
+const unsigned long CONTROLLER_BAUD = 115200;
 
 const uint16_t TIMING_MARGIN_MS  = (uint16_t)((145UL * 10UL * 1000UL) / CONTROLLER_BAUD) + 20;
+// Walking sends the next line while the last move runs: each move lasts as long as a
+// line takes to send, so the next one arrives just as it ends and the legs never stop.
+const uint16_t LINE_MS = (uint16_t)((145UL * 10UL * 1000UL) / CONTROLLER_BAUD) + 5;
 const unsigned long STAND_SETTLE_MS = TIMING_MARGIN_MS;   // Stand() itself waits out its move
-const unsigned long STAND_HOLD_MS   = 3000;   // hold the stand pose after hitting a wall
+const unsigned long STAND_HOLD_MS   = 800;    // hold the stand pose after hitting a wall (was 3 s: too long)
 
 // Boot: he stands, holds still for the gyro, and walks off in obstacle avoidance
 // WALK_AFTER_BOOT_MS after power-on, whatever the WiFi is doing (it joins in the background)
@@ -262,17 +266,19 @@ const unsigned long WALK_AFTER_BOOT_MS = 5000;
 // ---------------------------------------------------------------------------
 // Obstacle avoidance tuning
 // ---------------------------------------------------------------------------
-const long MIN_DISTANCE_CM   = 20;
-const long CLEAR_DISTANCE_CM = 35;
+const long MIN_DISTANCE_CM   = 35;   // was 20: he walked into the closet door
+const long CLEAR_DISTANCE_CM = 50;
 const uint8_t OBSTACLE_DEBOUNCE = 3;
-const uint8_t AVOID_TURN_LOOPS  = 2;
+const uint8_t AVOID_TURN_LOOPS  = 2;    // turn at least this many cycles, then look after every one
+const uint8_t AVOID_MAX_TURNS   = 12;   // still blocked after this many: stand and start over
 
 // ---------------------------------------------------------------------------
 // Tilt safety tuning (MPU6050)
 // ---------------------------------------------------------------------------
-const float TILT_LIMIT_DEG = 10.0;
-const float TILT_CLEAR_DEG = 7.0;
-const unsigned long TILT_DEBOUNCE_MS = 250;
+// was 10 / 7 / 250: his own footsteps rocked him past it and he stood for nothing
+const float TILT_LIMIT_DEG = 20.0;
+const float TILT_CLEAR_DEG = 12.0;
+const unsigned long TILT_DEBOUNCE_MS = 500;
 const float COMPLEMENTARY_ALPHA = 0.98;
 
 // ---------------------------------------------------------------------------
@@ -324,6 +330,7 @@ unsigned long webLastCmdMillis = 0;
 
 uint8_t obstacleCount    = 0;
 bool    obstacleDetected = false;
+bool    avoidTurnRight   = false;   // which way the next wall is turned from: alternates
 
 // MPU6050 state -- declared here (not down by mpuInit()/updateTilt() where
 // they're used) because setup() and handleStatus() both reference these
@@ -602,7 +609,7 @@ bool ikMoveTo(const ik::Frame& target, bool scanSafe, bool finish) {
   const uint16_t ms = ik::stepMs();
   for (uint8_t i = 1; i <= ik::STEPS; i++) {
     unsigned long frameStart = millis();
-    if (!ikSend(ik::lerp(from, target, (float)i / ik::STEPS), ms)) return false;
+    if (!ikSend(ik::lerp(from, target, ik::ease((float)i / ik::STEPS)), ms)) return false;
     // feet all down at the end of this key frame: safe to range-find
     bool waited = finish ? finishWaitUntil(frameStart, ms + TIMING_MARGIN_MS)
                          : gaitWaitUntil(frameStart, ms + TIMING_MARGIN_MS, scanSafe && i == ik::STEPS);
@@ -612,16 +619,19 @@ bool ikMoveTo(const ik::Frame& target, bool scanSafe, bool finish) {
 }
 
 // One step: a tripod swings over `lift` (ik::swing) and lands on `land` while the
-// other pushes back, in 2 * ik::STEPS small moves: the time of the two key frames
-// it replaces. scanSafe: range-find at the end, every foot down.
+// other pushes back, in 2 * ik::walkSteps() small moves, back to back (LINE_MS).
+// scanSafe: range-find at the end, after the last move has finished, every foot down.
 bool ikStep(const ik::Frame& lift, const ik::Frame& land, bool scanSafe) {
   const ik::Frame from = ikNow;
-  const uint16_t ms = ik::stepMs();
-  const uint8_t n = 2 * ik::STEPS;
+  const uint16_t ms = max(ik::stepMs(), LINE_MS);
+  // a fast link has time for every move (smoother); a slow one drops moves to keep up
+  const uint8_t n = 2 * (LINE_MS > ik::stepMs() ? ik::walkSteps() : ik::STEPS);
   for (uint8_t i = 1; i <= n; i++) {
     unsigned long frameStart = millis();
     if (!ikSend(ik::step(from, lift, land, (float)i / n), ms)) return false;
-    if (!gaitWaitUntil(frameStart, ms + TIMING_MARGIN_MS, scanSafe && i == n)) return false;
+    // range-find on every move: once a step, he took three steps into the wall before stopping
+    const bool last = scanSafe && i == n;
+    if (!gaitWaitUntil(frameStart, last ? ms + TIMING_MARGIN_MS : ms, scanSafe)) return false;
   }
   return true;
 }
@@ -840,10 +850,10 @@ bool pathClear() {
 
 /*
   Walk forward on repeat.
-  If a wall is in range -> stand (all 1500) for 3 seconds.
-  Run the turning loop twice.
-  Back to stand.
-  Scan: clear -> forward. Still blocked -> turn again.
+  If a wall is in range -> stand for a moment.
+  Turn (left and right by turns, one way only walks him in circles):
+  at least AVOID_TURN_LOOPS cycles, then look after every cycle.
+  Clear -> stand, forward. Still blocked after AVOID_MAX_TURNS -> start over.
 */
 void runObstacleMode() {
   // Another robot close by and coming or very near, with right of way
@@ -866,29 +876,29 @@ void runObstacleMode() {
 
   // --- WALL HIT ---
   obstacleDetected = false;
-  Serial2.println(F("WALL -> stand 3s"));
+  avoidTurnRight = !avoidTurnRight;
+  Serial2.println(avoidTurnRight ? F("WALL -> stand, turn right") : F("WALL -> stand, turn left"));
 
   Stand();
   if (!gaitWait(STAND_HOLD_MS, false)) return;
 
-  // --- TURN TWICE ---
-  Serial2.println(F("TURNING x2"));
-  currentMove = MOVE_TURN_LEFT;
-  for (uint8_t i = 0; i < AVOID_TURN_LOOPS; i++) {
-    if (!TurnLeft()) return;
+  // --- TURN until the way is clear ---
+  currentMove = avoidTurnRight ? MOVE_TURN_RIGHT : MOVE_TURN_LEFT;
+  for (uint8_t i = 1; i <= AVOID_MAX_TURNS; i++) {
+    if (!(avoidTurnRight ? TurnRight() : TurnLeft())) return;
+    if (i < AVOID_TURN_LOOPS) continue;
+    if (!gaitWait(STAND_SETTLE_MS, false)) return;   // feet down, sonar still
+    if (pathClear()) {
+      Serial2.println(F("CLEAR -> forward"));
+      Stand();
+      return;
+    }
   }
 
-  // --- BACK TO STAND ---
+  // --- STILL BLOCKED ---
+  Serial2.println(F("STILL BLOCKED -> start over"));
   Stand();
-  if (!gaitWait(STAND_SETTLE_MS, false)) return;
-
-  // --- SCAN ---
-  if (pathClear()) {
-    Serial2.println(F("CLEAR -> forward"));
-  } else {
-    Serial2.println(F("STILL BLOCKED -> turn again"));
-    obstacleDetected = true;   // next loop pass turns again
-  }
+  obstacleDetected = true;   // next loop pass turns again (the other way)
 }
 
 // ---------------------------------------------------------------------------
@@ -1767,6 +1777,12 @@ void mpuInit() {
   Wire.write(0);
   Wire.endTransmission(true);
 
+  // DLPF ~21 Hz (CONFIG = 4): the servos' buzz and every footfall no longer read as tilt
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x1A);
+  Wire.write(4);
+  Wire.endTransmission(true);
+
   Wire.beginTransmission(MPU_ADDR);
   mpuFound = (Wire.endTransmission() == 0);
   if (!mpuFound) Serial2.println(F("MPU6050 NOT FOUND! Check wiring."));
@@ -1893,7 +1909,7 @@ void pollTilt() {
 void ShutdownSequence() {        // settle slowly into the lowest stance (not onto the battery)
   const ik::Frame from = ikNow, to = ik::sleepPose();
   for (uint8_t i = 1; i <= 8; i++) {
-    ikSend(ik::lerp(from, to, i / 8.0f), 250);
+    ikSend(ik::lerp(from, to, ik::ease(i / 8.0f)), 250);
     delay(250 + TIMING_MARGIN_MS);
   }
   Serial2.println(F("Shutdown complete."));
