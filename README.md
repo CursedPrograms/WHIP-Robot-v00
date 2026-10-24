@@ -219,7 +219,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | 3 | IR-remote mode |
 | V | stop: he stands, in any mode (switches to web mode) |
 | M | MIND mode on / off: the LLM on this PC drives him (x86 PC, GTX 1050+) |
-| G | next gait: tripod, ripple, wave, quad (gaits firmware; or click the Gait dropdown) |
+| G | next gait: tripod, ripple, wave, quad, amble, metachronal (gaits firmware; or the Gait dropdown) |
 | Z / X / C | tripod / ripple / wave |
 | T | tilt safety on / off (on again at every boot) |
 | B | buzzer on / off |
@@ -278,7 +278,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 |---|---|
 | PIN, then the D-pad | unlock with the PIN, then walk (hold) |
 | Mode buttons | obstacle / IR / web, and MIND while his PC controller can think |
-| Gait dropdown, G, 1 2 3 4 | tripod / ripple / wave / quad, with a little animation of the one picked |
+| Gait dropdown, G, 1-6 | tripod / ripple / wave / quad / amble / metachronal, with a little animation of the one picked |
 | TILT, T | tilt safety on / off |
 | SOUND, B | buzzer on / off |
 | FOLLOW, F | follow-me mode |
@@ -351,8 +351,8 @@ WHIP walks only by working out every joint from where each foot should be, in mi
 ### Gaits sketch: `scripts/esp32_gaits`
 The firmware WHIP runs now (flashed 2026-10-24, and he walks better than on the old one). It moves into `scripts/esp32` once it's been checked on the robot. Flash it with `flash_gaits.bat`.
 
-- **Four gaits** from one engine (`gaits.h`): **tripod** (3 feet down, fastest), **ripple** (4 down, the most insect-like), **wave** (5 down, one leg at a time, easiest on the servos) and **quad**, the tetrapod (4 down, three pairs taking turns back to front: LB + RM, LM + RF, LF + RB; between tripod and ripple). Every leg runs the same cycle from its own starting point; feet on the ground slide back together, and a swinging foot leaves and lands at the ground's speed, so nothing jerks. He speeds up over a cycle, and stops by stepping his feet home. Changing gait mid-walk: he steps to a stop and carries on in the new one. Checked on a PC: all four, heights 0-9, walking, turning, sideways and stopping, every foot in reach, no foot slipping, never fewer than 3 down.
-- **Pick the gait** from the dropdown on his web page or the controller (each shows a little animation of it: WHIP from above and the step chart), or with G / Z X C (1 2 3 4 on his web page), or L1 / R1 on a gamepad. Saved in flash. IR 3 steps through them.
+- **Six gaits** from one engine (`gaits.h`): **tripod** (3 feet down, fastest), **ripple** (4 down, the most insect-like), **wave** (5 down, one leg at a time, easiest on the servos), **quad**, the tetrapod (4 down, three pairs taking turns back to front: LB + RM, LM + RF, LF + RB), **amble** (4 down, diagonal pairs with none straight across: LM + RB, LB + RF, LF + RM) and **metachronal** (5 down, one leg at a time round the body: LB, LM, LF, RF, RM, RB). Every one keeps his centre at least 40 mm inside the feet that are down while he walks (43-79 mm; `gait_test` checks it): lifting two legs straight across, or two neighbours one after the other, would put it on the edge. Every gait also crabs sideways (sidewinding) and turns on the spot (rotational). Every leg runs the same cycle from its own starting point; feet on the ground slide back together, and a swinging foot leaves and lands at the ground's speed, so nothing jerks. He speeds up over a cycle, and stops by stepping his feet home. Changing gait mid-walk: he steps to a stop and carries on in the new one. Checked on a PC: all six, heights 0-9, walking, turning, sideways and stopping, every foot in reach, no foot slipping, never fewer than 3 down.
+- **Pick the gait** from the dropdown on his web page or the controller (each shows a little animation of it: WHIP from above and the step chart), or with G / Z X C (1-6 on his web page), or L1 / R1 on a gamepad. Saved in flash. IR 3 steps through them.
 - **Tilt safety on / off**: the TILT button, T, or Select. On again at every boot.
 - **4x4 RGB LED grid** (WS2812, Adafruit NeoPixel) on GPIO18 (`leds.h`): WHIP from above, head at the top. The outer columns are his legs and light up while that foot is in the air; the middle shows his mode, the top row goes red at a wall, the bottom row orange while tilt safety is off, and the whole grid flashes orange on a tilt stop.
 - **Buzzer** (passive) on GPIO19 (`buzzer.h`): chirps at boot, walls, tilt stops, gait and mode changes, and shutdown. SOUND button or B mutes it.
@@ -365,7 +365,7 @@ The firmware WHIP runs now (flashed 2026-10-24, and he walks better than on the 
 - IR 3-7 run on from 1 = 0x0 on the fleet's remote (the same as MILA, NIKA and IDA use; not NORA's).
 
 ### Gait reference
-The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scripts/esp32_gaits` has tripod, ripple, wave and quad.
+`scripts/esp32` walks the tripod gait; `scripts/esp32_gaits` has tripod, ripple, wave, quad, amble and metachronal, and every one of them turns on the spot and crabs. Stair / climb isn't in yet.
 
 | Gait | Logic | Best for |
 | :--- | :--- | :--- |
@@ -373,10 +373,10 @@ The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scr
 | **Quad (tetrapod)** | `{L3, R2} → {L2, R1} → {L1, R3}`: two legs swing while four stay anchored (2/3 duty factor) | Between tripod and ripple: transitions between speeds |
 | **Wave** | `L3 → L2 → L1 → R3 → R2 → R1`, one leg at a time | Maximum stability |
 | **Ripple** | `{L3, R1} → {L2, R3} → {L1, R2}`, two legs at a time | Smooth, lifelike motion |
-| **Amble** | Two non-opposite legs lifted together | Spreading load differently |
-| **Metachronal** | A sequential "Mexican wave" | Tight corridors |
-| **Rotational** | Legs circle the centre axis | Turning 360° in place |
-| **Sidewinding** | Sideways without changing heading | Strafing round obstacles |
+| **Amble** | `{LM, RB} → {LB, RF} → {LF, RM}`: two non-opposite legs lifted together | Spreading load differently |
+| **Metachronal** | `LB → LM → LF → RF → RM → RB`: a "Mexican wave" round the body | Tight corridors |
+| **Rotational** | Legs circle the centre axis: every gait does it when turning on the spot | Turning 360° in place |
+| **Sidewinding** | Sideways without changing heading: every gait does it when crabbing | Strafing round obstacles |
 | **Stair / climb** | High tibia lift | Steps and debris |
 
 > [!TIP]

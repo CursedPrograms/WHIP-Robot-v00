@@ -22,7 +22,7 @@ KEYMAP = [
         ("3", "IR-remote mode"),
         ("V", "stop: he stands, in any mode (switches to web mode)"),
         ("M", "MIND mode on / off: the LLM on this PC drives him (x86 PC, GTX 1050+)"),
-        ("G", "next gait: tripod, ripple, wave, quad (gaits firmware; or click the Gait dropdown)"),
+        ("G", "next gait: tripod, ripple, wave, quad, amble, metachronal (gaits firmware; or the Gait dropdown)"),
         ("Z / X / C", "tripod / ripple / wave"),
         ("T", "tilt safety on / off (on again at every boot)"),
         ("B", "buzzer on / off"),
@@ -69,7 +69,7 @@ KEYMAP = [
     ("Web page (:5005)", [
         ("PIN, then the D-pad", "unlock with the PIN, then walk (hold)"),
         ("Mode buttons", "obstacle / IR / web, and MIND while his PC controller can think"),
-        ("Gait dropdown, G, 1 2 3 4", "tripod / ripple / wave / quad, with a little animation of the one picked"),
+        ("Gait dropdown, G, 1-6", "tripod / ripple / wave / quad / amble / metachronal, with a little animation of the one picked"),
         ("TILT, T", "tilt safety on / off"),
         ("SOUND, B", "buzzer on / off"),
         ("FOLLOW, F", "follow-me mode"),

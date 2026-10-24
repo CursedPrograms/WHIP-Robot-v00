@@ -1,5 +1,5 @@
 /*
-  gaits.h - WHIP's gait engine: tripod, ripple, wave and quad from one set of rules.
+  gaits.h - WHIP's gait engine: tripod, ripple, wave, quad, amble and metachronal from one set of rules.
 
   Every leg runs through the same cycle, each starting at its own point in it
   (its phase offset). For part of the cycle the foot is in the air, swinging
@@ -12,6 +12,10 @@
     ripple  4 feet down, a step runs front to back each side  looks the most like an insect
     wave    5 feet down, one leg at a time, back to front     slowest, easiest on the servos
     quad    4 feet down, 3 pairs step by turns, back to front a tetrapod: between tripod and ripple
+    amble   4 feet down, 3 diagonal pairs (none straight across)  spreads the load differently
+    metachronal  5 feet down, one leg at a time round the body   a "Mexican wave": tight corridors
+  Every one keeps his centre at least 79 mm inside the feet that are down (gait_test checks it
+  while he walks); lifting two legs straight across, or two neighbours in a row, puts it on the edge.
 
   Smooth on purpose (the legs worked loose on their horns when the old gait
   jerked them):
@@ -28,8 +32,8 @@
 
 namespace ik {
 
-enum GaitId : uint8_t { GAIT_TRIPOD, GAIT_RIPPLE, GAIT_WAVE, GAIT_QUAD, GAITS };   // new ones go last: the number is saved
-const char* const GAIT_NAMES[GAITS] = { "tripod", "ripple", "wave", "quad" };
+enum GaitId : uint8_t { GAIT_TRIPOD, GAIT_RIPPLE, GAIT_WAVE, GAIT_QUAD, GAIT_AMBLE, GAIT_METACHRONAL, GAITS };   // new ones go last: the number is saved
+const char* const GAIT_NAMES[GAITS] = { "tripod", "ripple", "wave", "quad", "amble", "metachronal" };
 
 // How many sixths of the cycle a foot is in the air, and where in the cycle (in
 // sixths) each leg lifts: LF, LM, LB, RF, RM, RB.
@@ -39,6 +43,8 @@ const GaitDef GAIT_DEFS[GAITS] = {
   { 2, { 4, 2, 0, 1, 5, 3 } },   // ripple: LB LM LF on the left, RB RM RF half a cycle on
   { 1, { 2, 1, 0, 5, 4, 3 } },   // wave: LB LM LF RB RM RF
   { 2, { 4, 2, 0, 2, 0, 4 } },   // quad (tetrapod): LB+RM, then LM+RF, then LF+RB; always 2 up, 4 down
+  { 2, { 4, 0, 2, 2, 4, 0 } },   // amble: LM+RB, then LB+RF, then LF+RM (diagonals, none straight across)
+  { 1, { 2, 1, 0, 3, 4, 5 } },   // metachronal: LB LM LF RF RM RB, round the body
 };
 
 // A step reaches STRIDE_X ahead of / behind home (WALK_X less room for the swing

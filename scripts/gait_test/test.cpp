@@ -8,6 +8,21 @@ using namespace ik;
 // feet on the ground (z == home) move exactly like the body (no slip between them).
 int fails = 0;
 void check(const char* what, bool ok) { if (!ok) { if (fails < 20) printf("FAIL %s\n", what); fails++; } }
+// How far his centre (0, 0) is inside the feet that are down (their convex hull), mm; < 0: outside.
+float margin(const Gait& G, const Frame& f) {
+  float px[LEGS], py[LEGS]; int n = 0;
+  for (int i = 0; i < LEGS; i++) if (!G.air[i]) { px[n] = f.leg[i].x; py[n] = f.leg[i].y; n++; }
+  if (n < 3) return -999;
+  float best = 1e9;   // inside a convex hull = inside or on every edge's half-plane; for each pair of
+  for (int a = 0; a < n; a++) for (int b = 0; b < n; b++) if (a != b) {   // feet with all others on
+    float ex = px[b] - px[a], ey = py[b] - py[a], len = sqrtf(ex * ex + ey * ey);   // one side: a hull edge
+    bool edge = true;
+    for (int c = 0; c < n; c++) if (c != a && c != b && ex * (py[c] - py[a]) - ey * (px[c] - px[a]) < -1e-3) edge = false;
+    if (edge && len > 1e-3) best = fminf(best, (ex * (0 - py[a]) - ey * (0 - px[a])) / len);
+  }
+  return best;
+}
+const float BALANCE_MM = 40;   // his centre stays at least this far inside the feet that are down
 bool reach(const Frame& f) { float a[JOINTS]; for (int i = 0; i < LEGS; i++) if (!solve(i, f.leg[i], a)) return false;
   for (int i = 0; i < LEGS; i++) { solve(i, f.leg[i], a); for (int j = 0; j < 3; j++) if (fabsf(a[j]) > 90) return false; } return true; }
 int main() {
@@ -17,7 +32,7 @@ int main() {
     struct Cmd { float f, l, t; int cycles; } plan[] = { {1,0,0,4}, {-1,0,0,4}, {0,0,1,4}, {0,0,-1,4}, {0,1,0,3}, {0.7f,0,0.3f,3} };
     for (auto& c : plan) {
       Gait G; G.start(home(), g, 10);
-      Frame prev = home(); float maxJump = 0, maxReach = 0; int ticks = 0;
+      Frame prev = home(); float maxJump = 0, maxReach = 0, minBal = 1e9; int ticks = 0;
       char buf[96];
       auto step = [&](float f, float l, float t, bool settle) {
         Frame now = G.tick(f, l, t, settle); ticks++;
@@ -34,6 +49,9 @@ int main() {
             snprintf(buf, sizeof buf, "%s h%d slip %d-%d %.3f", GAIT_NAMES[g], hgt, i, j, d1 - d0);
             check(buf, fabsf(d1 - d0) < 0.05f);
           }
+        const float bal = margin(G, now); minBal = fminf(minBal, bal);
+        snprintf(buf, sizeof buf, "%s h%d balance %.0f mm", GAIT_NAMES[g], hgt, bal);
+        check(buf, bal >= BALANCE_MM);
         int down = 0; for (int i = 0; i < LEGS; i++) down += !G.air[i];
         snprintf(buf, sizeof buf, "%s feet down %d", GAIT_NAMES[g], down);
         check(buf, down >= 3);
@@ -44,8 +62,8 @@ int main() {
       while (!G.settled() && settleTicks < 1000) { step(0, 0, 0, true); settleTicks++; }
       snprintf(buf, sizeof buf, "%s h%d settled", GAIT_NAMES[g], hgt); check(buf, G.settled());
       check("home exact", maxOffset(G.last, home()) <= HOME_MM * 2);
-      if (hgt == 5) printf("%-6s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  stop %d ticks\n",
-                           GAIT_NAMES[g], c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, settleTicks);
+      if (hgt == 5) printf("%-11s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  balance %3.0f mm  stop %d ticks\n",
+                           GAIT_NAMES[g], c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, minBal, settleTicks);
     }
   }
   // Body moves (as esp32_gaits.ino): lying down, the hello wave, the dance, at every height

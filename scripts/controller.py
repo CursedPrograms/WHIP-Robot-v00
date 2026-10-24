@@ -12,7 +12,7 @@ dpad/triggers live if a joystick is connected -- and drives WHIP over WiFi:
     Circle (B), 2      : switch WHIP back to Obstacle Avoidance mode
     Square (X), 3      : switch WHIP to IR Remote mode
     Triangle (Y)       : emergency stop (drops back to standing immediately)
-    G / Z X C, L1 / R1 : gait: next / tripod, ripple, wave (G and L1 / R1 also reach quad) (the gait dropdown, gaits firmware)
+    G / Z X C, L1 / R1 : gait: next / tripod, ripple, wave (G and L1 / R1 also reach quad, amble, metachronal) (the gait dropdown, gaits firmware)
     T, Select          : tilt safety on / off        B : buzzer on / off
     Q / E              : crab left / right           F : follow-me mode
     H, L2 / N, R2      : wave hello / dance          R : lie down / get up
@@ -160,6 +160,8 @@ GAITS = [
     ("RIPPLE", 2, (4, 2, 0, 1, 5, 3), "4 feet down, a step runs front to back each side"),
     ("WAVE", 1, (2, 1, 0, 5, 4, 3), "5 feet down, one leg at a time: slowest, easiest on the servos"),
     ("QUAD", 2, (4, 2, 0, 2, 0, 4), "4 feet down, 3 pairs step by turns: between tripod and ripple"),
+    ("AMBLE", 2, (4, 0, 2, 2, 4, 0), "4 feet down, diagonal pairs (none straight across): spreads the load"),
+    ("METACHRONAL", 1, (2, 1, 0, 3, 4, 5), "5 feet down, one leg at a time round the body: a Mexican wave"),
 ]
 LEG_NAMES = ("LF", "LM", "LB", "RF", "RM", "RB")
 LEG_HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # mm, x forward, y left
