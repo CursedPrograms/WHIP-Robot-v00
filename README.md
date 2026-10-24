@@ -113,6 +113,7 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 <summary><b>📂 Documentation & Assets</b></summary>
 
 * [ACEBOTT ESP32 Max V1.0 Docs](https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html)
+* [ACEBOTT: Getting started with ESP32](https://acebott.com/docs/getting-started-with-esp32/)
 * [CH340 Driver Download](https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html)
 * [Chassis Instruction Manual](https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd)
 
