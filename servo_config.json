@@ -1,0 +1,12 @@
+{
+  "_about": "WHIP's servos. Edit this (or SERVO TYPE in Servo Studio), then reflash: flash_gaits writes scripts/esp32_gaits/servo_config.h from it first (scripts/servo_config.py). us_per_deg: pulse per degree; us_center: the pulse at 0 degrees (the middle); us_min / us_max: never past these; deg_max: the most it turns either way from the middle. Only MG995 is measured (it's what WHIP walks on); the others are their datasheet numbers: check yours on /calib before trusting them.",
+  "models": {
+    "MG995": {"us_per_deg": 10.49, "us_center": 1500, "us_min": 500, "us_max": 2500, "deg_max": 90, "note": "WHIP's own (the reference's Maestro range: 576-2464 us for 180 degrees)"},
+    "MG996R": {"us_per_deg": 10.49, "us_center": 1500, "us_min": 500, "us_max": 2500, "deg_max": 90, "note": "MG995's metal-gear successor, the same pulses"},
+    "SG90": {"us_per_deg": 10.56, "us_center": 1450, "us_min": 500, "us_max": 2400, "deg_max": 90, "note": "the little 9 g one: datasheet 500-2400 us for 180 degrees"},
+    "DS3218 180": {"us_per_deg": 11.11, "us_center": 1500, "us_min": 500, "us_max": 2500, "deg_max": 90, "note": "20 kg digital, the 180 degree version: 500-2500 us"},
+    "DS3218 270": {"us_per_deg": 7.41, "us_center": 1500, "us_min": 500, "us_max": 2500, "deg_max": 135, "note": "20 kg digital, the 270 degree version: 500-2500 us"}
+  },
+  "joints": {"hip": "MG995", "knee": "MG995", "foot": "MG995"},
+  "legs": {}
+}

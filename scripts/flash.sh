@@ -83,6 +83,12 @@ if [ -z "$PORT" ] && [ $COMPILE_ONLY -eq 0 ]; then
 fi
 [ -n "$PORT" ] && echo "Port: $PORT"
 
+# ---- servo_config.json -> the sketch's servo_config.h (servo_config.py writes it only if it changed) ----
+if [ -f "$HERE/servo_config.py" ] && [ -f "$SKETCH/servo_config.h" ]; then
+    PY="$REPO/venv/bin/python"; [ -x "$PY" ] || PY="$(command -v python3)"
+    [ -n "$PY" ] && "$PY" "$HERE/servo_config.py"
+fi
+
 # ---- compile (incremental), or skip it when nothing changed since the last build ----
 BIN="$BUILD/$FOLDER.ino.merged.bin"
 if [ $NO_COMPILE -eq 0 ] && [ $COMPILE_ONLY -eq 0 ] && [ -f "$BIN" ] &&

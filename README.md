@@ -352,6 +352,11 @@ What RTrobot's ServoController program does, as our own, plus WHIP on screen:
   starts laid out like WHIP; EDIT moves (drag), links (right-drag), adds (+SERVO) and removes (Del) them,
   kept in `scripts/servo_layout.json`, so it works for any robot on the board.
 - **SLIDERS**: all 32 channels, to play with.
+- **Servo type**: which servo each joint is (MG995 on WHIP; MG996R, SG90, DS3218 180 / 270 to pick, or add your
+  own) lives in `servo_config.json`: pulses per degree, the middle, the limits, how far it turns, per joint
+  and per leg. **APPLY TO FIRMWARE** writes `scripts/esp32_gaits/servo_config.h` from it (`scripts/servo_config.py`)
+  and flashes WHIP in its own window; `flash_gaits` writes it too, so hand edits to the JSON reach him as
+  well. His IK (`toUs`), the emulator and the studio's drawing all use the same numbers.
 - **PIN < >**: put the picked servo on another board pin. A servo already there swaps with it, the poses in
   every group follow, and the map is kept in `whip_calibration.json` (and on WHIP over WHIP WIFI).
 - **Groups**: 255, each a list of poses: ADD the servos as a pose, INSERT / UPDATE / DELETE / UP / DOWN, RUN,

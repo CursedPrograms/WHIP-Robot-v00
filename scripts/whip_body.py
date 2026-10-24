@@ -2,7 +2,8 @@
 
     angles(leg, foot)        foot position (mm, body frame) -> (hip, knee, foot) degrees, or None if out of reach
     joints(leg, hip, knee, foot)  degrees -> the leg's points: hip anchor, knee, ankle, foot tip (x, y, z mm)
-    to_us(deg, trim, rev) / to_deg(us, trim, rev)   a servo's pulse <-> its angle (1500 us + trim at 0 degrees)
+    to_us(deg, trim, rev, servo) / to_deg(us, trim, rev, servo)   a servo's pulse <-> its angle: servo is
+                             that joint's type from servo_config.json (servo_config.model(leg, joint)); MG995 if none
 
 The numbers are ik_gait.h's (Jakob Leander's chassis): change them there and here together. x is
 forward, y left, z up; the hip joints sit at z = 0.
@@ -28,13 +29,20 @@ HOME_Z = -134.0            # height 5 of WHIP's stance (WHIP_HOME_Z_MIN / MAX)
 HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # feet, mm (FB_X, WIDTH_*)
 
 
-def to_us(deg, trim=0, rev=False):
-    deg = max(-90.0, min(90.0, deg))
-    return US_CENTER + trim + round((-deg if rev else deg) * US_PER_DEG)
+MG995 = {"us_per_deg": US_PER_DEG, "us_center": US_CENTER, "us_min": 500, "us_max": 2500, "deg_max": 90}
 
 
-def to_deg(us, trim=0, rev=False):
-    d = (us - US_CENTER - trim) / US_PER_DEG
+def to_us(deg, trim=0, rev=False, servo=None):
+    """As ik_gait.h's toUs(): this servo type's middle + trim + degrees x its us per degree, kept in its limits."""
+    s = servo or MG995
+    deg = max(-s["deg_max"], min(s["deg_max"], deg))
+    us = s["us_center"] + trim + round((-deg if rev else deg) * s["us_per_deg"])
+    return max(s["us_min"], min(s["us_max"], us))
+
+
+def to_deg(us, trim=0, rev=False, servo=None):
+    s = servo or MG995
+    d = (us - s["us_center"] - trim) / s["us_per_deg"]
     return -d if rev else d
 
 

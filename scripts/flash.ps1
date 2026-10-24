@@ -100,6 +100,14 @@ if (-not $Port -and -not $CompileOnly) {
 }
 Write-Host "Port: $Port"
 
+# ---- servo_config.json -> the sketch's servo_config.h (servo_config.py writes it only if it changed) ----
+$gen = Join-Path $PSScriptRoot "servo_config.py"
+if ((Test-Path $gen) -and (Test-Path (Join-Path $Sketch "servo_config.h"))) {
+    $py = Join-Path $Repo "venv\Scripts\python.exe"
+    if (-not (Test-Path $py)) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
+    if ($py) { & $py $gen } else { Write-Host "No Python: servo_config.h left as it is." }
+}
+
 # ---- compile (incremental), or skip it when nothing changed since the last build ----
 $bin = Join-Path $Build ((Split-Path $Sketch -Leaf) + ".ino.merged.bin")
 if (-not $NoCompile -and -not $CompileOnly -and (Test-Path $bin)) {

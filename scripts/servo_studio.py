@@ -43,6 +43,7 @@ import pygame
 import requests
 
 import controller_kit as kit
+import servo_config as sc
 import whip_body as wb
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -81,7 +82,12 @@ def load_cal():
 
 
 CAL = load_cal()
+CFG = sc.load()   # servo_config.json: each joint's servo type
 JOINT_OF = {}
+
+
+def servo_of(l, j):
+    return sc.model(l, j, CFG)
 
 
 def remap():
@@ -115,15 +121,15 @@ def name_of(ch):
 
 def deg_of(ch, us):
     if ch in JOINT_OF:
-        _, _, rev, trim = JOINT_OF[ch]
-        return wb.to_deg(us, trim, rev)
+        l, j, rev, trim = JOINT_OF[ch]
+        return wb.to_deg(us, trim, rev, servo_of(l, j))
     return (us - 1500) / wb.US_PER_DEG
 
 
 def us_of(ch, deg):
     if ch in JOINT_OF:
-        _, _, rev, trim = JOINT_OF[ch]
-        return wb.to_us(deg, trim, rev)
+        l, j, rev, trim = JOINT_OF[ch]
+        return wb.to_us(deg, trim, rev, servo_of(l, j))
     return round(1500 + deg * wb.US_PER_DEG)
 
 
@@ -132,7 +138,7 @@ def stand_pose(z=wb.HOME_Z):
     for l, (x, y) in enumerate(wb.HOME):
         a = wb.angles(l, (x, y, z))
         for j, (ch, rev, trim) in enumerate(CAL[l]):
-            pose[ch] = wb.to_us(a[j], trim, rev)
+            pose[ch] = wb.to_us(a[j], trim, rev, servo_of(l, j))
     return pose
 
 
@@ -465,6 +471,33 @@ class Studio:
         self.gi = next((i for i, (_, l) in enumerate(self.groups) if l), 0)
         self.note = f"opened {nxt}"
 
+    # -- servo types (servo_config.json) and the firmware --
+    def next_servo_type(self, joint):
+        """The next servo type for this joint on every leg (a per-leg one: "legs" in the JSON)."""
+        names = list(CFG["models"])
+        cur = CFG["joints"].get(wb.JOINTS[joint], names[0])
+        CFG["joints"][wb.JOINTS[joint]] = names[(names.index(cur) + 1) % len(names)] if cur in names else names[0]
+        sc.save(CFG)
+        self.note = f"every {wb.JOINTS[joint]}: {CFG['joints'][wb.JOINTS[joint]]} (APPLY TO FIRMWARE to flash it)"
+
+    def apply_firmware(self):
+        """servo_config.json -> the firmware's servo_config.h, then flash_gaits in its own window
+        (it compiles, flashes and talks you through it: unplug the servo controller's RX / TX first)."""
+        sc.write_header(CFG)
+        try:
+            if sys.platform == "win32":
+                import subprocess
+                subprocess.Popen(["cmd", "/c", "start", "WHIP flash", "cmd", "/k", os.path.join(REPO, "flash_gaits.bat")],
+                                 cwd=REPO)
+            else:
+                import shutil, subprocess
+                term = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal") or shutil.which("xterm")
+                cmd = [os.path.join(REPO, "flash_gaits.sh")]
+                subprocess.Popen([term, "-e"] + cmd if term else cmd, cwd=REPO)
+            self.note = "servo_config.h written; flashing WHIP in its own window"
+        except OSError as e:
+            self.note = f"servo_config.h written; couldn't start the flash: {e}"
+
     # -- moving a servo to another pin on the board --
     def move_pin(self, step):
         """The picked servo onto the next / previous board pin. A servo already there swaps with it,
@@ -734,7 +767,7 @@ class Studio:
         self.fi, self.scroll = -1, 0
 
     def draw_selected(self):
-        r = pygame.Rect(self.VIEW.x, self.VIEW.bottom + 8, self.VIEW.w, 50)
+        r = pygame.Rect(self.VIEW.x, self.VIEW.bottom + 8, self.VIEW.w, 96)
         pygame.draw.rect(self.screen, PANEL, r, border_radius=8)
         us = int(self.shown.get(self.sel, 1500))
         self.label(f"CH {self.sel:2d}  {name_of(self.sel) or '-':10}  {us} us  ({deg_of(self.sel, us):+.1f} deg)",
@@ -747,6 +780,13 @@ class Studio:
         kx = bar.x + (us - 500) / 2000 * bar.w
         pygame.draw.circle(self.screen, ACC, (int(kx), bar.centery), 9)
         self.sel_bar = bar
+        if self.sel in JOINT_OF:   # its servo type (servo_config.json): for that joint on every leg
+            l, j, _, _ = JOINT_OF[self.sel]
+            name = sc.model_name(CFG, l, j)
+            self.label(f"servo type, every {wb.JOINTS[j]}:", (r.x + 10, r.y + 60))
+            self.btn((r.x + 190, r.y + 54, 170, 26), f"{name}  >", lambda: self.next_servo_type(j))
+            self.label(kit.fit(CFG["models"].get(name, {}).get("note", ""), self.f_s, 280), (r.x + 10, r.y + 82), DIM)
+        self.btn((r.right - 196, r.y + 54, 186, 30), "APPLY TO FIRMWARE", self.apply_firmware, color=OK)
 
     def draw(self):
         self.hits = []
@@ -800,7 +840,7 @@ class Studio:
         if a is None:
             return
         for j, (ch, rev, trim) in enumerate(CAL[leg]):
-            self.set_us(ch, wb.to_us(a[j], trim, rev))
+            self.set_us(ch, wb.to_us(a[j], trim, rev, servo_of(leg, j)))
 
     def on_event(self, ev):
         if ev.type == pygame.QUIT:

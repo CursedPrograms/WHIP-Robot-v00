@@ -51,6 +51,7 @@
 #include <Arduino.h>
 #include <Preferences.h>
 #include <math.h>
+#include "servo_config.h"   // each joint's servo type (servo_config.json, written by scripts/servo_config.py)
 
 namespace ik {
 
@@ -88,8 +89,9 @@ const float WIDTH_FB   = 123;     // front / back feet out to the side
 const float WIDTH_M    = 177;     // middle feet out to the side
 const float WALK_X     = 50;      // how far a foot moves back and forth per step (55 is out of reach at height 9)
 
-// Servo: 1500 us + trim at 0 degrees. 10.49 us a degree is the reference's
-// Maestro range (576-2464 us for 180 degrees); MG995/MG996R are close to it.
+// Servo: its middle (us_center, 1500 on an MG995) + trim at 0 degrees, us_per_deg a degree (MG995 / MG996R:
+// 10.49, the reference's Maestro range, 576-2464 us for 180 degrees). Per joint, from servo_config.h:
+// a different servo is a change in servo_config.json, not here. These two are the MG995's, for the rest.
 const float US_PER_DEG = 10.49;
 const int   US_CENTER  = 1500;
 
@@ -172,9 +174,11 @@ inline bool solve(uint8_t leg, Pos p, float out[JOINTS]) {
 }
 
 inline int toUs(uint8_t leg, uint8_t joint, float deg) {
-  deg = constrain(deg, -90.0f, 90.0f);
+  const servocfg::Servo& s = servocfg::JOINT[leg][joint];   // this joint's servo type
+  deg = constrain(deg, -s.degMax, s.degMax);
   const ServoCal& c = cal[leg][joint];
-  return US_CENTER + c.trim + (int)lroundf((c.rev ? -deg : deg) * US_PER_DEG);
+  const int us = s.usCenter + c.trim + (int)lroundf((c.rev ? -deg : deg) * s.usPerDeg);
+  return constrain(us, (int)s.usMin, (int)s.usMax);
 }
 
 // "#<ch>P<us>" for all 18 servos (no T: the caller adds it). False if any foot is out of reach.
