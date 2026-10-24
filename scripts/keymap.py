@@ -52,7 +52,7 @@ KEYMAP = [
         ("Up / Down", "walk forward / back (hold)"),
         ("Left / Right", "turn left / right (hold)"),
         ("OK", "stop"),
-        ("3 / 4 / 5", "next gait / wave hello / dance (gaits firmware; codes guessed, check the debug console)"),
+        ("3 / 4 / 5", "next gait / wave hello / dance (gaits firmware)"),
         ("6 / 7", "follow-me mode / lie down, get up"),
         ("", "NORA's remote sends other codes: it can't drive him"),
     ]),

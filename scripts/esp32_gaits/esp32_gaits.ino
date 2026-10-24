@@ -205,7 +205,8 @@ const int MPU_ADDR = 0x68;
 #define IR_OK               0x65
 #define IR_MODE_IRControl   0x0   // "1" -> IR remote control
 #define IR_MODE_OBSTACLE    0x1   // "2" -> obstacle avoidance
-// 3-7: guessed from 1 = 0x0, 2 = 0x1. The debug console prints every button's code ("IR cmd=0x..")
+// The fleet's remote (every robot's but NORA's): the digits count up from 0x0, so "3" = 0x2
+// (as MILA, NIKA and IDA use it) and "4"-"7" = 0x3-0x6. The debug console prints each code ("IR cmd=0x..")
 #define IR_GAIT             0x2   // "3" -> next gait
 #define IR_HELLO            0x3   // "4" -> wave hello
 #define IR_DANCE            0x4   // "5" -> a little dance

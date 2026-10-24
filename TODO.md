@@ -47,7 +47,7 @@ obstacle avoidance, tilt safety, PIN.
   - [x] More (2026-10-24): analog sticks + crab, follow-me, wave hello, dance, crouch when locked,
         rest after a minute (gait.xml's fold, belly down first), picked-up stop, look-around at walls.
         PC-tested (reach at heights 0-9), compiles, not flashed.
-  - [ ] On the robot: IR codes for 3-7 (guessed); REST_Z (belly on the floor?); HELD_G_HIGH / LOW
+  - [ ] On the robot: IR 3-7 do what they should; REST_Z (belly on the floor?); HELD_G_HIGH / LOW
         (does walking set off the picked-up stop?); does HELLO keep him balanced?
   - [ ] When it's good, move it into scripts/esp32.
 

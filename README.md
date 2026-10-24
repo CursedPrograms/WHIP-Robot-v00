@@ -241,7 +241,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | Up / Down | walk forward / back (hold) |
 | Left / Right | turn left / right (hold) |
 | OK | stop |
-| 3 / 4 / 5 | next gait / wave hello / dance (gaits firmware; codes guessed, check the debug console) |
+| 3 / 4 / 5 | next gait / wave hello / dance (gaits firmware) |
 | 6 / 7 | follow-me mode / lie down, get up |
 | | *NORA's remote sends other codes: it can't drive him* |
 
@@ -320,7 +320,7 @@ A copy of the firmware to try new things on before they go into `scripts/esp32`.
 - **Body moves**: HELLO (H, L2, IR 4) shifts his weight back and waves the front left leg; DANCE (N, R2, IR 5) circles his body over his feet; locked by NORA he crouches.
 - **Rest**: after a minute standing still (IR, web, MIND, follow) he lies down as `gait.xml`'s "Reset - Shut Down" (every knee and foot right up), but gently: belly to the floor on all six legs first, then one tripod folds, then the other. Any move gets him up the other way round. REST (R, IR 7) does it by hand; shutdown ends the same way.
 - **Picked up**: a hard lift or drop on the MPU, or upside down, and his legs stop where they are (violet grid, a chirp) until he's been put down level for 2 s; then he stands up.
-- IR 3-7 are guessed codes (1 = 0x0, 2 = 0x1): the debug console prints each button's real code.
+- IR 3-7 run on from 1 = 0x0 on the fleet's remote (the same as MILA, NIKA and IDA use; not NORA's).
 
 ### Gait reference
 The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scripts/esp32_gaits` has tripod, ripple and wave.
