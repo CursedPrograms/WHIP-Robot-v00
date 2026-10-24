@@ -22,7 +22,7 @@ param(
 $Robot  = "WHIP"
 $Sketch = Join-Path $PSScriptRoot "esp32"
 $Fqbn   = "esp32:esp32:esp32:PartitionScheme=huge_app"   # his sketch needs the 3 MB app partition (1.9 MB, like NORA)
-$Before = ""   # anything to say before flashing ("" = nothing)
+$Before = "Unplug the servo controller's wires from R X and T X on the E S P 32 first."   # they share the USB flashing pins
 $Libs   = @("IRremote")   # installed on the first run if missing
 # --------------------------------------------------------------------
 
@@ -90,7 +90,8 @@ if (-not $esptool) { Say "I can't find esptool in the E S P 32 board package."; 
 # ---- port ----
 if (-not $Port -and -not $CompileOnly) {
     $boards = (& $cli board list --format json | ConvertFrom-Json)
-    $ports = @(($boards.detected_ports + $boards) | Where-Object { $_.port.protocol -eq "serial" } | ForEach-Object { $_.port.address } | Select-Object -Unique)
+    # USB ports only: a motherboard COM1 has no vid and would be picked, then wait forever for a chip
+    $ports = @(($boards.detected_ports + $boards) | Where-Object { $_.port.protocol -eq "serial" -and $_.port.properties.vid } | ForEach-Object { $_.port.address } | Select-Object -Unique)
     if ($ports.Count -eq 1) { $Port = $ports[0] }
     elseif ($ports.Count -eq 0) { Say "No board is plugged in. Connect $Robot's E S P 32 by U S B."; exit 1 }
     else { Say "More than one board is plugged in. Run flash dot bat with the port, like C O M 6."; Write-Host "Ports: $($ports -join ', ')"; exit 1 }
@@ -121,7 +122,7 @@ if (-not (Test-Path $bin)) { Say "There's no build to flash yet. Run it without 
 $baud = if ($Fast) { 460800 } else { 115200 }
 if ($Before) { Say $Before }
 while ($true) {
-    Say "Ready. Hold boot, tap E N, then let go of boot."
+    Say "Flashing."
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $esptool.FullName
     $psi.Arguments = "--chip esp32 --port $Port --baud $baud --connect-attempts 0 --before default-reset --after hard-reset write-flash -z 0x0 `"$bin`""
@@ -137,7 +138,8 @@ while ($true) {
     [void]$p.Start(); $p.BeginOutputReadLine(); $p.BeginErrorReadLine()
 
     $connected = $false; $lastPct = -1; $failed = $false; $noPort = $false
-    $waitStart = Get-Date; $lastNag = Get-Date
+    # auto-reset does it on most boards; only ask for the buttons if it hasn't connected by itself
+    $lastNag = (Get-Date).AddSeconds(-20)
     while (-not $p.HasExited -or $lines.Count -gt 0) {
         $line = $null
         while ($lines.TryDequeue([ref]$line)) {
@@ -154,9 +156,9 @@ while ($true) {
             if ($line -match 'could not open port|does not exist|PermissionError|Access is denied') { $noPort = $true }
             if ($line -match 'fatal error|stopped responding|Failed') { $failed = $true }
         }
-        if (-not $connected -and ((Get-Date) - $lastNag).TotalSeconds -ge 20) {
+        if (-not $connected -and ((Get-Date) - $lastNag).TotalSeconds -ge 30) {
             $lastNag = Get-Date
-            Say "Still waiting. Hold boot and tap E N."
+            Say "It won't reset by itself. Hold boot, tap E N, then let go of boot."
         }
         Start-Sleep -Milliseconds 200
     }
