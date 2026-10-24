@@ -205,6 +205,10 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | C | IR-remote mode |
 | V | stop |
 | M | MIND mode on / off: the LLM on this PC drives him (x86 PC, GTX 1050+) |
+| G | next gait: tripod, ripple, wave (gaits firmware; or click the Gait dropdown) |
+| 1 / 2 / 3 | tripod / ripple / wave |
+| T | tilt safety on / off (on again at every boot) |
+| B | buzzer on / off |
 | F1 | this window |
 | Esc | quit |
 
@@ -218,6 +222,8 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | Square / X (2) | IR-remote mode |
 | Triangle / Y (3) | stop |
 | Start (11) | MIND mode on / off |
+| L1 / R1 (4 / 5) | previous / next gait |
+| Select (8) | tilt safety on / off |
 | | *plug it in any time* |
 
 **His IR remote**
@@ -247,6 +253,9 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 |---|---|
 | PIN, then the D-pad | unlock with the PIN, then walk (hold) |
 | Mode buttons | obstacle / IR / web, and MIND while his PC controller can think |
+| Gait dropdown, G, 1 2 3 | tripod / ripple / wave, with a little animation of the one picked |
+| TILT, T | tilt safety on / off |
+| SOUND, B | buzzer on / off |
 | KEYS | this list |
 | /calib | line the legs up (stand, trims, height, speed) |
 
@@ -286,8 +295,18 @@ WHIP walks only by working out every joint from where each foot should be, in mi
 - Height (0-9) and speed (0-9) are set on the same page.
 - `GET /status` now also reports `gait`, `calibrated`, `height` and `speed`.
 
+### Gaits sketch (testing): `scripts/esp32_gaits`
+A copy of the firmware to try new things on before they go into `scripts/esp32`. Flash it with `flash_gaits.bat`.
+
+- **Three gaits** from one engine (`gaits.h`): **tripod** (3 feet down, fastest), **ripple** (4 down, the most insect-like) and **wave** (5 down, one leg at a time, easiest on the servos). Every leg runs the same cycle from its own starting point; feet on the ground slide back together, and a swinging foot leaves and lands at the ground's speed, so nothing jerks. He speeds up over a cycle, and stops by stepping his feet home. Changing gait mid-walk: he steps to a stop and carries on in the new one. Checked on a PC: all three, heights 0-9, walking, turning, sideways and stopping, every foot in reach, no foot slipping, never fewer than 3 down.
+- **Pick the gait** from the dropdown on his web page or the controller (each shows a little animation of it: WHIP from above and the step chart), or with G / 1 2 3, or L1 / R1 on a gamepad. Saved in flash. Not on the IR remote yet.
+- **Tilt safety on / off**: the TILT button, T, or Select. On again at every boot.
+- **4x4 RGB LED grid** (WS2812, Adafruit NeoPixel) on GPIO18 (`leds.h`): WHIP from above, head at the top. The outer columns are his legs and light up while that foot is in the air; the middle shows his mode, the top row goes red at a wall, the bottom row orange while tilt safety is off, and the whole grid flashes orange on a tilt stop.
+- **Buzzer** (passive) on GPIO19 (`buzzer.h`): chirps at boot, walls, tilt stops, gait and mode changes, and shutdown. SOUND button or B mutes it.
+- While avoiding a wall he looks ahead as he turns, so he doesn't stop to check.
+
 ### Gait reference
-The patterns below are design notes for future gaits. The firmware walks the tripod gait.
+The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scripts/esp32_gaits` has tripod, ripple and wave.
 
 | Gait | Logic | Best for |
 | :--- | :--- | :--- |

@@ -7,6 +7,7 @@
 #   flash.bat -NoCompile flash the last build without compiling (it also skips the
 #                        compile by itself when no sketch file changed since the last build)
 #   flash.bat -CompileOnly  just build (fast after the first time)
+#   flash.bat -Folder esp32_gaits   another sketch folder in scripts\ (flash_gaits.bat does this)
 #
 # The build is kept in build\esp32 (gitignored), so after the first compile
 # only the files you changed are rebuilt - unlike the Arduino IDE, which
@@ -15,20 +16,21 @@ param(
     [string]$Port = "",
     [switch]$Fast,
     [switch]$NoCompile,
-    [switch]$CompileOnly
+    [switch]$CompileOnly,
+    [string]$Folder = "esp32"
 )
 
 # ---- what to flash (the only lines that differ between robots) ----
 $Robot  = "WHIP"
-$Sketch = Join-Path $PSScriptRoot "esp32"
+$Sketch = Join-Path $PSScriptRoot $Folder
 $Fqbn   = "esp32:esp32:esp32:PartitionScheme=huge_app"   # his sketch needs the 3 MB app partition (1.9 MB, like NORA)
 $Before = "Unplug the servo controller's wires from R X and T X on the E S P 32 first."   # they share the USB flashing pins
-$Libs   = @("IRremote")   # installed on the first run if missing
+$Libs   = @("IRremote", "Adafruit NeoPixel")   # installed on the first run if missing (NeoPixel: esp32_gaits' LED grid)
 # --------------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
 $Repo  = Split-Path $PSScriptRoot -Parent
-$Build = Join-Path $Repo "build\esp32"
+$Build = Join-Path $Repo "build\$Folder"
 
 Add-Type -AssemblyName System.Speech
 $voice = New-Object System.Speech.Synthesis.SpeechSynthesizer

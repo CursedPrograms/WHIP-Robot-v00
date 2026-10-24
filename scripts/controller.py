@@ -12,6 +12,8 @@ dpad/triggers live if a joystick is connected -- and drives WHIP over WiFi:
     Circle (B)         : switch WHIP back to Obstacle Avoidance mode
     Square (X)         : switch WHIP to IR Remote mode
     Triangle (Y)       : emergency stop (drops back to standing immediately)
+    G / 1 2 3, L1 / R1 : gait: next / tripod, ripple, wave (the gait dropdown, gaits firmware)
+    T, Select          : tilt safety on / off        B : buzzer on / off
 
 CONNECTING
 
@@ -38,6 +40,8 @@ import time
 
 import pygame
 import requests
+
+import math
 
 import keymap   # scripts/keymap.py: every key and button, in its own window (F1)
 import mind     # scripts/mind.py: his LLM mind (MIND mode), shared by every robot's controller
@@ -93,6 +97,30 @@ WHIP_REGISTER_RETRY_DELAY = 2.0
 RECONNECT_DELAY = 2.0
 TICK_INTERVAL = 0.15   # matches the web control page's 200ms held-button repeat
 
+# His gaits, as esp32_gaits/gaits.h: sixths of the cycle a foot is in the air, and when each
+# leg lifts (LF LM LB RF RM RB). The dropdown and the little animation use them.
+GAITS = [
+    ("TRIPOD", 3, (0, 3, 0, 3, 0, 3), "3 feet down, two groups of 3 by turns: fastest"),
+    ("RIPPLE", 2, (4, 2, 0, 1, 5, 3), "4 feet down, a step runs front to back each side"),
+    ("WAVE", 1, (2, 1, 0, 5, 4, 3), "5 feet down, one leg at a time: slowest, easiest on the servos"),
+]
+LEG_NAMES = ("LF", "LM", "LB", "RF", "RM", "RB")
+LEG_HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # mm, x forward, y left
+LEG_HIP = ((74, 39), (0, 64), (-74, 39), (74, -39), (0, -64), (-74, -39))
+BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))
+STRIDE = 45
+SETTING_HOLD = 1.5   # s: a gait / tilt / sound just picked shows here before his status catches up
+
+
+def leg_at(gait, leg, phase):
+    """Where a foot is, phase 0..1 through the cycle: (mm ahead of home, how high 0..1)."""
+    _, air6, lift, _ = gait
+    air, k = air6 / 6, (phase - lift[leg] / 6) % 1
+    if k < air:
+        u = k / air
+        return -STRIDE + 2 * STRIDE * u * u * (3 - 2 * u), math.sin(math.pi * u)
+    return STRIDE - 2 * STRIDE * (k - air) / (1 - air), 0.0
+
 
 def _get_json(session, url, timeout=DISCOVERY_TIMEOUT):
     try:
@@ -143,6 +171,17 @@ class WhipLink:
     def _send_mode(self, base_url, mode):
         try:
             self._session.get(f"{base_url}/mode", params={"m": mode}, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException:
+            pass
+
+    def send(self, path, **params):
+        """One-shot setting (gait, tilt safety, buzzer), fire-and-forget like set_mode."""
+        if self.base_url:
+            threading.Thread(target=self._send, args=(self.base_url, path, params), daemon=True).start()
+
+    def _send(self, base_url, path, params):
+        try:
+            self._session.get(f"{base_url}{path}", params=params, timeout=REQUEST_TIMEOUT)
         except requests.RequestException:
             pass
 
@@ -246,7 +285,7 @@ WHIP_MOVES = {
 WHIP_VOICE = ("Microsoft David Desktop", -1, "low")
 MIND_MOVE_TIMEOUT = 25.0   # s: the longest a /mind move (4 cycles) should take
 RUMBLE_WARN_CM, RUMBLE_STOP_CM = 40, 15   # the pad buzzes from here, full here (gamepad_drive.py's)
-TILT_RUMBLE_DEG = 10.0     # esp32.ino's TILT_LIMIT_DEG: he stands from here, and the pad shakes
+TILT_RUMBLE_DEG = 20.0     # esp32.ino's TILT_LIMIT_DEG: he stands from here, and the pad shakes
 
 
 def whip_body(link):
@@ -311,6 +350,7 @@ class ControllerLayout:
         self.font_large = pygame.font.SysFont("consolas", 26)
         self.font = pygame.font.SysFont("consolas", 18)
         self.font_small = pygame.font.SysFont("consolas", 14)
+        self.font_tiny = pygame.font.SysFont("consolas", 11)
         self.avatar = round_avatar(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "images", "whip_avatar.jpg"), 52)
 
         self.joystick = None
@@ -328,6 +368,13 @@ class ControllerLayout:
         self._rumble_level, self._rumble_at = (0.0, 0.0), 0.0
 
         self._prev_face_buttons = {"Cross": False, "Circle": False, "Square": False, "Triangle": False}
+
+        # gait dropdown, tilt safety, buzzer: what was picked here, until his status says so too
+        self._picked = {}   # "gait" / "tiltGuard" / "sound" -> (value, time picked)
+        self.gait_open = False
+        self._gait_box = pygame.Rect(40, 508, 200, 30)
+        self._tilt_btn = pygame.Rect(40, 548, 96, 30)
+        self._sound_btn = pygame.Rect(144, 548, 96, 30)
 
     def _check_mind(self):
         ok, why = mind.can_think()
@@ -363,6 +410,20 @@ class ControllerLayout:
                     running = False
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
                     keymap.open_window()
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
+                    self._set_gait(self._setting("gait", 0) + 1)
+                elif event.type == pygame.KEYDOWN and event.key in (pygame.K_1, pygame.K_2, pygame.K_3):
+                    self._set_gait(event.key - pygame.K_1)
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_t:
+                    self._toggle("tiltGuard", "/tilt")
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_b:
+                    self._toggle("sound", "/buzzer")
+                elif event.type == pygame.JOYBUTTONDOWN and event.button in (4, 5):   # L1 / R1
+                    self._set_gait(self._setting("gait", 0) + (1 if event.button == 5 else -1))
+                elif event.type == pygame.JOYBUTTONDOWN and event.button == 8:        # Select
+                    self._toggle("tiltGuard", "/tilt")
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    self._click(event.pos)
                 elif event.type in (
                     pygame.JOYDEVICEADDED,
                     pygame.JOYDEVICEREMOVED,
@@ -471,6 +532,110 @@ class ControllerLayout:
         except (pygame.error, AttributeError):
             pass
 
+    # -- gait, tilt safety, buzzer ---------------------------------------
+
+    def _setting(self, key, default):
+        """A setting as it is now: just picked here, else his status, else the default."""
+        picked = self._picked.get(key)
+        if picked and time.monotonic() - picked[1] < SETTING_HOLD:
+            return picked[0]
+        value = (self.link.status or {}).get(key)
+        return default if value is None else int(value)
+
+    def _set_gait(self, i):
+        i %= len(GAITS)
+        self._picked["gait"] = (i, time.monotonic())
+        self.link.send("/gait", gait=i)
+        self.gait_open = False
+
+    def _toggle(self, key, path):
+        on = 0 if self._setting(key, 1) else 1
+        self._picked[key] = (on, time.monotonic())
+        self.link.send(path, on=on)
+
+    def _option_rect(self, i):
+        # the dropdown opens upwards (the mind's panel is below)
+        return pygame.Rect(self._gait_box.x, self._gait_box.y - (len(GAITS) - i) * 30, self._gait_box.w, 30)
+
+    def _click(self, pos):
+        if self.gait_open:
+            for i in range(len(GAITS)):
+                if self._option_rect(i).collidepoint(pos):
+                    self._set_gait(i)
+                    return
+            self.gait_open = False
+        if self._gait_box.collidepoint(pos):
+            self.gait_open = True
+        elif self._tilt_btn.collidepoint(pos):
+            self._toggle("tiltGuard", "/tilt")
+        elif self._sound_btn.collidepoint(pos):
+            self._toggle("sound", "/buzzer")
+
+    def _pill(self, rect, text, on, on_color):
+        pygame.draw.rect(self.screen, PANEL_COLOR, rect, border_radius=6)
+        pygame.draw.rect(self.screen, on_color if on else OUTLINE_COLOR, rect, width=2, border_radius=6)
+        surf = self.font_small.render(text, True, on_color if on else MUTED_TEXT)
+        self.screen.blit(surf, surf.get_rect(center=rect.center))
+
+    def _draw_gait(self):
+        status = self.link.status or {}
+        known = "gait" in status or "gait" in self._picked   # the old firmware has one gait
+        gi = self._setting("gait", 0) % len(GAITS)
+        gait = GAITS[gi]
+
+        box = self._gait_box
+        pygame.draw.rect(self.screen, PANEL_COLOR, box, border_radius=6)
+        pygame.draw.rect(self.screen, ACTIVE_COLOR if self.gait_open else OUTLINE_COLOR, box, width=2, border_radius=6)
+        label = f"Gait: {gait[0] if known else '--'}"
+        self.screen.blit(self.font.render(label, True, TEXT_COLOR), (box.x + 10, box.y + 5))
+        tri = [(box.right - 22, box.y + 12), (box.right - 10, box.y + 12), (box.right - 16, box.y + 20)]
+        pygame.draw.polygon(self.screen, MUTED_TEXT, tri)
+
+        tilt_on, sound_on = self._setting("tiltGuard", 1), self._setting("sound", 1)
+        self._pill(self._tilt_btn, "TILT ON" if tilt_on else "TILT OFF", True, ACTIVE_COLOR if tilt_on else WARN_COLOR)
+        self._pill(self._sound_btn, "SOUND" if sound_on else "MUTED", sound_on, (100, 150, 230))
+
+        note = gait[3] if known else "his firmware has one gait: flash esp32_gaits for more"
+        self.screen.blit(self.font_tiny.render(note, True, MUTED_TEXT), (440, 578))
+
+        # the little animation: WHIP from above, head up, and the step chart
+        speed = int(status.get("speed", 5))
+        period = (60 / gait[1]) * (120 - speed * 10) / 1000   # s: his cycle, ticks * ms per tick
+        phase = (time.monotonic() % period) / period
+        bx, by, sc = 340, 540, 0.17
+
+        def P(x, y):
+            return int(bx - y * sc), int(by - x * sc)
+
+        pygame.draw.polygon(self.screen, OUTLINE_COLOR, [P(x, y) for x, y in BODY])
+        pygame.draw.circle(self.screen, (100, 150, 230), P(92, 0), 3)
+        for i in range(6):
+            ahead, up = leg_at(gait, i, phase)
+            hip, foot = P(*LEG_HIP[i]), P(LEG_HOME[i][0] + ahead, LEG_HOME[i][1])
+            pygame.draw.line(self.screen, (100, 150, 230) if up else MUTED_TEXT, hip, foot, 2)
+            pygame.draw.circle(self.screen, ACTIVE_COLOR if up else MUTED_TEXT, foot, 2 + int(3 * up))
+
+        x0, x1, top, row_h = 440, 860, 496, 12
+        for i in range(6):
+            y = top + i * row_h
+            self.screen.blit(self.font_tiny.render(LEG_NAMES[i], True, MUTED_TEXT), (x0 - 20, y - 1))
+            pygame.draw.rect(self.screen, STICK_COLOR, pygame.Rect(x0, y, x1 - x0, row_h - 2))
+            color = ACTIVE_COLOR if leg_at(gait, i, phase)[1] else (100, 150, 230)
+            for wrap in (-1, 0):   # a bar can wrap round the end of the cycle
+                a = gait[2][i] / 6 + wrap
+                ca, cb = max(a, 0), min(a + gait[1] / 6, 1)
+                if cb > ca:
+                    pygame.draw.rect(self.screen, color, pygame.Rect(x0 + ca * (x1 - x0), y, (cb - ca) * (x1 - x0), row_h - 2))
+        cx = int(x0 + phase * (x1 - x0))
+        pygame.draw.line(self.screen, TEXT_COLOR, (cx, top - 2), (cx, top + 6 * row_h), 2)
+
+        if self.gait_open:   # drawn last: over everything else
+            for i, g in enumerate(GAITS):
+                r = self._option_rect(i)
+                pygame.draw.rect(self.screen, (44, 44, 52) if i != gi else (40, 70, 52), r)
+                pygame.draw.rect(self.screen, OUTLINE_COLOR, r, width=1)
+                self.screen.blit(self.font.render(f"{i + 1}  {g[0]}", True, TEXT_COLOR), (r.x + 10, r.y + 5))
+
     # -- drawing -----------------------------------------------------
 
     def draw(self):
@@ -483,6 +648,7 @@ class ControllerLayout:
         self._draw_sticks()
         self._draw_shoulders()
         self._draw_center_buttons()
+        self._draw_gait()
         self._draw_mind()
         pygame.display.flip()
 
@@ -497,7 +663,7 @@ class ControllerLayout:
             status = f"Connected: {self.joystick.get_name()}"
             color = ACTIVE_COLOR
         else:
-            status = "No controller detected - use arrow keys + Z/X/C/V"
+            status = "No controller detected - use arrow keys + Z/X/C/V (G gait, T tilt, B sound)"
             color = MUTED_TEXT
         status_surf = self.font.render(status, True, color)
         self.screen.blit(status_surf, (tx, 50))
@@ -625,16 +791,16 @@ class ControllerLayout:
     def _draw_sticks(self):
         # Left stick: axes 0/1, click button 9 (common SDL mapping)
         # Right stick: axes 2/3, click button 10
-        self._draw_stick((360, 450), 45, 0, 1, 9, "L-Stick")
-        self._draw_stick((540, 450), 45, 2, 3, 10, "R-Stick")
+        self._draw_stick((360, 425), 40, 0, 1, 9, "L-Stick")
+        self._draw_stick((540, 425), 40, 2, 3, 10, "R-Stick")
 
     def _draw_shoulders(self):
-        # L1/R1 as buttons 4/5, L2/R2 as buttons 6/7 (fallback) or axes 4/5 on many pads
+        # L1/R1 as buttons 4/5 (they pick the gait), L2/R2 as buttons 6/7 (fallback) or axes 4/5 on many pads
         specs = [
-            ("L2", 120, 180, 4),
-            ("L1", 120, 220, 6),
-            ("R2", 780, 180, 5),
-            ("R1", 780, 220, 7),
+            ("L2", 120, 180, 6),
+            ("L1 gait-", 120, 220, 4),
+            ("R2", 780, 180, 7),
+            ("R1 gait+", 780, 220, 5),
         ]
         for label, x, y, btn_idx in specs:
             rect = pygame.Rect(x - 45, y - 16, 90, 32)
@@ -648,7 +814,7 @@ class ControllerLayout:
 
     def _draw_center_buttons(self):
         specs = [
-            ("Select", 400, 230, 8),
+            ("Select (tilt)", 400, 230, 8),
             ("Start (MIND)", 500, 230, 11),
         ]
         for label, x, y, btn_idx in specs:

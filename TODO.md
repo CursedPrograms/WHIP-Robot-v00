@@ -34,7 +34,17 @@ obstacle avoidance, tilt safety, PIN.
       lines. Checked on a PC: every swing, all gaits, heights 0-9, stays in reach and in servo range,
       peak still 30 mm (`LIFT`). Compiles at 1.89 MB. Still to watch on the robot: the feet now
       clear the ground higher near lift-off and touch-down than the old triangle did.
-- [ ] Later, easy with IK: walking sideways, "walk 10 cm", body tilt, more gaits (wave, ripple).
+- [ ] Later, easy with IK: walking sideways, "walk 10 cm", body tilt.
+- [x] **Gaits sketch** (2026-10-24, `scripts/esp32_gaits`, flash_gaits.bat): tripod, ripple and wave from
+      one phase engine (gaits.h), smooth lift-off / touch-down, stops by stepping; gait dropdown with a
+      little animation on the web page and the controller (G / 1 2 3, L1 / R1); tilt safety switch
+      (T, Select); 4x4 RGB grid on GPIO18 (leds.h); buzzer on GPIO19 (buzzer.h). Compiles, PC-tested,
+      not flashed.
+  - [ ] On the robot: does each gait walk straight? Is the grid the right way round (GRID_ROTATE /
+        GRID_MIRROR / GRID_SERPENTINE in leds.h)? Left and right turns swapped (the old firmware turned
+        right on TurnLeft)?
+  - [ ] Gait on the IR remote (a spare button), and in NORA's IR link / RIFT.
+  - [ ] When it's good, move it into scripts/esp32.
 
 ## Network (field test 2026-10-14: "WHIP did not show in RIFT nor did he make his own WiFi")
 
