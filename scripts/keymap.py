@@ -32,6 +32,7 @@ KEYMAP = [
         ("R", "lie down / get up (he lies down by himself after a minute standing still)"),
         ("Mouse", "every function is a button: the strip along the top (modes, STOP, CENTER, HELLO, DANCE, REST, EMULATE), the pad's buttons, and the D-pad (hold)"),
         ("CENTER", "stop, every servo to its middle (1500 us + its trim); again: stand up"),
+        ("BODY", "body IK: his body slides and tilts over planted feet. Sticks; or W/S A/D slide, R/F up / down, Q/E twist, I/K pitch, J/L roll"),
         ("EMULATE", "a pretend WHIP on this PC, to try the controller with no robot (scripts/fake_whip.py)"),
         ("F1", "this window"),
         ("Esc", "quit"),
@@ -60,6 +61,7 @@ KEYMAP = [
         ("Start", "lie down / get up"),
         ("Select", "tilt safety on / off"),
         ("L3", "buzzer on / off"),
+        ("R3 (right stick click)", "BODY mode on / off: left stick slides his body, right stick tilts it, L1 / R1 twist, D-pad up / down raise / lower; feet stay planted"),
     ]),
     ("His IR remote", [
         ("1", "IR-remote mode (he boots in obstacle avoidance: press this first)"),

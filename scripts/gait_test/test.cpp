@@ -93,6 +93,37 @@ int main() {
       check(buf, reach(f));
     }
   }
+  // Body IK (bodyFrame): every pose to the limits, alone and together, at every height
+  for (int hgt = 0; hgt <= 9; hgt++) {
+    height = hgt;
+    int bad = 0, n = 0;
+    const float S = BODY_SLIDE_MAX, T = BODY_TILT_MAX;
+    for (float bx : {-S, 0.f, S}) for (float by : {-S, 0.f, S}) for (float bz : {-S, 0.f, S})
+      for (float r : {-T, 0.f, T}) for (float p : {-T, 0.f, T}) for (float yw : {-T, 0.f, T}) {
+        BodyPose b; b.x = bx; b.y = by; b.z = bz; b.roll = r; b.pitch = p; b.yaw = yw;
+        n++;
+        if (!reach(bodyFrame(home(), b))) bad++;
+      }
+    int single = 0;   // one axis at a time, to its limit
+    const float lim[6] = { S, S, S, T, T, T };
+    for (int ax = 0; ax < 6; ax++) for (float sg : {-1.f, 1.f}) {
+      BodyPose b; float* f = &b.x; f[ax] = sg * lim[ax];
+      if (!reach(bodyFrame(home(), b))) single++;
+    }
+    int unfit = 0;   // fitPose always lands in reach
+    for (float bx : {-S, S}) for (float r : {-T, T}) for (float yw : {-T, T}) {
+      BodyPose b; b.x = bx; b.y = -bx / 2; b.z = bx / 2; b.roll = r; b.pitch = -r; b.yaw = yw;
+      if (!inReach(bodyFrame(home(), fitPose(home(), b)))) unfit++;
+    }
+    printf("body IK h%d: %3d / %d corner poses out of reach, %d of 12 single-axis limits, fitPose misses %d\n",
+           hgt, bad, n, single, unfit);
+    char buf[32];
+    snprintf(buf, sizeof buf, "fitPose h%d", hgt);
+    check(buf, unfit == 0);
+  }
+  { BodyPose b; b.x = 12; b.y = -7; b.z = 9; b.roll = 4; b.pitch = -6; b.yaw = 3; height = 5;
+    Frame f = bodyFrame(home(), b);
+    printf("bodyFrame check LF %.4f %.4f %.4f  RB %.4f %.4f %.4f\n", f.leg[0].x, f.leg[0].y, f.leg[0].z, f.leg[5].x, f.leg[5].y, f.leg[5].z); }
   printf("%d failures\n", fails);
   return fails != 0;
 }

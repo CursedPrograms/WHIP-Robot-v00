@@ -600,6 +600,8 @@ class ControllerLayout:
                 self.voice.say(params["do"])
             send(path, **params)
         self.link.send = send_and_say
+        self.body_on, self.body = False, [0.0] * 6   # BODY mode (his body over planted feet)
+        self._body_sent, self._body_at = None, 0.0
         self.fake = None    # EMULATE: the fake WHIP (fake_whip.py) running in here
         self.fake_error = ""
         self._hits = []     # (rect, action) of every clickable thing, refilled each frame
@@ -726,6 +728,8 @@ class ControllerLayout:
     def _stop(self):
         """STOP: he stands, whatever he was doing. In OBSTACLE / FOLLOW he walks by himself, so a
         stop alone wouldn't hold him: WEB mode with nothing pressed is standing still."""
+        if self.body_on:                   # and out of BODY mode, back to neutral
+            self._toggle_body()
         self.link.drive("stop")
         self.link.send("/web", cmd="stop")
         self.link.set_mode("web")
@@ -847,11 +851,12 @@ class ControllerLayout:
             ("HELLO", lambda: self.link.send("/act", do="hello"), False),
             ("DANCE", lambda: self.link.send("/act", do="dance"), False),
             ("REST", lambda: self.link.send("/act", do="rest"), bool(s.get("resting"))),
+            ("BODY", self._toggle_body, self.body_on),
             ("EMULATE", self._emulate, self.fake is not None),
         ]
 
     def _draw_strip(self):
-        x, y, w, gap = 40, 128, 70, 5
+        x, y, w, gap = 40, 128, 64, 4
         for label, action, lit in self._strip():
             rect = pygame.Rect(x, y, w, 28)
             color = WARN_COLOR if label in ("EMULATE", "CENTER") else ACTIVE_COLOR
@@ -916,7 +921,43 @@ class ControllerLayout:
         left = -dz(self._axis("rx")) if self.joystick.has_right_stick() else 0.0
         return (fwd, left, turn) if any((fwd, left, turn)) else None
 
+    # -- BODY mode: his body over planted feet (his /body: ik_gait.h bodyFrame / fitPose) --
+    BODY_SLIDE, BODY_TILT = 40.0, 15.0   # ik_gait.h's BODY_SLIDE_MAX / BODY_TILT_MAX
+
+    def _toggle_body(self):
+        self.body_on = not self.body_on
+        self.body = [0.0] * 6
+        self.link.drive("stop")
+        self.link.send("/body", **dict(zip(("x", "y", "z", "roll", "pitch", "yaw"), self.body)))
+
+    def _update_body(self):
+        """Sticks: left slides (x / y), right tilts (roll / pitch), springing back to neutral. Keys add
+        up: W/S slide forward / back, A/D sideways, R/F up / down, Q/E twist, I/K pitch, J/L roll."""
+        S, T = self.BODY_SLIDE, self.BODY_TILT
+        k = pygame.key.get_pressed()
+        step = [1.2, 1.2, 1.0, 0.4, 0.4, 0.4]   # per frame
+        keys = [(pygame.K_w, pygame.K_s), (pygame.K_a, pygame.K_d), (pygame.K_r, pygame.K_f),
+                (pygame.K_l, pygame.K_j), (pygame.K_k, pygame.K_i), (pygame.K_q, pygame.K_e)]
+        lim = [S, S, S, T, T, T]
+        for i, (up, down) in enumerate(keys):
+            self.body[i] = max(-lim[i], min(lim[i], self.body[i] + (k[up] - k[down]) * step[i]))
+        pose = list(self.body)
+        if self.joystick is not None:            # the sticks on top, while they're pushed
+            pose[0] += -self._axis("ly") * S
+            pose[1] += -self._axis("lx") * S
+            pose[3] += -self._axis("rx") * T
+            pose[4] += -self._axis("ry") * T
+        pose = [round(max(-l, min(l, v)), 1) for v, l in zip(pose, lim)]
+        now = time.monotonic()
+        if pose != self._body_sent and now - self._body_at > 0.1:
+            self.link.send("/body", **dict(zip(("x", "y", "z", "roll", "pitch", "yaw"), pose)))
+            self._body_sent, self._body_at = pose, now
+        self._update_buttons()
+
     def _update_drive(self):
+        if self.body_on:
+            self._update_body()
+            return
         sticks = self._sticks()
         if sticks is not None and self._hat() == (0, 0):
             f, l, t = sticks
@@ -1216,6 +1257,10 @@ class ControllerLayout:
             mode = MODE_NAMES[status.get("controlMode", 0)]
             move = MOVE_NAMES[status.get("move", 0)]
             telemetry = f"mode: {mode}  move: {move}  dist: {dist_str}  tilt: {tilt:.1f} deg"
+            if self.body_on and status.get("body"):
+                b = status["body"]
+                telemetry = (f"BODY  slide {b[0]:+.0f} {b[1]:+.0f} {b[2]:+.0f} mm  roll {b[3]:+.0f} pitch {b[4]:+.0f} "
+                             f"yaw {b[5]:+.0f} deg  ({round(100 * status.get('bodyK', 1))}% of it reaches)")
             telem_surf = self.font_small.render(telemetry, True, MUTED_TEXT)
             self.screen.blit(telem_surf, (20, 96))
 

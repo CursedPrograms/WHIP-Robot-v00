@@ -271,6 +271,69 @@ inline Frame stance(float zA, float zB, float dxA = 0, float dxB = 0) {
 inline Frame home()  { float z = homeZ(); return stance(z, z); }
 inline Frame sleepPose() { return stance(SLEEP_Z, SLEEP_Z); }
 
+// ---- body IK: the feet stay planted, the body slides and tilts over them ----
+// (mithi's hexapod-robot-simulator calls it the inverse kinematics page.) A pose: slide x (forward),
+// y (left), z (up) mm, then roll (about x), pitch (about y), yaw (about z) degrees. Each foot, from
+// where it stands (`feet`, body frame at rest), is seen from the moved body: f' = R^-1 (f - t).
+// whip_body.py's body_frame() is the same maths, so Servo Studio, the controller and he agree.
+struct BodyPose { float x = 0, y = 0, z = 0, roll = 0, pitch = 0, yaw = 0; };
+const float BODY_SLIDE_MAX = 40;   // mm either way: each alone is in reach at heights 0-7 (gait_test);
+const float BODY_TILT_MAX  = 15;   // degrees either way      together they may not be, so fitPose() scales back
+
+inline Frame bodyFrame(const Frame& feet, const BodyPose& b) {
+  const float cr = cosf(b.roll / RAD2DEG), sr = sinf(b.roll / RAD2DEG);
+  const float cp = cosf(b.pitch / RAD2DEG), sp = sinf(b.pitch / RAD2DEG);
+  const float cy = cosf(b.yaw / RAD2DEG), sy = sinf(b.yaw / RAD2DEG);
+  // R = Rz(yaw) Ry(pitch) Rx(roll); R^-1 = R^T
+  const float r00 = cy * cp, r01 = cy * sp * sr - sy * cr, r02 = cy * sp * cr + sy * sr;
+  const float r10 = sy * cp, r11 = sy * sp * sr + cy * cr, r12 = sy * sp * cr - cy * sr;
+  const float r20 = -sp,     r21 = cp * sr,                r22 = cp * cr;
+  Frame out;
+  for (uint8_t i = 0; i < LEGS; i++) {
+    const float dx = feet.leg[i].x - b.x, dy = feet.leg[i].y - b.y, dz = feet.leg[i].z - b.z;
+    out.leg[i] = { r00 * dx + r10 * dy + r20 * dz, r01 * dx + r11 * dy + r21 * dz, r02 * dx + r12 * dy + r22 * dz };
+  }
+  return out;
+}
+
+inline BodyPose scaled(const BodyPose& b, float k) {
+  BodyPose o; o.x = b.x * k; o.y = b.y * k; o.z = b.z * k; o.roll = b.roll * k; o.pitch = b.pitch * k; o.yaw = b.yaw * k;
+  return o;
+}
+
+// Every foot solvable, every joint inside its servo's reach (servo_config.h)
+inline bool inReach(const Frame& f) {
+  for (uint8_t leg = 0; leg < LEGS; leg++) {
+    float a[JOINTS];
+    if (!solve(leg, f.leg[leg], a)) return false;
+    for (uint8_t j = 0; j < JOINTS; j++) if (fabsf(a[j]) > servocfg::JOINT[leg][j].degMax) return false;
+  }
+  return true;
+}
+
+// The pose, scaled back towards none at all until every foot can reach (k from 1 down, by halving);
+// none at all is always in reach. k: how much of the asked-for pose he can do.
+inline BodyPose fitPose(const Frame& feet, const BodyPose& b, float* k = nullptr) {
+  if (inReach(bodyFrame(feet, b))) { if (k) *k = 1; return b; }
+  float lo = 0, hi = 1;
+  for (uint8_t i = 0; i < 10; i++) {
+    const float mid = (lo + hi) / 2;
+    if (inReach(bodyFrame(feet, scaled(b, mid)))) lo = mid; else hi = mid;
+  }
+  if (k) *k = lo;
+  return scaled(b, lo);
+}
+
+inline BodyPose clampPose(BodyPose b) {
+  b.x = constrain(b.x, -BODY_SLIDE_MAX, BODY_SLIDE_MAX);
+  b.y = constrain(b.y, -BODY_SLIDE_MAX, BODY_SLIDE_MAX);
+  b.z = constrain(b.z, -BODY_SLIDE_MAX, BODY_SLIDE_MAX);
+  b.roll = constrain(b.roll, -BODY_TILT_MAX, BODY_TILT_MAX);
+  b.pitch = constrain(b.pitch, -BODY_TILT_MAX, BODY_TILT_MAX);
+  b.yaw = constrain(b.yaw, -BODY_TILT_MAX, BODY_TILT_MAX);
+  return b;
+}
+
 // Walking: W0 lift tripod A, W1 set it down ahead while B pushes back,
 // W2 lift tripod B, W3 set it down ahead while A pushes back.
 inline Frame W0() { float z = homeZ(); return stance(z + LIFT, z); }

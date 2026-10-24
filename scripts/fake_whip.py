@@ -66,6 +66,7 @@ class Whip:
         self.tilt_guard, self.sound, self.resting = True, True, False
         self.calibrating = False
         self.calibrated = False
+        self.body, self.body_k = (0.0,) * 6, 1.0
         self.cal = [[list(c) for c in leg] for leg in DEFAULT_CAL]   # [ch, rev, trim] per leg / joint
         self.started = time.monotonic()
 
@@ -120,7 +121,8 @@ class Whip:
         return {
             "distance": round(self.wall_cm), "sysState": 1, "controlMode": self.mode, "move": self.move,
             "pitch": round(wobble * math.sin(t * 3.1), 1), "roll": round(wobble * math.cos(t * 2.3), 1),
-            "wifiMode": 1, "network": "FAKE", "mpuFound": 1, "calibrated": int(self.calibrated), "calibrating": int(self.calibrating),
+            "wifiMode": 1, "network": "FAKE", "mpuFound": 1, "body": [round(v, 1) for v in self.body], "bodyK": round(self.body_k, 2), "bodyMode": 0,
+            "calibrated": int(self.calibrated), "calibrating": int(self.calibrating),
             "locked": 0, "mindHost": int(t - self.mind_host_seen < MIND_HOST_TTL_S),
             "mindSteps": int(self.mode == MODES["mind"] and t < self.mind_until),
             "blocked": int(self.blocked), "height": self.height, "speed": self.speed, "gait": self.gait,
@@ -279,6 +281,19 @@ class Handler(BaseHTTPRequestHandler):
             w.calibrated = True
             log("calibration saved in flash")
             return self.reply(200, {"ok": True})
+        if path == "/body":   # his body over planted feet: fitted with his own maths (whip_body.fit_pose)
+            import whip_body as wb
+            want = tuple(max(-l, min(l, float(q.get(k, 0) or 0))) for k, l in
+                         zip(("x", "y", "z", "roll", "pitch", "yaw"), (40, 40, 40, 15, 15, 15)))
+            z = -90 + (-80) * w.height / 9
+            w.body, w.body_k = wb.fit_pose([(x, y, z) for x, y in wb.HOME], want)
+            w.mode, w.web_move = MODES["web"], STAND
+            if any(want):
+                log(f"body: slide {w.body[0]:+.0f} {w.body[1]:+.0f} {w.body[2]:+.0f}  roll {w.body[3]:+.0f} "
+                    f"pitch {w.body[4]:+.0f} yaw {w.body[5]:+.0f}" + ("" if w.body_k >= 1 else f" ({w.body_k:.0%})"))
+            else:
+                log("body: back to neutral")
+            return self.reply(200, {"ok": True, "k": round(w.body_k, 2)})
         if path == "/calib/start":
             w.calibrating, w.web_move = True, STAND
             log("calibrating: stops and holds still")

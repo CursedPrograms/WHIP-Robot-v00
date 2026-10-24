@@ -346,6 +346,13 @@ bool dancing = false;
 char pendingAct = 0;
 // Analog driving (web cmd=drive: the controller's sticks), each -1..1
 float driveFwd = 0, driveLeft = 0, driveTurn = 0;
+// Body IK (ik_gait.h bodyFrame / fitPose): while he stands, his body slides and tilts over planted
+// feet. Asked for on /body (controller, Servo Studio) or by the PS2 pad's BODY mode (R3); fitted so
+// every foot reaches (bodyK: how much of the asked-for pose that is). Walking starts from neutral.
+ik::BodyPose bodyNow;        // the pose he holds (fitted)
+float bodyK = 1;
+bool bodyMode = false;       // the PS2 pad's BODY mode: its sticks move the body, not his feet
+ik::Frame standFrame() { return ik::bodyFrame(ik::home(), bodyNow); }
 float followFwd = 0;   // FOLLOW: towards (+) / away from (-) the hand
 long  seenFar = 0;     // the furthest the sonar saw while he looked around (cm)
 float gravX = 0, gravY = 0, gravZ = 1;   // which way down was when he stood at boot (picked-up check)
@@ -409,6 +416,8 @@ void pollTilt();
 void pollIR();
 void pollWeb();
 void pollPS2();
+void setBody(ik::BodyPose b);
+void applyBody();
 void runWebMode();
 void setupWiFi();
 void tryNextBootNetwork();
@@ -768,6 +777,7 @@ bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scan
   if (!gaitNow.running || ik::maxOffset(gaitNow.last, ikNow) > 0.01f) {
     // crouched, just put down, after a hello: up to the stand pose first, smoothly
     if (ik::maxOffset(ikNow, ik::home()) > 5 && !ikMoveTo(ik::home(), false, true)) return false;
+    bodyNow = ik::BodyPose();   // walking: no body pose (he stands back into it from neutral)
     gaitNow.start(ikNow, ik::gait, airTicks());
   }
   const uint16_t ms = max(ik::stepMs(), LINE_MS);
@@ -804,7 +814,7 @@ void standNow() { if (!resting) ikSnapHome(); }
 // Every change of gait passes through here, so all six feet are down before the
 // next one starts. Walking: the feet step home; anything else: a smooth move.
 void Stand() {
-  if (gaitSettle() && ik::maxOffset(ikNow, ik::home()) > ik::HOME_MM) ikMoveTo(ik::home(), false, true);
+  if (gaitSettle() && ik::maxOffset(ikNow, standFrame()) > ik::HOME_MM) ikMoveTo(standFrame(), false, true);
   currentMove = MOVE_STAND;
   Serial2.println(F("MOVE -> STAND"));
 }
@@ -1118,7 +1128,20 @@ void runWebMode() {
   }
   else {
     requestMove(MOVE_STAND);   // no button held / connection lost -> stand
+    applyBody();               // ...holding the body pose, which may have changed
   }
+}
+
+// Ask for a body pose: fitted to what his feet can reach, then he moves to it (standing, WEB mode)
+void setBody(ik::BodyPose b) {
+  bodyNow = ik::fitPose(ik::home(), ik::clampPose(b), &bodyK);
+}
+
+// Standing: move to the body pose if it changed (a short, smooth move)
+void applyBody() {
+  if (currentMove != MOVE_STAND || gaitNow.running) return;
+  const ik::Frame f = standFrame();
+  if (ik::maxOffset(ikNow, f) > 0.5f) ikMoveTo(f, false, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,6 +1212,26 @@ void pollPS2() {
   }
   if (!was) { Serial2.println(F("PS2: pad connected")); buzzer::play(buzzer::MODE); }
 
+  if (pressed(BTN_R3)) {   // BODY mode on / off: the sticks move his body over planted feet
+    bodyMode = !bodyMode;
+    if (!bodyMode) setBody(ik::BodyPose());
+    controlMode = CTRL_WEB; webActiveCmd = 0; abortMovement = true;
+    buzzer::play(bodyMode ? buzzer::ON : buzzer::OFF);
+    Serial2.println(bodyMode ? F("PS2: BODY mode") : F("PS2: walking"));
+  }
+  if (bodyMode) {          // left stick slides, right stick tilts, L1 / R1 twist, D-pad up / down raise / lower
+    static float yaw = 0, z = 0;
+    if (held(BTN_L1)) yaw = min(yaw + 0.5f, ik::BODY_TILT_MAX);
+    if (held(BTN_R1)) yaw = max(yaw - 0.5f, -ik::BODY_TILT_MAX);
+    if (held(BTN_UP)) z = min(z + 1.0f, ik::BODY_SLIDE_MAX);
+    if (held(BTN_DOWN)) z = max(z - 1.0f, -ik::BODY_SLIDE_MAX);
+    ik::BodyPose b;
+    b.x = pad.ly * ik::BODY_SLIDE_MAX; b.y = pad.lx * ik::BODY_SLIDE_MAX; b.z = z;
+    b.roll = -pad.rx * ik::BODY_TILT_MAX; b.pitch = -pad.ry * ik::BODY_TILT_MAX; b.yaw = yaw;
+    setBody(b);
+    if (pressed(BTN_CROSS) || pressed(BTN_TRIANGLE)) { yaw = 0; z = 0; setBody(ik::BodyPose()); }
+    return;                // the rest of the pad walks him: not in BODY mode
+  }
   float f = pad.ly, turn = pad.lx, left = pad.rx;
   if (held(BTN_UP)) f = 1;
   if (held(BTN_DOWN)) f = -1;
@@ -1769,7 +1812,11 @@ void handleStatus() {
   json += "\"tiltGuard\":"   + String(tiltGuard ? 1 : 0) + ",";
   json += "\"sound\":"       + String(buzzer::muted ? 0 : 1) + ",";
   json += "\"resting\":"     + String(resting ? 1 : 0) + ",";
-  json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0);
+  json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0) + ",";
+  json += "\"bodyMode\":"    + String(bodyMode ? 1 : 0) + ",";
+  json += "\"bodyK\":"       + String(bodyK, 2) + ",";
+  json += "\"body\":["       + String(bodyNow.x, 1) + "," + String(bodyNow.y, 1) + "," + String(bodyNow.z, 1) + "," +
+          String(bodyNow.roll, 1) + "," + String(bodyNow.pitch, 1) + "," + String(bodyNow.yaw, 1) + "]";
   json += "}";
 
   server.send(200, "application/json", json);
@@ -1806,6 +1853,16 @@ void setupWebServer() {
   server.on("/mind",     handleMindCmd);
   server.on("/shutdown", handleShutdownCmd);
   server.on("/status",   handleStatus);
+  server.on("/body",     []() {                 // ?x=&y=&z= mm &roll=&pitch=&yaw= deg: his body over planted feet
+    if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
+    ik::BodyPose b;
+    b.x = server.arg("x").toFloat(); b.y = server.arg("y").toFloat(); b.z = server.arg("z").toFloat();
+    b.roll = server.arg("roll").toFloat(); b.pitch = server.arg("pitch").toFloat(); b.yaw = server.arg("yaw").toFloat();
+    if (controlMode != CTRL_WEB) { controlMode = CTRL_WEB; abortMovement = true; }
+    webActiveCmd = 0;
+    setBody(b);
+    server.send(200, "application/json", String("{\"ok\":true,\"k\":") + String(bodyK, 2) + "}");
+  });
   server.on("/act",      []() {                 // ?do=hello|dance|rest|wake: once, between moves
     if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
     const String a = server.arg("do");

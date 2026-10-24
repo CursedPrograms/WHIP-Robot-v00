@@ -86,6 +86,64 @@ def joints(leg, hip, knee, foot):
     return [(ax, ay, 0.0), (kx, ky, 0.0), (kx + ah * c, ky + ah * s, az), (kx + fh * c, ky + fh * s, fz)]
 
 
+def body_frame(feet, x=0.0, y=0.0, z=0.0, roll=0.0, pitch=0.0, yaw=0.0):
+    """Body IK (ik_gait.h's bodyFrame): the feet stay planted, the body slides (x forward, y left, z up,
+    mm) and tilts (roll, pitch, yaw, degrees) over them. feet: six (x, y, z), body frame at rest ->
+    where each foot is, seen from the moved body: R^-1 (f - t), R = Rz(yaw) Ry(pitch) Rx(roll)."""
+    cr, sr = math.cos(math.radians(roll)), math.sin(math.radians(roll))
+    cp, sp = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+    cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    r = ((cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr),
+         (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr),
+         (-sp, cp * sr, cp * cr))
+    out = []
+    for fx, fy, fz in feet:
+        d = (fx - x, fy - y, fz - z)
+        out.append(tuple(r[0][k] * d[0] + r[1][k] * d[1] + r[2][k] * d[2] for k in range(3)))
+    return out
+
+
+BODY_SLIDE_MAX, BODY_TILT_MAX = 40.0, 15.0   # ik_gait.h's: mm, degrees either way
+
+
+def in_reach(feet_body, servos=None):
+    """ik_gait.h's inReach(): every foot solvable and every joint inside its servo's reach."""
+    for leg, f in enumerate(feet_body):
+        a = angles(leg, f)
+        if a is None:
+            return False
+        for j in range(3):
+            lim = (servos[leg][j]["deg_max"] if servos else 90)
+            if abs(a[j]) > lim:
+                return False
+    return True
+
+
+def fit_pose(feet, pose, servos=None):
+    """ik_gait.h's fitPose(): (the pose scaled back until every foot reaches, k). pose: (x, y, z, roll, pitch, yaw)."""
+    if in_reach(body_frame(feet, *pose), servos):
+        return tuple(pose), 1.0
+    lo, hi = 0.0, 1.0
+    for _ in range(10):
+        mid = (lo + hi) / 2
+        if in_reach(body_frame(feet, *(v * mid for v in pose)), servos):
+            lo = mid
+        else:
+            hi = mid
+    return tuple(v * lo for v in pose), lo
+
+
+def body_to_world(p, x=0.0, y=0.0, z=0.0, roll=0.0, pitch=0.0, yaw=0.0):
+    """A point on the body (body frame) -> where it is on the ground's frame: R p + t (to draw him)."""
+    cr, sr = math.cos(math.radians(roll)), math.sin(math.radians(roll))
+    cp, sp = math.cos(math.radians(pitch)), math.sin(math.radians(pitch))
+    cy, sy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    r = ((cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr),
+         (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr),
+         (-sp, cp * sr, cp * cr))
+    return tuple(sum(r[i][k] * p[k] for k in range(3)) + (x, y, z)[i] for i in range(3))
+
+
 if __name__ == "__main__":   # the reverse really is the reverse: random feet there and back
     import random
     worst = 0.0
