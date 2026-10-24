@@ -193,6 +193,21 @@ inline bool line(const Frame& f, char* out, size_t n) {
   return true;
 }
 
+// The joint angles of a frame (every leg solved). False if a foot is out of reach.
+inline bool anglesOf(const Frame& f, float a[LEGS][JOINTS]) {
+  for (uint8_t leg = 0; leg < LEGS; leg++) if (!solve(leg, f.leg[leg], a[leg])) return false;
+  return true;
+}
+
+// A line straight from joint angles (folding the legs up to rest: no foot position for that)
+inline void anglesLine(const float a[LEGS][JOINTS], char* out, size_t n) {
+  size_t used = 0;
+  out[0] = '\0';
+  for (uint8_t leg = 0; leg < LEGS; leg++)
+    for (uint8_t j = 0; j < JOINTS; j++)
+      used += snprintf(out + used, n - used, "#%uP%d", cal[leg][j].ch, toUs(leg, j, a[leg][j]));
+}
+
 // Every servo at 0 degrees + its trim: the calibration pose
 inline void zeroLine(char* out, size_t n) {
   size_t used = 0;

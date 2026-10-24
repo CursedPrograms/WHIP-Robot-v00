@@ -205,6 +205,12 @@ const int MPU_ADDR = 0x68;
 #define IR_OK               0x65
 #define IR_MODE_IRControl   0x0   // "1" -> IR remote control
 #define IR_MODE_OBSTACLE    0x1   // "2" -> obstacle avoidance
+// 3-7: guessed from 1 = 0x0, 2 = 0x1. The debug console prints every button's code ("IR cmd=0x..")
+#define IR_GAIT             0x2   // "3" -> next gait
+#define IR_HELLO            0x3   // "4" -> wave hello
+#define IR_DANCE            0x4   // "5" -> a little dance
+#define IR_FOLLOW           0x5   // "6" -> follow-me mode
+#define IR_REST             0x6   // "7" -> lie down / get up
 
 const unsigned long IR_CMD_TIMEOUT_MS = 350;
 unsigned long irTimeoutMs = IR_CMD_TIMEOUT_MS;   // release timeout for the current drive (remote or link)
@@ -237,6 +243,9 @@ const unsigned long LINK_HOLD_MS = 600;   // longer than the remote: frames can 
 #define WEB_BACKWARD 'B'
 #define WEB_LEFT     'L'
 #define WEB_RIGHT    'R'
+#define WEB_SLEFT    'Q'   // sideways (crab) left / right
+#define WEB_SRIGHT   'E'
+#define WEB_DRIVE    'D'   // analog: driveFwd / driveLeft / driveTurn (the controller's sticks)
 
 const unsigned long WEB_CMD_TIMEOUT_MS = 500;
 
@@ -276,8 +285,23 @@ const unsigned long WALK_AFTER_BOOT_MS = 5000;
 const long MIN_DISTANCE_CM   = 35;   // was 20: he walked into the closet door
 const long CLEAR_DISTANCE_CM = 50;
 const uint8_t OBSTACLE_DEBOUNCE = 3;
-const uint8_t AVOID_TURN_LOOPS  = 2;    // turn at least this many cycles, then look after every one
-const uint8_t AVOID_MAX_TURNS   = 12;   // still blocked after this many: stand and start over
+const uint8_t AVOID_LOOK_TURNS  = 1;    // at a wall he looks this many turn cycles left, then right
+const uint8_t AVOID_MAX_TURNS   = 12;   // turning the clearer way, still blocked after this many: start over
+
+// Follow me: keep a hand FOLLOW_CM in front of the sonar
+const long FOLLOW_CM          = 30;
+const long FOLLOW_DEADBAND_CM = 4;    // close enough: stand
+const long FOLLOW_LOST_CM     = 80;   // nothing nearer than this: nobody to follow, stand
+
+// Rest: standing still this long (IR, web, MIND, follow) he lies down; any move gets him up.
+// gait.xml's "Reset - Shut Down": every hip in the middle, knees and feet right up. He lowers
+// his belly to the floor first and folds one tripod at a time, so nothing drops.
+const unsigned long REST_AFTER_MS = 60000;
+const float REST_Z        = ik::HOME_Z_MIN + 15;   // belly on the floor (-75 mm): raise if the feet still carry him
+const float FOLD_KNEE_DEG = 90;
+const float FOLD_FOOT_DEG = 90;
+const uint8_t TRIPOD_A = (1 << ik::LF) | (1 << ik::LB) | (1 << ik::RM);
+const uint8_t TRIPOD_B = (1 << ik::LM) | (1 << ik::RF) | (1 << ik::RB);
 
 // ---------------------------------------------------------------------------
 // Tilt safety tuning (MPU6050)
@@ -287,12 +311,18 @@ const float TILT_LIMIT_DEG = 20.0;
 const float TILT_CLEAR_DEG = 12.0;
 const unsigned long TILT_DEBOUNCE_MS = 500;
 const float COMPLEMENTARY_ALPHA = 0.98;
+// Picked up: the MPU feels more than HELD_G_HIGH or less than HELD_G_LOW for HELD_MS (a lift,
+// a drop), or he's upside down. His legs stop until he's been level and still for HELD_DOWN_MS.
+const float HELD_G_HIGH = 1.4;
+const float HELD_G_LOW  = 0.55;
+const unsigned long HELD_MS = 120;
+const unsigned long HELD_DOWN_MS = 2000;
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-enum SystemState   { SYS_ACTIVE, SYS_TILT_SAFE, SYS_SHUTDOWN };
-enum ControlMode   { CTRL_OBSTACLE, CTRL_IR, CTRL_WEB, CTRL_MIND };
+enum SystemState   { SYS_ACTIVE, SYS_TILT_SAFE, SYS_SHUTDOWN, SYS_HELD };
+enum ControlMode   { CTRL_OBSTACLE, CTRL_IR, CTRL_WEB, CTRL_MIND, CTRL_FOLLOW };
 enum MovementState { MOVE_STAND, MOVE_WALK, MOVE_BACKWARD, MOVE_TURN_LEFT, MOVE_TURN_RIGHT };
 
 SystemState   sysState    = SYS_ACTIVE;
@@ -303,6 +333,20 @@ MovementState currentMove = MOVE_STAND;
 bool abortMovement = false;   // cleared at the top of every loop()
 ik::Frame ikNow;          // where the feet are (the last frame sent)
 bool calibrating = false; // /calib is open: WHIP stands still and takes no drive commands
+
+// Lying down (REST, idle, shutdown): belly on the floor, legs folded up. Every move gets him
+// up first (wakeUp()).
+bool resting = false;
+float restAngles[ik::LEGS][ik::JOINTS];   // the joint angles while he lies down / folds
+unsigned long stoodSince = 0;             // standing still since (he lies down after REST_AFTER_MS)
+bool dancing = false;
+// One thing to do between moves (web, keys, IR): h(ello) d(ance) r(est) w(ake) s(tand)
+char pendingAct = 0;
+// Analog driving (web cmd=drive: the controller's sticks), each -1..1
+float driveFwd = 0, driveLeft = 0, driveTurn = 0;
+float followFwd = 0;   // FOLLOW: towards (+) / away from (-) the hand
+long  seenFar = 0;     // the furthest the sonar saw while he looked around (cm)
+float gravX = 0, gravY = 0, gravZ = 1;   // which way down was when he stood at boot (picked-up check)
 
 // MIND mode: the controller's LLM (mind.py) drives him one short move at a time
 // (/mind?act=fwd&steps=2), and he stands while it thinks. Only his PC controller
@@ -337,7 +381,6 @@ unsigned long webLastCmdMillis = 0;
 
 uint8_t obstacleCount    = 0;
 bool    obstacleDetected = false;
-bool    avoidTurnRight   = false;   // which way the next wall is turned from: alternates
 
 // MPU6050 state -- declared here (not down by mpuInit()/updateTilt() where
 // they're used) because setup() and handleStatus() both reference these
@@ -508,13 +551,24 @@ void loop() {
   outputsTick(false);
 
   pollTilt();
-  if (sysState == SYS_TILT_SAFE) return;
+  if (sysState == SYS_TILT_SAFE || sysState == SYS_HELD) return;
 
   pollIR();
   pollWeb();
 
   if (calibrating) return;   // /calib moves the servos itself; WHIP doesn't walk meanwhile
-  if (linkLocked) { requestMove(MOVE_STAND); return; }   // NORA locked his legs
+  if (linkLocked) {          // NORA locked his legs: he crouches, sulking
+    requestMove(MOVE_STAND);
+    if (!resting) ikGlide(crouchPose(), 15, 80);
+    return;
+  }
+  if (pendingAct) {          // hello, dance, rest, wake: once, between moves
+    const char act = pendingAct;
+    pendingAct = 0;
+    runAct(act);
+    stoodSince = millis();
+    return;
+  }
   if (controlMode == CTRL_MIND && !mindHostAlive()) {    // the mind's controller went quiet
     controlMode = CTRL_WEB;
     webActiveCmd = 0;
@@ -529,9 +583,15 @@ void loop() {
     runIRMode();
   } else if (controlMode == CTRL_MIND) {
     runMindMode();
+  } else if (controlMode == CTRL_FOLLOW) {
+    runFollowMode();
   } else {
     runWebMode();
   }
+
+  // Standing still a while (driven by hand, MIND or follow, nothing to do): lie down
+  if (currentMove != MOVE_STAND || controlMode == CTRL_OBSTACLE || resting) stoodSince = millis();
+  else if (millis() - stoodSince > REST_AFTER_MS) restDown();
 }
 
 // Parses "#<ch>P<val>" tokens and clamps each value to the channel's limits
@@ -604,7 +664,8 @@ bool ikSend(const ik::Frame& f, uint16_t ms) {
 }
 
 // Waits like gaitWaitUntil, but a new drive command doesn't cut it short: only
-// tilt safety / shutdown does. For standing up, so feet always land first.
+// tilt safety or being picked up does. For standing up, so feet always land first
+// (and for lying down at shutdown).
 bool finishWaitUntil(unsigned long start, unsigned long ms) {
   while (millis() - start < ms) {
     while (Serial.available()) Serial2.write(Serial.read());
@@ -613,7 +674,7 @@ bool finishWaitUntil(unsigned long start, unsigned long ms) {
     pollTilt();
     pollIR();
     pollWeb();
-    if (sysState != SYS_ACTIVE) return false;
+    if (sysState == SYS_TILT_SAFE || sysState == SYS_HELD) return false;
   }
   return true;
 }
@@ -622,6 +683,7 @@ bool finishWaitUntil(unsigned long start, unsigned long ms) {
 // interpolation). Each step occupies stepMs + the line's transmit time.
 // finish: don't stop for a new command (standing up between gaits).
 bool ikMoveTo(const ik::Frame& target, bool scanSafe, bool finish) {
+  if (resting && !wakeUp()) return false;
   const ik::Frame from = ikNow;
   const uint16_t ms = ik::stepMs();
   for (uint8_t i = 1; i <= ik::STEPS; i++) {
@@ -643,7 +705,7 @@ uint8_t clearPings = 0;
 // The LED grid and the buzzer: what he's doing now (leds.h, buzzer.h). Called from
 // loop() and every wait. The buzzer chirps when something changes.
 void outputsTick(bool force) {
-  static bool started = false, wasWall = false, wasTiltStop = false, wasTiltGuard = true, wasLocked = false;
+  static bool started = false, wasWall = false, wasTiltStop = false, wasTiltGuard = true, wasLocked = false, wasHeld = false;
   static uint8_t wasMode = 0, wasGait = 0;
   static unsigned long lastAlarm = 0;
   const bool wall = obstacleDetected || manualBlocked || mindBlocked || obstacleCount >= OBSTACLE_DEBOUNCE;
@@ -653,6 +715,7 @@ void outputsTick(bool force) {
       buzzer::play(buzzer::TILT);   // and again every 1.5 s while he's held
       lastAlarm = millis();
     }
+    else if (sysState == SYS_HELD && !wasHeld) buzzer::play(buzzer::HELD);
     else if (linkLocked != wasLocked)          buzzer::play(linkLocked ? buzzer::LOCK : buzzer::ON);
     else if (tiltGuard != wasTiltGuard)        buzzer::play(tiltGuard ? buzzer::ON : buzzer::OFF);
     else if (ik::gait != wasGait)              buzzer::play(ik::gait == 0 ? buzzer::GAIT1 : ik::gait == 1 ? buzzer::GAIT2 : buzzer::GAIT3);
@@ -660,22 +723,26 @@ void outputsTick(bool force) {
     else if (wall && !wasWall)                 buzzer::play(buzzer::WALL);
   }
   started = true;
-  wasWall = wall; wasTiltStop = tiltStop; wasTiltGuard = tiltGuard; wasLocked = linkLocked;
+  wasWall = wall; wasTiltStop = tiltStop; wasTiltGuard = tiltGuard; wasLocked = linkLocked; wasHeld = sysState == SYS_HELD;
   wasMode = (uint8_t)controlMode; wasGait = ik::gait;
   buzzer::update();
 
   leds::State st;
   if (sysState == SYS_SHUTDOWN)       st.look = leds::SHUTDOWN;
   else if (sysState == SYS_TILT_SAFE) st.look = leds::TILT_STOP;
+  else if (sysState == SYS_HELD)      st.look = leds::HELD;
   else if (linkLocked)                st.look = leds::LOCKED;
   else if (controlMode == CTRL_IR)    st.look = leds::IR;
   else if (controlMode == CTRL_WEB)   st.look = leds::WEB;
   else if (controlMode == CTRL_MIND)  st.look = leds::MIND;
+  else if (controlMode == CTRL_FOLLOW) st.look = leds::FOLLOW;
   else                                st.look = leds::OBSTACLE;
   st.walking = gaitNow.running;
   st.gait    = &gaitNow;
   st.wall    = wall || obstacleCount > 0;
   st.tiltOff = !tiltGuard;
+  st.resting = resting;
+  st.dancing = dancing;
   leds::update(st, force);
 }
 
@@ -686,10 +753,15 @@ uint16_t airTicks() { return 2 * (LINE_MS > ik::stepMs() ? ik::walkSteps() : ik:
 // One cycle of the chosen gait (ik::gait): every leg steps once. fwd / left / turn
 // (anticlockwise) -1..1. Back to back the cycles run on without a pause; the engine
 // starts from wherever the feet are if something else moved them meanwhile.
-bool gaitCycle(float fwd, float left, float turn, bool scanSafe) {
+// The steering is read on every move (references), so analog driving and follow-me change
+// it mid-cycle.
+bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scanSafe) {
+  if (resting && !wakeUp()) return false;
   // a new gait picked mid-walk: step to a stop in the old one, start off in the new one
   if (gaitNow.running && gaitNow.id != ik::gait && !gaitSettle()) return false;
   if (!gaitNow.running || ik::maxOffset(gaitNow.last, ikNow) > 0.01f) {
+    // crouched, just put down, after a hello: up to the stand pose first, smoothly
+    if (ik::maxOffset(ikNow, ik::home()) > 5 && !ikMoveTo(ik::home(), false, true)) return false;
     gaitNow.start(ikNow, ik::gait, airTicks());
   }
   const uint16_t ms = max(ik::stepMs(), LINE_MS);
@@ -719,8 +791,9 @@ bool gaitSettle() {
 // Stand at once (tilt safety, boot): one move, no interpolation
 void ikSnapHome() { gaitNow.running = false; ikSend(ik::home(), 300); }
 
-// The stand pose right now (tilt safety, boot): no interpolation
-void standNow() { ikSnapHome(); }
+// The stand pose right now (tilt safety, boot): no interpolation. Not while he lies
+// down: the snap would slam his folded legs out.
+void standNow() { if (!resting) ikSnapHome(); }
 
 // Every change of gait passes through here, so all six feet are down before the
 // next one starts. Walking: the feet step home; anything else: a smooth move.
@@ -731,6 +804,149 @@ void Stand() {
 }
 
 bool MoveForward()   { return gaitCycle(1, 0, 0, true); }
+bool StrafeLeft()    { return gaitCycle(0, 1, 0, false); }
+bool StrafeRight()   { return gaitCycle(0, -1, 0, false); }
+
+// ---------------------------------------------------------------------------
+// Body moves: rest, wave hello, dance, crouch
+// ---------------------------------------------------------------------------
+// A slow, smooth move of every foot to `to` (body moves), n moves of ms each.
+// Only tilt safety or being picked up cuts it short.
+bool ikGlide(const ik::Frame& to, uint8_t n, uint16_t ms) {
+  if (resting && !wakeUp()) return false;
+  gaitNow.running = false;
+  const ik::Frame from = ikNow;
+  if (ik::maxOffset(from, to) < 0.5f) return true;
+  for (uint8_t i = 1; i <= n; i++) {
+    unsigned long start = millis();
+    if (!ikSend(ik::lerp(from, to, ik::ease((float)i / n)), ms)) return false;
+    if (!finishWaitUntil(start, ms)) return false;
+  }
+  return true;
+}
+
+ik::Frame restLow() {       // standing pose, belly on the floor
+  ik::Frame f = ik::home();
+  for (uint8_t l = 0; l < ik::LEGS; l++) f.leg[l].z = REST_Z;
+  return f;
+}
+
+ik::Frame crouchPose() {    // his lowest stance
+  ik::Frame f = ik::home();
+  for (uint8_t l = 0; l < ik::LEGS; l++) f.leg[l].z = ik::HOME_Z_MIN;
+  return f;
+}
+
+void anglesSend(const float a[ik::LEGS][ik::JOINTS], uint16_t ms) {
+  ik::anglesLine(a, cmdBuf, sizeof(cmdBuf));
+  clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
+  Serial.print(safeBuf);
+  Serial.print('T');
+  Serial.print(ms);
+  Serial.print("\r\n");
+}
+
+// The legs in `legs` (a bit per leg) from where they are (restAngles) to `to`, in
+// joint angles, eased over n moves of ms.
+bool anglesMove(const float to[ik::LEGS][ik::JOINTS], uint8_t legs, uint8_t n, uint16_t ms) {
+  float from[ik::LEGS][ik::JOINTS];
+  memcpy(from, restAngles, sizeof(from));
+  for (uint8_t i = 1; i <= n; i++) {
+    unsigned long start = millis();
+    const float t = ik::ease((float)i / n);
+    for (uint8_t l = 0; l < ik::LEGS; l++)
+      for (uint8_t j = 0; j < ik::JOINTS; j++)
+        restAngles[l][j] = (legs >> l & 1) ? from[l][j] + (to[l][j] - from[l][j]) * t : from[l][j];
+    anglesSend(restAngles, ms);
+    if (!finishWaitUntil(start, ms)) return false;
+  }
+  return true;
+}
+
+// Lie down: step to a stop, lower the belly to the floor on all six legs, then fold
+// one tripod up and then the other. The body is on the floor before a leg lets go,
+// so nothing drops.
+bool restDown() {
+  if (resting) return true;
+  Serial2.println(F("REST: lying down"));
+  buzzer::play(buzzer::REST);
+  Stand();
+  if (!ikGlide(restLow(), 20, 100)) return false;
+  if (!ik::anglesOf(ikNow, restAngles)) return false;
+  resting = true;   // from here every move gets him up first
+  float fold[ik::LEGS][ik::JOINTS];
+  for (uint8_t l = 0; l < ik::LEGS; l++) { fold[l][ik::HIP] = 0; fold[l][ik::KNEE] = FOLD_KNEE_DEG; fold[l][ik::FOOT] = FOLD_FOOT_DEG; }
+  return anglesMove(fold, TRIPOD_A, 12, 100) && anglesMove(fold, TRIPOD_B, 12, 100);
+}
+
+// Get up: unfold the tripods the other way round onto the floor, then lift the body.
+bool wakeUp() {
+  if (!resting) return true;
+  Serial2.println(F("REST: getting up"));
+  buzzer::play(buzzer::WAKE);
+  float low[ik::LEGS][ik::JOINTS];
+  if (!ik::anglesOf(restLow(), low)) return false;
+  if (!anglesMove(low, TRIPOD_B, 12, 100) || !anglesMove(low, TRIPOD_A, 12, 100)) return false;
+  resting = false;
+  ikNow = restLow();
+  gaitNow.running = false;
+  currentMove = MOVE_STAND;
+  return ikGlide(ik::home(), 20, 100);
+}
+
+// Wave hello: weight back and off the front left leg, lift it high and wave, put it down.
+bool waveHello() {
+  Serial2.println(F("HELLO"));
+  Stand();
+  ik::Frame base = ik::home();
+  for (uint8_t l = 0; l < ik::LEGS; l++) { base.leg[l].x += 20; base.leg[l].y += 15; }   // body back and right
+  if (!ikGlide(base, 10, 80)) return false;
+  ik::Frame up = base;
+  up.leg[ik::LF] = { base.leg[ik::LF].x + 30, base.leg[ik::LF].y + 20, ik::homeZ() + 120 };
+  buzzer::play(buzzer::HELLO);
+  if (!ikGlide(up, 10, 60)) return false;
+  for (uint8_t k = 0; k < 3; k++) {
+    ik::Frame a = up, b = up;
+    a.leg[ik::LF].y += 35;
+    b.leg[ik::LF].y -= 35;
+    if (!ikGlide(a, 5, 50) || !ikGlide(b, 7, 50)) return false;
+  }
+  return ikGlide(up, 4, 50) && ikGlide(base, 10, 60) && ikGlide(ik::home(), 10, 80);
+}
+
+// A little dance: the body circles over its feet twice, bobbing, the grid in colours.
+bool dance() {
+  Serial2.println(F("DANCE"));
+  Stand();
+  dancing = true;
+  buzzer::play(buzzer::DANCE);
+  const ik::Frame h = ik::home();
+  const float R = 25, BOB = 15;
+  const uint8_t N = 48;
+  bool ok = true;
+  for (uint8_t i = 0; i <= N && ok; i++) {
+    const float a = 4 * PI * i / N;   // two turns
+    const float k = i < 6 ? ik::ease(i / 6.0f) : i > N - 6 ? ik::ease((N - i) / 6.0f) : 1;   // ease in and out
+    ik::Frame f = h;
+    for (uint8_t l = 0; l < ik::LEGS; l++) {   // the feet stay put: the body moves over them
+      f.leg[l].x -= k * R * cosf(a);
+      f.leg[l].y -= k * R * sinf(a);
+      f.leg[l].z += k * BOB * (1 + sinf(2 * a)) / 2;   // bob down only: at full height the legs are already stretched
+    }
+    unsigned long start = millis();
+    ok = ikSend(f, 70) && finishWaitUntil(start, 70);
+  }
+  dancing = false;
+  return ok && ikGlide(h, 6, 60);
+}
+
+void runAct(char a) {
+  if      (a == 'r') restDown();
+  else if (a == 'w') wakeUp();
+  else if (a == 'h') waveHello();
+  else if (a == 'd') dance();
+  else if (a == 's') Stand();
+}
 bool MoveBackward()  { return gaitCycle(-1, 0, 0, false); }
 bool TurnLeft()      { return gaitCycle(0, 0, 1, false); }
 bool TurnRight()     { return gaitCycle(0, 0, -1, false); }
@@ -787,6 +1003,13 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
       lastPing = millis();
       long d = readDistanceCM();
       clearPings = (d < 0 || d >= CLEAR_DISTANCE_CM) ? min(clearPings + 1, 255) : 0;
+      seenFar = max(seenFar, d < 0 ? 400L : d);   // no echo: nothing in range
+    }
+
+    // FOLLOW: steer by the hand's distance as he walks
+    if (controlMode == CTRL_FOLLOW && millis() - lastPing >= 100) {
+      lastPing = millis();
+      followFwd = followSpeed(readDistanceCM());
     }
 
     // While walking, watch for a wall
@@ -854,8 +1077,24 @@ void runIRMode() {
 // ---------------------------------------------------------------------------
 // WEB CONTROL MODE -- driven by the browser D-pad, same shape as IR mode
 // ---------------------------------------------------------------------------
+const float NO_FWD = 0;
+
 void runWebMode() {
   webCmdAtMoveStart = webActiveCmd;
+
+  if (webActiveCmd == WEB_DRIVE) {
+    // a wall ahead: he can still turn, crab and back off, just not walk on
+    const bool blocked = driveFwd > 0.05f && wallInWay();
+    if (requestMove(MOVE_WALK)) {
+      if (blocked) gaitCycle(NO_FWD, driveLeft, driveTurn, false);
+      else gaitCycle(driveFwd, driveLeft, driveTurn, driveFwd > 0.2f);
+    }
+    return;
+  }
+  if (webActiveCmd == WEB_SLEFT || webActiveCmd == WEB_SRIGHT) {
+    if (requestMove(MOVE_WALK)) webActiveCmd == WEB_SLEFT ? StrafeLeft() : StrafeRight();
+    return;
+  }
 
   if (webActiveCmd == WEB_FORWARD) {
     if (wallInWay()) requestMove(MOVE_STAND);   // driven by hand: no walking into a wall
@@ -890,6 +1129,30 @@ void runMindMode() {
   else if (!done) mindSteps = 0;   // cut short (wall, tilt, stop, mode change): stand and report
 }
 
+// ---------------------------------------------------------------------------
+// FOLLOW MODE -- keep a hand FOLLOW_CM in front of his sonar
+// ---------------------------------------------------------------------------
+float followSpeed(long d) {
+  if (d <= 0 || d > FOLLOW_LOST_CM) return 0;   // nobody there
+  const long e = d - FOLLOW_CM;
+  if (labs(e) <= FOLLOW_DEADBAND_CM) return 0;
+  return constrain(e / 20.0f, -1.0f, 1.0f);     // full speed 20 cm off
+}
+
+void runFollowMode() {
+  followFwd = followSpeed(readDistanceCM());
+  if (followFwd == 0) { requestMove(MOVE_STAND); return; }
+  if (requestMove(MOVE_WALK)) gaitCycle(followFwd, NO_FWD, NO_FWD, false);   // followFwd is updated as he walks
+}
+
+void setFollowMode() {
+  if (controlMode == CTRL_FOLLOW) return;
+  controlMode   = CTRL_FOLLOW;
+  followFwd     = 0;
+  abortMovement = true;
+  Serial2.println(F("CONTROL -> FOLLOW ME"));
+}
+
 // Browser repeats the held command every ~200ms (see INDEX_HTML); if none
 // arrives for a while, assume the page was closed or the connection dropped
 // and fail safe to "no command held" instead of walking forever.
@@ -916,8 +1179,8 @@ bool wallAhead() {
 /*
   Walk forward on repeat.
   If a wall is in range -> stand for a moment.
-  Turn (left and right by turns, one way only walks him in circles):
-  at least AVOID_TURN_LOOPS cycles, looking ahead while he turns.
+  Look around: turn a little left, then right past the middle, noting how far the
+  sonar sees each way. Turn the clearer way, looking ahead as he turns.
   Clear -> stand, forward. Still blocked after AVOID_MAX_TURNS -> start over.
 */
 void runObstacleMode() {
@@ -941,20 +1204,34 @@ void runObstacleMode() {
 
   // --- WALL HIT ---
   obstacleDetected = false;
-  avoidTurnRight = !avoidTurnRight;
-  Serial2.println(avoidTurnRight ? F("WALL -> stand, turn right") : F("WALL -> stand, turn left"));
+  Serial2.println(F("WALL -> stand, look around"));
 
   Stand();
   if (!gaitWait(STAND_HOLD_MS, false)) return;
 
-  // --- TURN until the way is clear (looking while he turns: no stop to look) ---
-  currentMove = avoidTurnRight ? MOVE_TURN_RIGHT : MOVE_TURN_LEFT;
-  clearPings = 0;
+  // --- LOOK AROUND: a little left, then right past the middle, noting how far he sees ---
   watchClear = true;
-  bool clear = false;
+  seenFar = 0;
+  currentMove = MOVE_TURN_LEFT;
+  for (uint8_t i = 0; i < AVOID_LOOK_TURNS; i++) if (!TurnLeft()) { watchClear = false; return; }
+  const long farLeft = seenFar;
+  seenFar = 0;
+  clearPings = 0;
+  currentMove = MOVE_TURN_RIGHT;
+  for (uint8_t i = 0; i < 2 * AVOID_LOOK_TURNS; i++) if (!TurnRight()) { watchClear = false; return; }
+  const long farRight = seenFar;
+  const bool right = farRight >= farLeft;
+  Serial2.print(F("LOOKED: left ")); Serial2.print(farLeft);
+  Serial2.print(F(" cm, right ")); Serial2.print(farRight);
+  Serial2.println(right ? F(" cm -> right") : F(" cm -> left"));
+
+  // --- TURN the clearer way until the way ahead is clear (looking as he turns) ---
+  bool clear = right && clearPings >= OBSTACLE_DEBOUNCE;   // already looking at it
+  clearPings = 0;
+  currentMove = right ? MOVE_TURN_RIGHT : MOVE_TURN_LEFT;
   for (uint8_t i = 1; i <= AVOID_MAX_TURNS && !clear; i++) {
-    if (!(avoidTurnRight ? TurnRight() : TurnLeft())) { watchClear = false; return; }
-    clear = i >= AVOID_TURN_LOOPS && clearPings >= OBSTACLE_DEBOUNCE;
+    if (!(right ? TurnRight() : TurnLeft())) { watchClear = false; return; }
+    clear = clearPings >= OBSTACLE_DEBOUNCE;
   }
   watchClear = false;
   Stand();
@@ -997,6 +1274,17 @@ void handleIRCommand(uint8_t cmd) {
     abortMovement = true;
     return;
   }
+
+  if (cmd == IR_GAIT) {
+    ik::gait = (ik::gait + 1) % ik::GAITS;
+    ik::save();
+    Serial2.print(F("GAIT -> ")); Serial2.println(ik::GAIT_NAMES[ik::gait]);
+    return;
+  }
+  if (cmd == IR_HELLO)  { pendingAct = 'h'; return; }
+  if (cmd == IR_DANCE)  { pendingAct = 'd'; return; }
+  if (cmd == IR_REST)   { pendingAct = resting ? 'w' : 'r'; return; }
+  if (cmd == IR_FOLLOW) { setFollowMode(); return; }
 
   if (controlMode != CTRL_IR) return;
 
@@ -1296,6 +1584,15 @@ void handleWebCmd() {
   else if (cmd == "bwd")   { webActiveCmd = WEB_BACKWARD; webLastCmdMillis = millis(); }
   else if (cmd == "left")  { webActiveCmd = WEB_LEFT;     webLastCmdMillis = millis(); }
   else if (cmd == "right") { webActiveCmd = WEB_RIGHT;    webLastCmdMillis = millis(); }
+  else if (cmd == "sleft") { webActiveCmd = WEB_SLEFT;    webLastCmdMillis = millis(); }
+  else if (cmd == "sright"){ webActiveCmd = WEB_SRIGHT;   webLastCmdMillis = millis(); }
+  else if (cmd == "drive") {   // &f= forward &l= left (sideways) &t= turn (anticlockwise), each -1..1
+    driveFwd  = constrain(server.arg("f").toFloat(), -1.0f, 1.0f);
+    driveLeft = constrain(server.arg("l").toFloat(), -1.0f, 1.0f);
+    driveTurn = constrain(server.arg("t").toFloat(), -1.0f, 1.0f);
+    webActiveCmd = WEB_DRIVE;
+    webLastCmdMillis = millis();
+  }
   else if (cmd == "stop")  { webActiveCmd = 0; abortMovement = true; }
   else { server.send(400, "text/plain", "bad cmd"); return; }
 
@@ -1357,6 +1654,8 @@ void handleModeCmd() {
     webActiveCmd  = 0;
     abortMovement = true;
     Serial2.println(F("CONTROL -> WEB"));
+  } else if (m == "follow") {
+    setFollowMode();
   } else if (m == "mind") {
     if (!mindHostAlive()) { server.send(409, "text/plain", "no mind controller running"); return; }
     controlMode   = CTRL_MIND;
@@ -1403,7 +1702,8 @@ void handleStatus() {
   json += "\"speed\":"       + String(ik::speed) + ",";
   json += "\"gait\":"        + String(ik::gait) + ",";
   json += "\"tiltGuard\":"   + String(tiltGuard ? 1 : 0) + ",";
-  json += "\"sound\":"       + String(buzzer::muted ? 0 : 1);
+  json += "\"sound\":"       + String(buzzer::muted ? 0 : 1) + ",";
+  json += "\"resting\":"     + String(resting ? 1 : 0);
   json += "}";
 
   server.send(200, "application/json", json);
@@ -1440,6 +1740,17 @@ void setupWebServer() {
   server.on("/mind",     handleMindCmd);
   server.on("/shutdown", handleShutdownCmd);
   server.on("/status",   handleStatus);
+  server.on("/act",      []() {                 // ?do=hello|dance|rest|wake: once, between moves
+    if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
+    const String a = server.arg("do");
+    if      (a == "hello") pendingAct = 'h';
+    else if (a == "dance") pendingAct = 'd';
+    else if (a == "rest")  pendingAct = resting ? 'w' : 'r';   // REST again gets him up
+    else if (a == "wake")  pendingAct = 'w';
+    else { server.send(400, "text/plain", "bad act"); return; }
+    abortMovement = true;
+    server.send(200, "text/plain", "OK");
+  });
   server.on("/buzzer",   []() {                 // ?on=0|1: mute / sound (on again at boot)
     if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
     if (server.hasArg("on")) buzzer::setMuted(server.arg("on") == "0");
@@ -1508,7 +1819,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
     .sensor-box span { color: var(--accent); font-weight: bold; }
 
-    #modeRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    #modeRow { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 380px; }
     .mode-btn {
       padding: 10px 18px; border: 2px solid var(--border); border-radius: var(--radius);
       font-size: 0.85rem; font-weight: bold; cursor: pointer;
@@ -1544,6 +1855,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     #status { font-size: 0.8rem; color: var(--text-dim); text-align: center; }
 
     #gaitBox { width: 100%; max-width: 340px; }
+    #actRow { display: flex; gap: 8px; justify-content: center; }
     .gait-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     #gaitSel {
       background: var(--panel); color: var(--accent); border: 2px solid var(--border); border-radius: var(--radius);
@@ -1590,6 +1902,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="mode-btn" id="modeObstacle" onclick="setMode('obstacle')">OBSTACLE</div>
     <div class="mode-btn" id="modeIr"       onclick="setMode('ir')">IR REMOTE</div>
     <div class="mode-btn" id="modeWeb"      onclick="setMode('web')">WEB</div>
+    <div class="mode-btn" id="modeFollow"   onclick="setMode('follow')" title="F: he keeps your hand 30 cm from his sonar">FOLLOW</div>
     <div class="mode-btn" id="modeMind"     onclick="setMode('mind')" style="display:none" title="the LLM on his PC controller drives him">MIND</div>
   </div>
 
@@ -1603,12 +1916,20 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div id="gaitNote"></div>
   </div>
 
+  <div id="actRow">
+    <div class="mode-btn" id="actHello" title="H: he waves hello">HELLO</div>
+    <div class="mode-btn" id="actDance" title="N: a little dance">DANCE</div>
+    <div class="mode-btn" id="actRest"  title="R: lie down / get up (he lies down by himself after a minute standing still)">REST</div>
+  </div>
+
   <div class="dpad">
     <div class="btn fw"    id="btnFw">&#8593;</div>
     <div class="btn turnL" id="btnTurnL">&#8630;</div>
     <div class="btn stop stop-btn" id="btnStop">STOP</div>
     <div class="btn turnR" id="btnTurnR">&#8631;</div>
     <div class="btn bw"    id="btnBw">&#8595;</div>
+    <div class="btn left"  id="btnSL" title="crab left">&#8676;</div>
+    <div class="btn right" id="btnSR" title="crab right">&#8677;</div>
   </div>
 
   <div id="status">mode: -- | move: -- | wifi: --</div>
@@ -1679,6 +2000,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     bindHold('btnBw',    'bwd');
     bindHold('btnTurnL', 'left');
     bindHold('btnTurnR', 'right');
+    bindHold('btnSL',    'sleft');
+    bindHold('btnSR',    'sright');
 
     document.getElementById('btnStop').addEventListener('click', function () {
       release(null);
@@ -1686,12 +2009,17 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     });
 
     function setMode(m) {
-      curMode = m;
       driveFetch('/mode?m=' + m);
+      showMode(m);
+    }
+
+    function showMode(m) {
+      curMode = m;
       document.getElementById('modeObstacle').classList.toggle('active', m === 'obstacle');
       document.getElementById('modeIr').classList.toggle('active', m === 'ir');
       document.getElementById('modeWeb').classList.toggle('active', m === 'web');
-      document.getElementById('modeMind').classList.toggle('active', m === 'mind');      document.querySelectorAll('.dpad .btn').forEach(function (b) {
+      document.getElementById('modeMind').classList.toggle('active', m === 'mind');
+      document.getElementById('modeFollow').classList.toggle('active', m === 'follow');      document.querySelectorAll('.dpad .btn').forEach(function (b) {
         b.classList.toggle('disabled', m !== 'web');
       });
     }
@@ -1702,7 +2030,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       }
     }
 
-    const MODE_NAMES  = ['OBSTACLE', 'IR', 'WEB', 'MIND'];
+    const MODE_NAMES  = ['OBSTACLE', 'IR', 'WEB', 'MIND', 'FOLLOW'];
+    const MODE_KEYS   = ['obstacle', 'ir', 'web', 'mind', 'follow'];
     const MOVE_NAMES  = ['STAND', 'WALK', 'BACKWARD', 'TURN L', 'TURN R'];
     const WIFI_NAMES  = ['JOINED', 'HOSTING'];
 
@@ -1718,7 +2047,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         document.getElementById('status').textContent =
           'mode: ' + MODE_NAMES[j.controlMode] +
           ' | move: ' + MOVE_NAMES[j.move] +
-          ' | wifi: ' + WIFI_NAMES[j.wifiMode] + ' ' + j.network;
+          ' | wifi: ' + WIFI_NAMES[j.wifiMode] + ' ' + j.network +
+          (j.sysState === 3 ? ' | PICKED UP' : '') + (j.resting ? ' | resting' : '');
+        document.getElementById('actRest').textContent = j.resting ? 'WAKE' : 'REST';
+        document.getElementById('actRest').classList.toggle('active', !!j.resting);
+        if (MODE_KEYS[j.controlMode] && MODE_KEYS[j.controlMode] !== curMode) showMode(MODE_KEYS[j.controlMode]);
       }).catch(function(){});
     }
 
@@ -1778,6 +2111,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
     document.getElementById('soundBtn').addEventListener('click', toggleSound);
 
+    function act(a) { driveFetch('/act?do=' + a); }
+    document.getElementById('actHello').addEventListener('click', function () { act('hello'); });
+    document.getElementById('actDance').addEventListener('click', function () { act('dance'); });
+    document.getElementById('actRest').addEventListener('click', function () { act('rest'); });
+
     document.addEventListener('keydown', function (e) {
       if (e.repeat || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
       const k = e.key.toLowerCase();
@@ -1785,6 +2123,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       else if (k === '1' || k === '2' || k === '3') setGait(+k - 1);
       else if (k === 't') toggleTilt();
       else if (k === 'b') toggleSound();
+      else if (k === 'h') act('hello');
+      else if (k === 'n') act('dance');
+      else if (k === 'r') act('rest');
+      else if (k === 'f') setMode('follow');
     });
 
     // Where a foot is, phase 0..1 through the cycle: [mm ahead of home, how high 0..1]
@@ -1851,7 +2193,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     showGait(0);
     requestAnimationFrame(drawGait);
 
-    setMode('obstacle');
+    showMode('obstacle');   // the status poll shows his real mode
     updateStatus();
     setInterval(updateStatus, 500);
   </script>
@@ -1865,6 +2207,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 char calibPose = 'h';   // the pose /calib is showing: z(ero) / h(ome) / s(leep)
 
 void calibShow(char pose) {
+  wakeUp();
   calibPose = pose;
   if (pose == 'z') {
     ik::zeroLine(cmdBuf, sizeof(cmdBuf));
@@ -2073,6 +2416,11 @@ void calibrateTiltOffset() {
   }
   pitchOffsetDeg = sumPitch / samples;
   rollOffsetDeg  = sumRoll / samples;
+  // which way is down, standing (the picked-up check compares against it)
+  mpuReadRaw();
+  const float ax = rawAccX / 16384.0, ay = rawAccY / 16384.0, az = rawAccZ / 16384.0;
+  const float g = sqrtf(ax * ax + ay * ay + az * az);
+  if (g > 0.5f) { gravX = ax / g; gravY = ay / g; gravZ = az / g; }
   pitchDeg = pitchOffsetDeg;
   rollDeg  = rollOffsetDeg;
 }
@@ -2097,9 +2445,32 @@ void updateTilt() {
   rollDeg  = COMPLEMENTARY_ALPHA * (rollDeg  + gyroXdps * dt) + (1.0 - COMPLEMENTARY_ALPHA) * rollAcc;
 }
 
+// Picked up: his legs stop where they are (no thrashing in your hand) until he's been
+// put down, level and still, for HELD_DOWN_MS. Then he stands up.
+void enterHeld() {
+  if (sysState == SYS_HELD) return;
+  if (sysState == SYS_ACTIVE) controlModeBeforeTilt = controlMode;
+  sysState      = SYS_HELD;
+  abortMovement = true;
+  gaitNow.running = false;
+  Serial2.println(F("PICKED UP - legs still"));
+}
+
+void exitHeld() {
+  sysState    = SYS_ACTIVE;
+  controlMode = controlModeBeforeTilt;
+  currentMove = MOVE_STAND;
+  obstacleCount = 0;
+  obstacleDetected = false;
+  irActiveCmd  = 0;
+  webActiveCmd = 0;
+  if (!resting) pendingAct = 's';   // stand up, smoothly
+  Serial2.println(F("PUT DOWN"));
+}
+
 void enterTiltSafe() {
   if (sysState != SYS_TILT_SAFE) {
-    controlModeBeforeTilt = controlMode;
+    if (sysState == SYS_ACTIVE) controlModeBeforeTilt = controlMode;
     sysState      = SYS_TILT_SAFE;
     abortMovement = true;
     standNow();
@@ -2131,7 +2502,29 @@ void pollTilt() {
   if (!tiltGuard) {
     tiltOverSince = tiltClearSince = 0;
     if (sysState == SYS_TILT_SAFE) exitTiltSafe();
+    if (sysState == SYS_HELD) exitHeld();
     return;
+  }
+
+  // Picked up? A hard lift or drop (far from 1 g), or upside down
+  {
+    static unsigned long oddSince = 0, calmSince = 0;
+    const float ax = rawAccX / 16384.0, ay = rawAccY / 16384.0, az = rawAccZ / 16384.0;
+    const float g = sqrtf(ax * ax + ay * ay + az * az);
+    const float upright = g > 0.1f ? (ax * gravX + ay * gravY + az * gravZ) / g : 1;   // cos(angle to boot's down)
+    const unsigned long t = millis();
+    if (sysState != SYS_HELD) {
+      const bool odd = g > HELD_G_HIGH || g < HELD_G_LOW || upright < 0;
+      if (!odd) oddSince = 0;
+      else if (!oddSince) oddSince = t;
+      else if (t - oddSince >= HELD_MS && !calibrating) { enterHeld(); calmSince = 0; }
+    } else {
+      const bool calm = g > 0.85f && g < 1.15f && upright > 0.95f;
+      if (!calm) calmSince = 0;
+      else if (!calmSince) calmSince = t;
+      else if (t - calmSince >= HELD_DOWN_MS) { exitHeld(); oddSince = 0; }
+      return;   // held: the tilt check waits
+    }
   }
   float tiltMag = max(abs(pitchDeg - pitchOffsetDeg), abs(rollDeg - rollOffsetDeg));
   unsigned long now = millis();
@@ -2154,11 +2547,7 @@ void pollTilt() {
 // ---------------------------------------------------------------------------
 // Shutdown
 // ---------------------------------------------------------------------------
-void ShutdownSequence() {        // settle slowly into the lowest stance (not onto the battery)
-  const ik::Frame from = ikNow, to = ik::sleepPose();
-  for (uint8_t i = 1; i <= 8; i++) {
-    ikSend(ik::lerp(from, to, ik::ease(i / 8.0f)), 250);
-    delay(250 + TIMING_MARGIN_MS);
-  }
+void ShutdownSequence() {        // lie down as gait.xml's "Reset - Shut Down", gently (restDown())
+  restDown();
   Serial2.println(F("Shutdown complete."));
 }

@@ -209,6 +209,10 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | 1 / 2 / 3 | tripod / ripple / wave |
 | T | tilt safety on / off (on again at every boot) |
 | B | buzzer on / off |
+| Q / E | crab left / right (hold; gaits firmware) |
+| F | follow-me mode: he keeps your hand 30 cm from his sonar |
+| H / N | wave hello / a little dance |
+| R | lie down / get up (he lies down by himself after a minute standing still) |
 | F1 | this window |
 | Esc | quit |
 
@@ -216,7 +220,8 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 
 | Key | Does |
 |---|---|
-| Left stick / D-pad | walk forward / back, turn left / right |
+| Left stick / D-pad | walk forward / back, turn left / right (the stick with speed, gaits firmware) |
+| Right stick | crab left / right (gamepads; gaits firmware) |
 | Cross / A (0) | the controller drives (web mode) |
 | Circle / B (1) | obstacle avoidance |
 | Square / X (2) | IR-remote mode |
@@ -224,6 +229,7 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | Start (11) | MIND mode on / off |
 | L1 / R1 (4 / 5) | previous / next gait |
 | Select (8) | tilt safety on / off |
+| L2 / R2 (6 / 7) | wave hello / dance |
 | | *plug it in any time* |
 
 **His IR remote**
@@ -235,6 +241,8 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | Up / Down | walk forward / back (hold) |
 | Left / Right | turn left / right (hold) |
 | OK | stop |
+| 3 / 4 / 5 | next gait / wave hello / dance (gaits firmware; codes guessed, check the debug console) |
+| 6 / 7 | follow-me mode / lie down, get up |
 | | *NORA's remote sends other codes: it can't drive him* |
 
 **NORA's IR link (her web page, controller or Bluetooth)**
@@ -256,6 +264,9 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | Gait dropdown, G, 1 2 3 | tripod / ripple / wave, with a little animation of the one picked |
 | TILT, T | tilt safety on / off |
 | SOUND, B | buzzer on / off |
+| FOLLOW, F | follow-me mode |
+| HELLO / DANCE / REST, H / N / R | wave hello, dance, lie down / get up |
+| Crab buttons | the D-pad's bottom corners: sideways left / right |
 | KEYS | this list |
 | /calib | line the legs up (stand, trims, height, speed) |
 
@@ -303,7 +314,13 @@ A copy of the firmware to try new things on before they go into `scripts/esp32`.
 - **Tilt safety on / off**: the TILT button, T, or Select. On again at every boot.
 - **4x4 RGB LED grid** (WS2812, Adafruit NeoPixel) on GPIO18 (`leds.h`): WHIP from above, head at the top. The outer columns are his legs and light up while that foot is in the air; the middle shows his mode, the top row goes red at a wall, the bottom row orange while tilt safety is off, and the whole grid flashes orange on a tilt stop.
 - **Buzzer** (passive) on GPIO19 (`buzzer.h`): chirps at boot, walls, tilt stops, gait and mode changes, and shutdown. SOUND button or B mutes it.
-- While avoiding a wall he looks ahead as he turns, so he doesn't stop to check.
+- **Avoiding walls he looks around**: a turn left, then right past the middle, noting how far his sonar sees each way, then he turns the clearer way, looking ahead as he turns.
+- **Analog driving**: the controller's sticks walk him with speed, in curves; the right stick (or Q / E, or the D-pad's corner buttons) crabs sideways.
+- **Follow me** (FOLLOW mode, F, IR 6): he keeps your hand 30 cm from his sonar, walking after it or backing off.
+- **Body moves**: HELLO (H, L2, IR 4) shifts his weight back and waves the front left leg; DANCE (N, R2, IR 5) circles his body over his feet; locked by NORA he crouches.
+- **Rest**: after a minute standing still (IR, web, MIND, follow) he lies down as `gait.xml`'s "Reset - Shut Down" (every knee and foot right up), but gently: belly to the floor on all six legs first, then one tripod folds, then the other. Any move gets him up the other way round. REST (R, IR 7) does it by hand; shutdown ends the same way.
+- **Picked up**: a hard lift or drop on the MPU, or upside down, and his legs stop where they are (violet grid, a chirp) until he's been put down level for 2 s; then he stands up.
+- IR 3-7 are guessed codes (1 = 0x0, 2 = 0x1): the debug console prints each button's real code.
 
 ### Gait reference
 The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scripts/esp32_gaits` has tripod, ripple and wave.

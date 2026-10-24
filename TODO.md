@@ -43,7 +43,12 @@ obstacle avoidance, tilt safety, PIN.
   - [ ] On the robot: does each gait walk straight? Is the grid the right way round (GRID_ROTATE /
         GRID_MIRROR / GRID_SERPENTINE in leds.h)? Left and right turns swapped (the old firmware turned
         right on TurnLeft)?
-  - [ ] Gait on the IR remote (a spare button), and in NORA's IR link / RIFT.
+  - [x] Gait on the IR remote ("3"; NORA's IR link / RIFT still to do).
+  - [x] More (2026-10-24): analog sticks + crab, follow-me, wave hello, dance, crouch when locked,
+        rest after a minute (gait.xml's fold, belly down first), picked-up stop, look-around at walls.
+        PC-tested (reach at heights 0-9), compiles, not flashed.
+  - [ ] On the robot: IR codes for 3-7 (guessed); REST_Z (belly on the floor?); HELD_G_HIGH / LOW
+        (does walking set off the picked-up stop?); does HELLO keep him balanced?
   - [ ] When it's good, move it into scripts/esp32.
 
 ## Network (field test 2026-10-14: "WHIP did not show in RIFT nor did he make his own WiFi")

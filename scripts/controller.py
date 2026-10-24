@@ -14,6 +14,9 @@ dpad/triggers live if a joystick is connected -- and drives WHIP over WiFi:
     Triangle (Y)       : emergency stop (drops back to standing immediately)
     G / 1 2 3, L1 / R1 : gait: next / tripod, ripple, wave (the gait dropdown, gaits firmware)
     T, Select          : tilt safety on / off        B : buzzer on / off
+    Q / E              : crab left / right           F : follow-me mode
+    H, L2 / N, R2      : wave hello / dance          R : lie down / get up
+    Sticks (gaits firmware): left = forward / back and turn, with speed; right = crab
 
 CONNECTING
 
@@ -144,6 +147,7 @@ class WhipLink:
         self._lock = threading.Lock()
         self._session = requests.Session()
         self._desired_cmd = "stop"
+        self._desired_params = {}   # cmd=drive: f / l / t, each -1..1 (the sticks)
 
         self.base_url = None
         self.connected = False
@@ -158,9 +162,10 @@ class WhipLink:
     def start(self):
         self._thread.start()
 
-    def drive(self, cmd):
+    def drive(self, cmd, **params):
         with self._lock:
             self._desired_cmd = cmd
+            self._desired_params = params
 
     def set_mode(self, mode):
         # One-shot, fire-and-forget -- doesn't need to share the tick loop's
@@ -245,12 +250,12 @@ class WhipLink:
 
     def _tick(self):
         with self._lock:
-            cmd = self._desired_cmd
+            cmd, params = self._desired_cmd, dict(self._desired_params)
         try:
             if self.mind_capable and not self._host_unlocked:   # can_think() finished after we connected
                 self._unlock()
             if not self.mind_on:   # a "stop" here would cut the mind's moves short
-                self._session.get(f"{self.base_url}/web", params={"cmd": cmd}, timeout=REQUEST_TIMEOUT)
+                self._session.get(f"{self.base_url}/web", params={"cmd": cmd, **params}, timeout=REQUEST_TIMEOUT)
             # ctl=1: "his mind host is still here" (MIND mode ends 5 s after it stops)
             r = self._session.get(f"{self.base_url}/status", params={"ctl": "1"} if self.mind_capable else None,
                                   timeout=REQUEST_TIMEOUT)
@@ -261,7 +266,7 @@ class WhipLink:
             self.status = None
 
 
-MODE_NAMES = ["OBSTACLE", "IR REMOTE", "WEB", "MIND"]
+MODE_NAMES = ["OBSTACLE", "IR REMOTE", "WEB", "MIND", "FOLLOW"]
 MOVE_NAMES = ["STAND", "WALK", "BACKWARD", "TURN LEFT", "TURN RIGHT"]
 
 # ---------------------------------------------------------------------------
@@ -422,6 +427,12 @@ class ControllerLayout:
                     self._set_gait(self._setting("gait", 0) + (1 if event.button == 5 else -1))
                 elif event.type == pygame.JOYBUTTONDOWN and event.button == 8:        # Select
                     self._toggle("tiltGuard", "/tilt")
+                elif event.type == pygame.JOYBUTTONDOWN and event.button in (6, 7):   # L2 hello / R2 dance
+                    self.link.send("/act", do="hello" if event.button == 6 else "dance")
+                elif event.type == pygame.KEYDOWN and event.key in (pygame.K_h, pygame.K_n, pygame.K_r):
+                    self.link.send("/act", do={pygame.K_h: "hello", pygame.K_n: "dance", pygame.K_r: "rest"}[event.key])
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_f:
+                    self.link.set_mode("follow")
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     self._click(event.pos)
                 elif event.type in (
@@ -459,9 +470,36 @@ class ControllerLayout:
         dy = (1 if keys[pygame.K_UP] or keys[pygame.K_w] else 0) - (1 if keys[pygame.K_DOWN] or keys[pygame.K_s] else 0)
         return dx, dy
 
+    def _sticks(self):
+        """Analog (forward, left, turn) from the sticks, or None if they're centred. Only with the
+        gaits firmware (his status says "gait"), which takes cmd=drive. The right stick crabs only
+        on a real gamepad (5+ axes): a flight stick's throttle sits on axis 2 and would never centre."""
+        if self.joystick is None or "gait" not in (self.link.status or {}):
+            return None
+
+        def dz(v):
+            return 0.0 if abs(v) < AXIS_DEADZONE else max(-1.0, min(1.0, v))
+
+        fwd, turn = -dz(self._axis(1)), -dz(self._axis(0))
+        left = -dz(self._axis(2)) if self.joystick.get_numaxes() >= 5 else 0.0
+        return (fwd, left, turn) if any((fwd, left, turn)) else None
+
     def _update_drive(self):
+        sticks = self._sticks()
+        if sticks is not None and self._hat() == (0, 0):
+            f, l, t = sticks
+            self.link.drive("drive", f=round(f, 2) + 0.0, l=round(l, 2) + 0.0, t=round(t, 2) + 0.0)   # + 0.0: no "-0.0"
+            self._rumble("fwd" if f > 0.3 else "drive")
+            self._update_buttons()
+            return
+
+        keys = pygame.key.get_pressed()
         dx, dy = self._dpad_direction()
-        if dy == 1:
+        if keys[pygame.K_q] and not dx and not dy:
+            cmd = "sleft"
+        elif keys[pygame.K_e] and not dx and not dy:
+            cmd = "sright"
+        elif dy == 1:
             cmd = "fwd"
         elif dy == -1:
             cmd = "bwd"
@@ -478,7 +516,9 @@ class ControllerLayout:
         # so this just needs to record the latest desired command.
         self.link.drive(cmd)
         self._rumble(cmd)
+        self._update_buttons()
 
+    def _update_buttons(self):
         keys = pygame.key.get_pressed()
         face = {
             "Cross": self._button_pressed(0) or keys[pygame.K_z],
@@ -663,7 +703,7 @@ class ControllerLayout:
             status = f"Connected: {self.joystick.get_name()}"
             color = ACTIVE_COLOR
         else:
-            status = "No controller detected - use arrow keys + Z/X/C/V (G gait, T tilt, B sound)"
+            status = "No pad - arrows + Z/X/C/V; Q/E crab, G gait, H hello, F1 all keys"
             color = MUTED_TEXT
         status_surf = self.font.render(status, True, color)
         self.screen.blit(status_surf, (tx, 50))
@@ -797,9 +837,9 @@ class ControllerLayout:
     def _draw_shoulders(self):
         # L1/R1 as buttons 4/5 (they pick the gait), L2/R2 as buttons 6/7 (fallback) or axes 4/5 on many pads
         specs = [
-            ("L2", 120, 180, 6),
+            ("L2 hello", 120, 180, 6),
             ("L1 gait-", 120, 220, 4),
-            ("R2", 780, 180, 7),
+            ("R2 dance", 780, 180, 7),
             ("R1 gait+", 780, 220, 5),
         ]
         for label, x, y, btn_idx in specs:

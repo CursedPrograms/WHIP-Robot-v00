@@ -1,6 +1,6 @@
 // gait_test - checks gaits.h on a PC: every gait, heights 0-9, walking, turning, sideways and stopping.
 // Every frame in reach and in servo range, no foot on the ground slipping, at least 3 feet down,
-// and he always ends standing at home.
+// and he always ends standing at home. Then the body moves: lying down, hello, dance.
 //   g++ -std=gnu++17 -static -Istub -I../esp32_gaits test.cpp -o test && ./test   (from scripts/gait_test)
 #include "gaits.h"
 using namespace ik;
@@ -46,6 +46,33 @@ int main() {
       check("home exact", maxOffset(G.last, home()) <= HOME_MM * 2);
       if (hgt == 5) printf("%-6s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  stop %d ticks\n",
                            GAIT_NAMES[g], c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, settleTicks);
+    }
+  }
+  // Body moves (as esp32_gaits.ino): lying down, the hello wave, the dance, at every height
+  for (int hgt = 0; hgt <= 9; hgt++) {
+    height = hgt;
+    char buf[64];
+    Frame low = home();
+    for (int l = 0; l < LEGS; l++) low.leg[l].z = HOME_Z_MIN + 15;   // restLow()
+    snprintf(buf, sizeof buf, "rest low h%d", hgt);
+    check(buf, reach(low));
+    Frame base = home();
+    for (int l = 0; l < LEGS; l++) { base.leg[l].x += 20; base.leg[l].y += 15; }
+    Frame up = base;
+    up.leg[LF] = { base.leg[LF].x + 30, base.leg[LF].y + 20, homeZ() + 120 };
+    Frame wa = up, wb = up;
+    wa.leg[LF].y += 35;
+    wb.leg[LF].y -= 35;
+    for (Frame* f : { &base, &up, &wa, &wb }) {
+      snprintf(buf, sizeof buf, "hello h%d", hgt);
+      check(buf, reach(*f));
+    }
+    for (int i = 0; i <= 48; i++) {
+      const float an = 4 * M_PI * i / 48;
+      Frame f = home();
+      for (int l = 0; l < LEGS; l++) { f.leg[l].x -= 25 * cosf(an); f.leg[l].y -= 25 * sinf(an); f.leg[l].z += 15 * (1 + sinf(2 * an)) / 2; }
+      snprintf(buf, sizeof buf, "dance h%d", hgt);
+      check(buf, reach(f));
     }
   }
   printf("%d failures\n", fails);

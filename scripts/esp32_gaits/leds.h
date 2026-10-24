@@ -10,10 +10,11 @@
 
       LF   eye  eye   RF       legs: dim on the ground, bright while that foot is in the air
       LM   mode mode  RM             (his gait, live, as he walks)
-      LM   mode mode  RM       mode: obstacle blue, IR violet, web green, MIND pink, breathing
+      LM   mode mode  RM       mode: obstacle blue, IR violet, web green, MIND pink, follow teal
       LB   tail tail  RB       eyes: red when there's a wall; tail: orange while tilt safety is off
 
-  Tilt stop: the whole grid flashes orange. Legs locked: everything dim red.
+  Tilt stop: the whole grid flashes orange. Legs locked: everything dim red. Lying down:
+  his mode colour, very dim and slow. Picked up: violet flicker. Dancing: colours.
   If the picture comes out turned or mirrored, set GRID_ROTATE / GRID_MIRROR;
   if every other row is backwards, the grid is wired zig-zag: GRID_SERPENTINE.
   Brightness stays low (GRID_BRIGHTNESS): 16 LEDs at full white pull ~1 A.
@@ -32,7 +33,7 @@ const uint8_t GRID_ROTATE     = 0;      // quarter turns clockwise, 0-3: where L
 const bool    GRID_MIRROR     = false;  // left and right swapped
 const bool    GRID_SERPENTINE = false;  // rows wired zig-zag (every other row runs backwards)
 
-enum Look : uint8_t { OBSTACLE, IR, WEB, MIND, LOCKED, TILT_STOP, SHUTDOWN };
+enum Look : uint8_t { OBSTACLE, IR, WEB, MIND, FOLLOW, LOCKED, TILT_STOP, HELD, SHUTDOWN };
 
 struct State {
   Look look;
@@ -40,6 +41,8 @@ struct State {
   const ik::Gait* gait;  // ...this one
   bool wall;             // something too close ahead
   bool tiltOff;          // tilt safety switched off
+  bool resting;          // lying down
+  bool dancing;
 };
 
 // Which leg each cell shows (row 0 = his head), or -1 for the middle
@@ -82,6 +85,7 @@ inline void lookColour(Look l, uint8_t& r, uint8_t& g, uint8_t& b) {
     case IR:       r = 150; g = 80;  b = 230; break;
     case WEB:      r = 70;  g = 215; b = 100; break;
     case MIND:     r = 230; g = 80;  b = 180; break;
+    case FOLLOW:   r = 0;   g = 200; b = 190; break;
     default:       r = 200; g = 64;  b = 64;  break;
   }
 }
@@ -101,9 +105,21 @@ inline void update(const State& s, bool force = false) {
     return;
   }
 
+  if (s.look == HELD) {   // picked up: a violet flicker
+    for (uint8_t i = 0; i < COUNT; i++) px.setPixelColor(i, scaled(170, 60, 255, (now / 90 + i) % 3 ? 0.25f : 1.0f));
+    px.show();
+    return;
+  }
+  if (s.dancing) {        // a rainbow running round the grid
+    for (uint8_t i = 0; i < COUNT; i++) px.setPixelColor(i, px.ColorHSV((uint16_t)(now * 40 + i * 4096)));
+    px.show();
+    return;
+  }
+
   uint8_t r, g, b;
   lookColour(s.look, r, g, b);
-  const float breathe = s.look == LOCKED ? 0.15f : 0.35f + 0.25f * sinf(now / 600.0f);
+  float breathe = s.look == LOCKED ? 0.15f : 0.35f + 0.25f * sinf(now / 600.0f);
+  if (s.resting) breathe = 0.04f + 0.04f * sinf(now / 1500.0f);
 
   for (uint8_t row = 0; row < SIDE; row++) {
     for (uint8_t col = 0; col < SIDE; col++) {
