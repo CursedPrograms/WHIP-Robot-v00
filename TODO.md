@@ -16,7 +16,7 @@ obstacle avoidance, tilt safety, PIN.
       the body, thigh level, foot straight down. That's how the user built WHIP, so trims should be
       near 0. WIGGLE each servo to check its channel, tick **rev** where a joint moves the wrong way,
       then HOME, SAVE, DONE.
-- [ ] First walks: slow (speed 2-3), still on the stand, then on the floor.
+- [x] First walks (2026-10-24, gaits sketch): walks better than the old firmware; servo offsets still to trim on /calib.
 - [ ] **Fine-tune the height.** WHIP carries a 3S LiPo (a big RC-car pack, through a UBEC at 6 V)
       under the body, so he can't stand as low as Jakob's robot. Both sets of values are in
       `ik_gait.h`:
@@ -39,14 +39,14 @@ obstacle avoidance, tilt safety, PIN.
       one phase engine (gaits.h), smooth lift-off / touch-down, stops by stepping; gait dropdown with a
       little animation on the web page and the controller (G / 1 2 3, L1 / R1); tilt safety switch
       (T, Select); 4x4 RGB grid on GPIO18 (leds.h); buzzer on GPIO19 (buzzer.h). Compiles, PC-tested,
-      not flashed.
+      flashed to WHIP 2026-10-24.
   - [ ] On the robot: does each gait walk straight? Is the grid the right way round (GRID_ROTATE /
         GRID_MIRROR / GRID_SERPENTINE in leds.h)? Left and right turns swapped (the old firmware turned
         right on TurnLeft)?
   - [x] Gait on the IR remote ("3"; NORA's IR link / RIFT still to do).
   - [x] More (2026-10-24): analog sticks + crab, follow-me, wave hello, dance, crouch when locked,
         rest after a minute (gait.xml's fold, belly down first), picked-up stop, look-around at walls.
-        PC-tested (reach at heights 0-9), compiles, not flashed.
+        PC-tested (reach at heights 0-9), compiles, flashed 2026-10-24.
   - [ ] On the robot: IR 3-7 do what they should; REST_Z (belly on the floor?); HELD_G_HIGH / LOW
         (does walking set off the picked-up stop?); does HELLO keep him balanced?
   - [ ] When it's good, move it into scripts/esp32.

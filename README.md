@@ -59,10 +59,13 @@
 <details>
 <summary><b>Overview</b></summary>
 
-WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser control page, and streams pre-tuned gait poses to an RTrobot 32-channel servo controller, which moves all the joints together. An MPU6050 watches for tipping and an HC-SR04 watches the way ahead.
+WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser control page, and works out every joint by inverse kinematics, sending the angles to an RTrobot 32-channel servo controller that moves all the joints together. An MPU6050 watches for tipping and an HC-SR04 watches the way ahead.
 
 ### Core Features
-- [x] 18-DOF walking: forward, backward, turn left and turn right gaits, plus stand, rest and shut-down poses.
+- [x] 18-DOF walking by inverse kinematics: tripod, ripple and wave gaits, forward, back, turning, crabbing sideways and analog stick driving, plus stand, rest and shut-down poses.
+- [x] Follow-me, wave hello, dance, lying down after a minute standing still, and a picked-up stop.
+- [x] 4x4 RGB LED grid and a buzzer that show what he's doing.
+- [x] Calibration page (`/calib`): channel, direction and trim for all 18 servos, kept in flash.
 - [x] Three control modes: Obstacle Avoidance (the boot default), IR Remote, and Web (the browser page or the Python controller).
 - [x] Tilt safety: past 20° of pitch or roll for 500 ms he stops and stands, and resumes once he is back under 12°.
 - [x] Obstacle avoidance: walks until something is closer than 35 cm, then stands, turns (left and right by turns) and walks on once the way is clear past 50 cm.
@@ -99,6 +102,8 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 | Distance | HC-SR04 ultrasonic sensor |
 | Balance | MPU6050 gyro + accelerometer |
 | Remote | NEC IR receiver + remote (the same remote as MILA and IDA) |
+| Lights | 4x4 WS2812 RGB LED grid |
+| Sound | Passive buzzer |
 | Controllers | Browser, PS2-style USB gamepad (Python controller), IR remote |
 
 Chassis Instruction Manual: https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd](https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd)
@@ -142,6 +147,8 @@ All grounds tied together
 | HC-SR04 TRIG / ECHO | GPIO 12 / GPIO 13 |
 | MPU6050 SDA / SCL | GPIO 21 / GPIO 22 |
 | IR receiver OUT | GPIO 14 |
+| RGB LED grid DIN (~330 Ω in line) | GPIO 18 |
+| Buzzer | GPIO 19 |
 
 The servo controller shares UART0 with the USB-serial bridge, exactly like NORA's ESP32↔Arduino link. **Disconnect the controller's wires before uploading**, then reconnect. Boot and status logging goes to Serial2 (GPIO 17) instead.
 
@@ -306,11 +313,11 @@ WHIP walks only by working out every joint from where each foot should be, in mi
 - Height (0-9) and speed (0-9) are set on the same page.
 - `GET /status` now also reports `gait`, `calibrated`, `height` and `speed`.
 
-### Gaits sketch (testing): `scripts/esp32_gaits`
-A copy of the firmware to try new things on before they go into `scripts/esp32`. Flash it with `flash_gaits.bat`.
+### Gaits sketch: `scripts/esp32_gaits`
+The firmware WHIP runs now (flashed 2026-10-24, and he walks better than on the old one). It moves into `scripts/esp32` once it's been checked on the robot. Flash it with `flash_gaits.bat`.
 
 - **Three gaits** from one engine (`gaits.h`): **tripod** (3 feet down, fastest), **ripple** (4 down, the most insect-like) and **wave** (5 down, one leg at a time, easiest on the servos). Every leg runs the same cycle from its own starting point; feet on the ground slide back together, and a swinging foot leaves and lands at the ground's speed, so nothing jerks. He speeds up over a cycle, and stops by stepping his feet home. Changing gait mid-walk: he steps to a stop and carries on in the new one. Checked on a PC: all three, heights 0-9, walking, turning, sideways and stopping, every foot in reach, no foot slipping, never fewer than 3 down.
-- **Pick the gait** from the dropdown on his web page or the controller (each shows a little animation of it: WHIP from above and the step chart), or with G / 1 2 3, or L1 / R1 on a gamepad. Saved in flash. Not on the IR remote yet.
+- **Pick the gait** from the dropdown on his web page or the controller (each shows a little animation of it: WHIP from above and the step chart), or with G / 1 2 3, or L1 / R1 on a gamepad. Saved in flash. IR 3 steps through them.
 - **Tilt safety on / off**: the TILT button, T, or Select. On again at every boot.
 - **4x4 RGB LED grid** (WS2812, Adafruit NeoPixel) on GPIO18 (`leds.h`): WHIP from above, head at the top. The outer columns are his legs and light up while that foot is in the air; the middle shows his mode, the top row goes red at a wall, the bottom row orange while tilt safety is off, and the whole grid flashes orange on a tilt stop.
 - **Buzzer** (passive) on GPIO19 (`buzzer.h`): chirps at boot, walls, tilt stops, gait and mode changes, and shutdown. SOUND button or B mutes it.
@@ -343,11 +350,23 @@ The patterns below are design notes. `scripts/esp32` walks the tripod gait; `scr
 
 ---
 
+## 🔧 Build status
+
+The gaits firmware is flashed and he walks. What's left:
+
+- [ ] Blue Loctite on the servo screws (metal threads only: threadlocker can crack plastic)
+- [ ] Bearing under the body, to take the load off the servo horns
+- [ ] Fit the RGB LED grid (GPIO 18) and the buzzer (GPIO 19), and check the grid isn't rotated or mirrored
+- [ ] Calibrate the servo offsets on `/calib`, after the mechanical work
+- [ ] Check on the robot: turns not swapped, IR 3-7, rest height, picked-up stop while walking, HELLO balance, showing up in RIFT
+
+---
+
 ## How to Run:
 <details>
 <summary><b>View How to Run</b></summary>
 
-1. Flash `scripts/esp32/esp32.ino` to the ESP32 (servo controller wires disconnected), then reconnect them. `flash.bat` does it all for the ESP32: on a fresh PC it installs the Arduino command line tool, the ESP32 board package (3.3.12) and the libraries by itself, then finds the port, compiles and flashes, talking you through it.
+1. Flash `scripts/esp32_gaits` with `flash_gaits.bat` (the firmware WHIP runs now), or `scripts/esp32/esp32.ino` with `flash.bat`, to the ESP32 (servo controller wires disconnected), then reconnect them. `flash.bat` does it all for the ESP32: on a fresh PC it installs the Arduino command line tool, the ESP32 board package (3.3.12) and the libraries by itself, then finds the port, compiles and flashes, talking you through it.
 2. Power WHIP. He stands at 2 s, holds still while his gyro calibrates, and walks off in Obstacle Avoidance mode at 5 s. His WiFi (the fleet's network, or his own `WHIP` AP) joins in the background.
 3. Open `http://<WHIP's IP>:5005/` in a browser, or run the Python controller:
 
