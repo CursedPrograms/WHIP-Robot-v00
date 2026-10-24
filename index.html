@@ -52,8 +52,12 @@
       <span class="tag">MIT License</span>
     </div>
     <figure class="avatar">
-      <img src="images/whip_avatar.jpg" alt="WHIP's avatar: a human representation of the robot" width="768" height="768">
+      <img src="images/whip_avatar.jpg" alt="WHIP's avatar: his character, the red and blue spider his colours come from" width="768" height="768">
       <figcaption>WHIP &middot; avatar</figcaption>
+    </figure>
+    <figure class="avatar">
+      <img src="images/whip_real.jpg" alt="WHIP the machine: the hexapod himself, in pixel art" width="900" height="857">
+      <figcaption>WHIP &middot; the machine</figcaption>
     </figure>
     <div class="photos">
       <figure>
@@ -78,7 +82,27 @@
       <div class="card">
         <span class="k">Walk</span>
         <h4>Gaits</h4>
-        <p>Tripod, ripple, wave and quad, worked out by inverse kinematics with smooth foot swings. He walks, turns, crabs sideways and follows the sticks with speed.</p>
+        <p>Six of them: tripod, ripple, wave, quad, amble and metachronal, worked out by inverse kinematics with smooth foot swings, each checked to keep his centre inside his feet. He walks, turns, crabs sideways and follows the sticks with speed.</p>
+      </div>
+      <div class="card">
+        <span class="k">Pose</span>
+        <h4>Body IK</h4>
+        <p>His body slides and tilts over planted feet: from the controller's BODY mode, the PS2 pad (R3), his <code>/body</code>, or Servo Studio's 3D view.</p>
+      </div>
+      <div class="card">
+        <span class="k">Pad</span>
+        <h4>A PS2 pad on him</h4>
+        <p>Its 9-pin receiver straight on four pins of his ESP32: the sticks steer his gaits, mid-step.</p>
+      </div>
+      <div class="card">
+        <span class="k">Studio</span>
+        <h4>Servo Studio</h4>
+        <p>His servos as sliders, as your own linkage drawing, and as WHIP in 3D; groups, RTrobot XML, his servo board's commands, servo types written into his firmware.</p>
+      </div>
+      <div class="card">
+        <span class="k">Voice</span>
+        <h4>He talks</h4>
+        <p>Through the controller's PC, outside MIND too: theatrical, a show-off, secretly scared of tripping over his own feet.</p>
       </div>
       <div class="card">
         <span class="k">Avoid</span>
@@ -292,12 +316,40 @@ All grounds tied together</pre>
 <section id="screens">
   <div class="wrap">
     <h2>Screens</h2>
-    <h3 class="title">The controllers</h3>
-    <p class="muted">Captured without a robot connected, so live values show their offline state.</p>
+    <h3 class="title">Every one of his UIs</h3>
+    <p class="muted">All captured on EMULATE: a pretend WHIP on the PC, so you can try every one without the robot.</p>
     <div class="screens">
       <figure class="shot">
-        <img src="images/screenshots/controller-python.png" alt="WHIP's controller showing the gamepad layout" width="902" height="652" loading="lazy">
-        <figcaption>Python controller (PS2 / gamepad)</figcaption>
+        <img src="images/screenshots/studio_walk.gif" alt="Servo Studio's 3D view playing his Tripod Forward macro" width="498" height="485" loading="lazy">
+        <figcaption>Walking: his Tripod Forward macro in Servo Studio's 3D view</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/studio_body.gif" alt="Body IK: his body slides and tilts over planted feet" width="498" height="485" loading="lazy">
+        <figcaption>Body IK: his body over planted feet</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/servo-studio-3d.png" alt="Servo Studio, 3D BODY view" width="1280" height="820" loading="lazy">
+        <figcaption>Servo Studio: 3D BODY (support polygon, centre of gravity, body sliders, joint table)</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/servo-studio-robot.png" alt="Servo Studio, ROBOT view" width="1280" height="820" loading="lazy">
+        <figcaption>Servo Studio: ROBOT (from above and the side; drag a foot)</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/servo-studio-layout.png" alt="Servo Studio, LAYOUT view" width="1280" height="820" loading="lazy">
+        <figcaption>Servo Studio: LAYOUT (your own linkage drawing)</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/servo-studio-sliders.png" alt="Servo Studio, SLIDERS view" width="1280" height="820" loading="lazy">
+        <figcaption>Servo Studio: SLIDERS (all 32 channels)</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/controller-python.png" alt="WHIP's Python controller on EMULATE" width="900" height="820" loading="lazy">
+        <figcaption>Python controller: every function a button, VOICE, BODY, XML, THEME</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="images/screenshots/web-page.png" alt="WHIP's own web page with WHIP in 3D" width="430" height="1500" loading="lazy">
+        <figcaption>His own web page (from his ESP32): gaits and WHIP in 3D</figcaption>
       </figure>
     </div>
   </div>

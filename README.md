@@ -26,8 +26,15 @@
 - Robot Type: Hexapod
 
 <div align="center">
-  <img src="images/whip_avatar.jpg" alt="WHIP avatar: a human representation of the robot" width="320"/>
-  <p><i>WHIP</i></p>
+  <img src="images/whip_avatar.jpg" alt="WHIP's avatar: his character, the red and blue spider his colours come from" width="300"/>
+  <img src="images/whip_real.jpg" alt="WHIP the machine: the hexapod himself, in pixel art" width="300"/>
+  <p><i>WHIP: his character, and the machine</i></p>
+</div>
+
+<div align="center">
+  <img src="images/screenshots/studio_walk.gif" alt="Servo Studio's 3D view playing his Tripod Forward macro: the support polygon changes as the tripods lift" width="420"/>
+  <img src="images/screenshots/studio_body.gif" alt="Body IK: his body slides and tilts over planted feet" width="420"/>
+  <p><i>Walking (his Tripod Forward macro in Servo Studio's 3D view) and body IK (his body over planted feet)</i></p>
 </div>
 
 ---
@@ -62,7 +69,12 @@
 WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser control page, and works out every joint by inverse kinematics, sending the angles to an RTrobot 32-channel servo controller that moves all the joints together. An MPU6050 watches for tipping and an HC-SR04 watches the way ahead.
 
 ### Core Features
-- [x] 18-DOF walking by inverse kinematics: tripod, ripple and wave gaits, forward, back, turning, crabbing sideways and analog stick driving, plus stand, rest and shut-down poses.
+- [x] 18-DOF walking by inverse kinematics: six gaits (tripod, ripple, wave, quad, amble, metachronal), each checked to keep his centre inside his feet; forward, back, turning, crabbing sideways and analog stick driving, plus stand, rest and shut-down poses.
+- [x] Body IK: his body slides (x / y / z) and tilts (roll / pitch / yaw) over planted feet, fitted so every foot reaches: `/body`, the controller's BODY mode, the PS2 pad's BODY mode (R3), Servo Studio's 3D BODY.
+- [x] A PS2 pad on WHIP himself: its 9-pin receiver straight on four pins (`ps2.h`), the sticks steering his gaits.
+- [x] WHIP in 3D on his own web page (plain JavaScript, live from `/pose`), and in Servo Studio.
+- [x] His voice through the controller outside MIND too (David: theatrical, scared of his own feet).
+- [x] Servo types in `servo_config.json` (MG995 / MG996R / SG90 / DS3218 or your own), written into the firmware by APPLY TO FIRMWARE.
 - [x] Follow-me, wave hello, dance, lying down after a minute standing still, and a picked-up stop.
 - [x] 4x4 RGB LED grid and a buzzer that show what he's doing.
 - [x] Calibration page (`/calib`): channel, direction and trim for all 18 servos, kept in flash.
@@ -507,11 +519,24 @@ WHIP hears the others over **ESP-NOW** (NORA, MILA) and **Bluetooth LE** (NORA, 
 
 ## Screenshots
 
+Every UI, as it looks (all captured on EMULATE: no robot needed to try any of them).
+
 <div align="center">
+  <img src="images/screenshots/servo-studio-3d.png" alt="Servo Studio, 3D BODY" width="640"/>
+  <p><i>Servo Studio, 3D BODY: WHIP posed over planted feet, the support polygon and his centre, the body sliders and every joint's angle</i></p>
+  <img src="images/screenshots/servo-studio-robot.png" alt="Servo Studio, ROBOT" width="420"/>
+  <img src="images/screenshots/servo-studio-layout.png" alt="Servo Studio, LAYOUT" width="420"/>
+  <p><i>Servo Studio: ROBOT (from above and the side; drag a foot) and LAYOUT (your own linkage drawing)</i></p>
+  <img src="images/screenshots/servo-studio-sliders.png" alt="Servo Studio, SLIDERS" width="420"/>
   <img src="images/screenshots/controller-python.png" alt="Python controller" width="420"/>
+  <p><i>Servo Studio, SLIDERS (all 32 channels), and the Python controller on EMULATE</i></p>
+  <img src="images/screenshots/web-page.png" alt="His web page" width="260"/>
+  <p><i>His own web page (from his ESP32): gaits, WHIP in 3D, the D-pad</i></p>
 </div>
 
-<p align="center"><i>Python controller, connected to the emulated WHIP (EMULATE) while he walks.</i></p>
+### Related hexapods
+- [Jakob Leander's hexapod](https://github.com/JakobLeander/hexapod): the same chassis, and where his IK, measurements (hip to knee 28, thigh 84, foot 127 mm) and tripod gait come from.
+- [mithi's hexapod robot simulator](https://github.com/mithi/hexapod-robot-simulator), [hexapod](https://github.com/mithi/hexapod) (the web app), [hexapod-kinematics-library](https://github.com/mithi/hexapod-kinematics-library) and [hexapod-irl](https://github.com/mithi/hexapod-irl): the same chassis family (her corner legs stick straight out, WHIP's are diagonal), and the inspiration for Servo Studio's 3D BODY: body sliders, support polygon, joint table.
 
 ---
 
