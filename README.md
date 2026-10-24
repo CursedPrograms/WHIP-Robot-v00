@@ -93,7 +93,7 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 
 | **Component** | **Details** |
 |-----------|---------|
-| Microcontroller | ESP32 (the same module as NORA) |
+| Microcontroller | ESP32 (ACEBOTT QA007 ESP32 Max, the same board as NORA) |
 | Servo controller | RTrobot 32-channel servo controller (UART, 115200 baud) |
 | Chassis | 18-DOF hexapod chassis |
 | Servos | 18 × MG995 180° |
@@ -106,7 +106,14 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 | Sound | Passive buzzer |
 | Controllers | Browser, PS2-style USB gamepad (Python controller), IR remote |
 
-Chassis Instruction Manual: https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd](https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd)
+</details>
+
+<details>
+<summary><b>📂 Documentation & Assets</b></summary>
+
+* [ACEBOTT ESP32 Max V1.0 Docs](https://acebottteam.github.io/acebott-docs-master/board/ESP32/QA007%20ESP32%20Max%20V1.0%20Controller%20Board.html)
+* [CH340 Driver Download](https://acebottteam.github.io/acebott-docs-master/getting%20started/Arduino/Download%20CH340%20Driver%20on%20Windows%20System.html)
+* [Chassis Instruction Manual](https://1drv.ms/b/c/e7037d9b1b4cf216/EZ1ctC5zh_tOmuoInNRW6fgBGUFWBfHWW5chNCMn1rw6kQ?e=z3zNVd)
 
 </details>
 
