@@ -96,6 +96,7 @@
 #include "gaits.h"              // tripod / ripple / wave: every leg on its own phase, smooth throughout
 #include "leds.h"               // the 4x4 RGB grid on GPIO18: his mode, his feet as he walks, walls, tilt
 #include "buzzer.h"             // a buzzer on GPIO19: chirps for walls, tilt, gait and mode changes
+#include "ps2.h"                // a PS2 pad's receiver on GPIO 25 / 26 / 27 / 32 (3.3 V): drives him directly
 #include "keys_page.h"           // /keys: every key and button (generated from scripts/keymap.py)
 #include "calib_page.h"         // /calib: trim each servo, check its channel, pick the gait
 
@@ -407,6 +408,7 @@ long readDistanceCM();
 void pollTilt();
 void pollIR();
 void pollWeb();
+void pollPS2();
 void runWebMode();
 void setupWiFi();
 void tryNextBootNetwork();
@@ -502,6 +504,7 @@ void setup() {
   while (millis() < CONTROLLER_BOOT_MS) delay(10);
 
   ik::load();
+  ps2::begin();   // nothing plugged in: it just finds no pad
   ikNow = ik::home();
   Serial2.println(ik::calibrated ? F("IK: calibration loaded") : F("IK: default calibration (fine-tune on /calib)"));
   standNow();
@@ -556,6 +559,7 @@ void loop() {
 
   pollIR();
   pollWeb();
+  pollPS2();
 
   if (calibrating) return;   // /calib moves the servos itself; WHIP doesn't walk meanwhile
   if (linkLocked) {          // NORA locked his legs: he crouches, sulking
@@ -675,6 +679,7 @@ bool finishWaitUntil(unsigned long start, unsigned long ms) {
     pollTilt();
     pollIR();
     pollWeb();
+    pollPS2();
     if (sysState == SYS_TILT_SAFE || sysState == SYS_HELD) return false;
   }
   return true;
@@ -997,6 +1002,7 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
     pollTilt();
     pollIR();
     pollWeb();
+    pollPS2();
 
     // Turning away from a wall: is the way ahead clear yet? (counted while he turns,
     // so he doesn't have to stop and look)
@@ -1161,6 +1167,64 @@ void pollWeb() {
   if (webActiveCmd != 0 && millis() - webLastCmdMillis > WEB_CMD_TIMEOUT_MS) {
     webActiveCmd = 0;
   }
+}
+
+// ---------------------------------------------------------------------------
+// PS2 PAD (ps2.h) -- a pad's receiver on WHIP himself. The sticks and D-pad take over (WEB mode)
+// and drive him like the controller's analog drive (cmd=drive): left stick walks and turns, right
+// stick crabs; let go and he stands. Buttons as on the PC controller's pad. Polled with pollWeb(),
+// so the sticks steer mid-step too.
+// ---------------------------------------------------------------------------
+bool ps2Driving = false;
+
+void pollPS2() {
+  using namespace ps2;
+  const bool was = pad.connected;
+  if (!poll()) {
+    if (was) {
+      Serial2.println(F("PS2: pad gone"));
+      if (ps2Driving) { ps2Driving = false; webActiveCmd = 0; abortMovement = true; }
+    }
+    return;
+  }
+  if (!was) { Serial2.println(F("PS2: pad connected")); buzzer::play(buzzer::MODE); }
+
+  float f = pad.ly, turn = pad.lx, left = pad.rx;
+  if (held(BTN_UP)) f = 1;
+  if (held(BTN_DOWN)) f = -1;
+  if (held(BTN_LEFT)) turn = 1;
+  if (held(BTN_RIGHT)) turn = -1;
+  if ((f != 0 || turn != 0 || left != 0) && !linkLocked) {
+    if (controlMode != CTRL_WEB) {   // he was walking by himself / on the remote: the pad takes over
+      controlMode = CTRL_WEB;
+      abortMovement = true;
+      Serial2.println(F("CONTROL -> WEB (PS2 pad)"));
+    }
+    driveFwd = f; driveLeft = left; driveTurn = turn;
+    webActiveCmd = WEB_DRIVE;
+    webLastCmdMillis = millis();
+    ps2Driving = true;
+  } else if (ps2Driving) {           // let go: stand
+    ps2Driving = false;
+    webActiveCmd = 0;
+    abortMovement = true;
+  }
+
+  if (pressed(BTN_CROSS) || pressed(BTN_TRIANGLE)) {   // stand, in WEB mode
+    controlMode = CTRL_WEB; webActiveCmd = 0; abortMovement = true;
+  }
+  if (pressed(BTN_CIRCLE)) {
+    controlMode = CTRL_OBSTACLE; obstacleCount = 0; obstacleDetected = false; abortMovement = true;
+    Serial2.println(F("CONTROL -> OBSTACLE AVOIDANCE (PS2 pad)"));
+  }
+  if (pressed(BTN_SQUARE)) setFollowMode();
+  if (pressed(BTN_R1)) { ik::gait = (ik::gait + 1) % ik::GAITS; ik::save(); }
+  if (pressed(BTN_L1)) { ik::gait = (ik::gait + ik::GAITS - 1) % ik::GAITS; ik::save(); }
+  if (pressed(BTN_L2)) pendingAct = 'h';
+  if (pressed(BTN_R2)) pendingAct = 'd';
+  if (pressed(BTN_START)) pendingAct = resting ? 'w' : 'r';
+  if (pressed(BTN_SELECT)) tiltGuard = !tiltGuard;
+  if (pressed(BTN_L3)) buzzer::setMuted(!buzzer::muted);
 }
 
 // ---------------------------------------------------------------------------
@@ -1704,7 +1768,8 @@ void handleStatus() {
   json += "\"gait\":"        + String(ik::gait) + ",";
   json += "\"tiltGuard\":"   + String(tiltGuard ? 1 : 0) + ",";
   json += "\"sound\":"       + String(buzzer::muted ? 0 : 1) + ",";
-  json += "\"resting\":"     + String(resting ? 1 : 0);
+  json += "\"resting\":"     + String(resting ? 1 : 0) + ",";
+  json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0);
   json += "}";
 
   server.send(200, "application/json", json);

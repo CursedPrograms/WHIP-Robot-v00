@@ -49,6 +49,18 @@ KEYMAP = [
         ("L2 / R2 (6 / 7)", "wave hello / dance"),
         ("", "plug it in any time"),
     ]),
+    ("PS2 pad on WHIP himself (its receiver on GPIO 25 / 26 / 27 / 32, 3.3 V; gaits firmware)", [
+        ("Left stick / D-pad", "walk and turn, with speed (takes over: WEB mode; let go and he stands)"),
+        ("Right stick", "crab left / right"),
+        ("Cross / Triangle", "stand (web mode)"),
+        ("Circle", "obstacle avoidance"),
+        ("Square", "follow-me mode"),
+        ("L1 / R1", "previous / next gait"),
+        ("L2 / R2", "wave hello / dance"),
+        ("Start", "lie down / get up"),
+        ("Select", "tilt safety on / off"),
+        ("L3", "buzzer on / off"),
+    ]),
     ("His IR remote", [
         ("1", "IR-remote mode (he boots in obstacle avoidance: press this first)"),
         ("2", "obstacle avoidance"),

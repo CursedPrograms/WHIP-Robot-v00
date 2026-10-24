@@ -104,6 +104,7 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 | Remote | NEC IR receiver + remote (the same remote as MILA and IDA) |
 | Lights | 4x4 WS2812 RGB LED grid |
 | Sound | Passive buzzer |
+| Handheld pad | PS2 pad + its 9-pin receiver (the Arduino kind), read by `ps2.h` |
 | Controllers | Browser, PS2-style USB gamepad (Python controller), IR remote |
 
 </details>
@@ -156,6 +157,7 @@ All grounds tied together
 | IR receiver OUT | GPIO 14 |
 | RGB LED grid DIN (~330 Ω in line) | GPIO 18 |
 | Buzzer | GPIO 19 |
+| PS2 pad receiver DAT / CMD / ATT / CLK | GPIO 27 / 25 / 26 / 32, VCC from **3.3 V** (H16's middle pin) |
 
 The servo controller shares UART0 with the USB-serial bridge, exactly like NORA's ESP32↔Arduino link. **Disconnect the controller's wires before uploading**, then reconnect. Boot and status logging goes to Serial2 (GPIO 17) instead.
 
@@ -249,6 +251,21 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | L2 / R2 (6 / 7) | wave hello / dance |
 | | *plug it in any time* |
 
+**PS2 pad on WHIP himself (its receiver on GPIO 25 / 26 / 27 / 32, 3.3 V; gaits firmware)**
+
+| Key | Does |
+|---|---|
+| Left stick / D-pad | walk and turn, with speed (takes over: WEB mode; let go and he stands) |
+| Right stick | crab left / right |
+| Cross / Triangle | stand (web mode) |
+| Circle | obstacle avoidance |
+| Square | follow-me mode |
+| L1 / R1 | previous / next gait |
+| L2 / R2 | wave hello / dance |
+| Start | lie down / get up |
+| Select | tilt safety on / off |
+| L3 | buzzer on / off |
+
 **His IR remote**
 
 | Key | Does |
@@ -306,6 +323,9 @@ Draws a PS2-style pad and drives WHIP over WiFi (`run.bat` / `run.ps1` / `run.sh
 - **EMULATE**: a pretend WHIP on this PC (`scripts/fake_whip.py`), to try every button with no robot. He walks in a pretend room, his sonar reading drops as he nears a wall, and the status line shows what he just did. `python scripts/fake_whip.py` runs one on its own.
 - **THEME**: DEFAULT, LIGHT or CUSTOM, all from `colour_scheme.xml` (sampled from his avatar). CUSTOM puts the scheme's colours in `scripts/controller_settings.json` for you to change.
 - **XML**: his movements as RTrobot macros (below).
+- **VOICE**: he talks through this PC's speakers outside MIND too (David's voice, as theatrical as ever):
+  connecting, mode and gait changes, walls, tipping, being picked up and put down, lying down, CENTER,
+  HELLO / DANCE, a PS2 pad plugged into him. VOICE turns it off; his last line shows in the bottom panel.
 - The gait animation only plays while he walks.
 
 <div align="center">
@@ -362,6 +382,7 @@ The firmware WHIP runs now (flashed 2026-10-24, and he walks better than on the 
 - **Body moves**: HELLO (H, L2, IR 4) shifts his weight back and waves the front left leg; DANCE (N, R2, IR 5) circles his body over his feet; locked by NORA he crouches.
 - **Rest**: after a minute standing still (IR, web, MIND, follow) he lies down as `gait.xml`'s "Reset - Shut Down" (every knee and foot right up), but gently: belly to the floor on all six legs first, then one tripod folds, then the other. Any move gets him up the other way round. REST (R, IR 7) does it by hand; shutdown ends the same way.
 - **Picked up**: a hard lift or drop on the MPU, or upside down, and his legs stop where they are (violet grid, a chirp) until he's been put down level for 2 s; then he stands up.
+- **A PS2 pad on WHIP himself** (`ps2.h`, no library): its 9-pin receiver on GPIO 27 (DAT), 25 (CMD), 26 (ATT) and 32 (CLK), powered from **3.3 V** (H16's middle pin on his ACEBOTT board; the H1-H12 middle pins are 5 V, and a receiver on 5 V answers in 5 V, which the ESP32 can't take). It's not I2C: four plain pins, an SPI-like protocol. The sticks take over (WEB mode) and steer him live, mid-step: left stick walks and turns, right stick crabs, let go and he stands. Buttons: Cross / Triangle stand, Circle obstacle, Square follow, L1 / R1 gait, L2 / R2 hello / dance, Start lie down, Select tilt safety, L3 buzzer. `/status` says `ps2` while a pad answers. Compiles, not tried on a pad yet.
 - IR 3-7 run on from 1 = 0x0 on the fleet's remote (the same as MILA, NIKA and IDA use; not NORA's).
 
 ### Gait reference

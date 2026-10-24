@@ -51,6 +51,7 @@ import math
 import keymap   # scripts/keymap.py: every key and button, in its own window (F1)
 import mind     # scripts/mind.py: his LLM mind (MIND mode), shared by every robot's controller
 import serial_to_xml   # scripts/serial_to_xml.py: his servo serial -> RTrobot XML macros (the XML button)
+import controller_kit as kit   # scripts/controller_kit.py: the parts every robot's controller shares (Voice)
 
 WIDTH, HEIGHT = 900, 820   # the bottom 200 px: the mind's panel
 # Colours: always from colour_scheme.xml (sampled from his avatar: red and blue spider on night
@@ -394,6 +395,28 @@ WHIP_MOVES = {
     "right": "turn right on the spot, a little per step",
 }
 WHIP_VOICE = ("Microsoft David Desktop", -1, "low")
+# His voice through this PC outside MIND too (VOICE, top right): a theatrical show-off, secretly scared
+# of tripping over his own feet. {gait} is the gait's name.
+WHIP_LINES = {
+    "connect": ["WHIP online. You may now admire me.", "Six legs, ready and fabulous.", "Ah, a controller. Finally, an audience."],
+    "emulate": ["A pretend WHIP? Still magnificent.", "Emulated, yes. Less fabulous? Never."],
+    "lost": ["I've lost the connection. Don't panic. I might.", "Hello? Is anyone still driving me?"],
+    "mode_obstacle": ["Fine, I'll explore by myself.", "Autopilot engaged. Watch and learn."],
+    "mode_web": ["You drive. I'll look magnificent.", "At your command. Mostly."],
+    "mode_ir": ["Remote control it is. Point that thing at me."],
+    "mode_follow": ["Lead the way. I'll follow your hand.", "Hold out your hand. I'm right behind it."],
+    "gait": ["{gait}. Observe my elegance.", "Switching to {gait}. Six legs, endless style.", "{gait} gait. Try to keep up."],
+    "wall": ["A wall. How rude.", "Something's in my way. The audacity.", "Halt! An obstacle dares to block me."],
+    "tilt": ["Whoa, whoa, I'm tipping!", "Steady. Steady. I meant to do that."],
+    "held": ["Put me down! I have legs for a reason!", "Unhand me, human. I can walk."],
+    "down": ["Ah, solid ground. Much better.", "Thank you. Dignity restored."],
+    "rest": ["Time for a little lie down.", "Resting my magnificent legs."],
+    "wake": ["I rise!", "And we're back."],
+    "hello": ["Hello there! Yes, it's me, WHIP.", "Greetings, admirers!"],
+    "dance": ["Music? No? I'll dance anyway.", "Behold, the hexapod shuffle."],
+    "center": ["All servos to the middle. Calibration time.", "Hold still, everyone. Especially me."],
+    "ps2": ["A real gamepad, plugged into me. How retro.", "PlayStation pad detected. Let's play."],
+}
 MIND_MOVE_TIMEOUT = 25.0   # s: the longest a /mind move (4 cycles) should take
 RUMBLE_WARN_CM, RUMBLE_STOP_CM = 40, 15   # the pad buzzes from here, full here (gamepad_drive.py's)
 TILT_RUMBLE_DEG = 20.0     # esp32.ino's TILT_LIMIT_DEG: he stands from here, and the pad shakes
@@ -567,6 +590,16 @@ class ControllerLayout:
         apply_theme(self.theme, self.settings.get("custom"))
         self.recorder = None   # XML on the real WHIP: his USB serial, recorded while you drive
         self.xml_note, self._xml_note_at = "", 0.0
+        self.voice = kit.Voice(WHIP_VOICE[0], WHIP_LINES, WHIP_VOICE[1], WHIP_VOICE[2])
+        self.voice.on = self.settings.get("voice", True)
+        self._heard = None   # his status as the voice last saw it
+        send = self.link.send
+
+        def send_and_say(path, **params):   # HELLO / DANCE speak as they're pressed
+            if path == "/act" and params.get("do") in ("hello", "dance") and not self.mind.on:
+                self.voice.say(params["do"])
+            send(path, **params)
+        self.link.send = send_and_say
         self.fake = None    # EMULATE: the fake WHIP (fake_whip.py) running in here
         self.fake_error = ""
         self._hits = []     # (rect, action) of every clickable thing, refilled each frame
@@ -580,6 +613,49 @@ class ControllerLayout:
         ok, why = mind.can_think()
         self.mind_check = why
         self.link.mind_capable = ok
+
+    def _voice_tick(self):
+        """His voice, from what changed in his status (MIND talks for itself)."""
+        s = dict(self.link.status) if self.link.connected and self.link.status else None
+        was, self._heard = self._heard, s
+        if self.mind.on:
+            return
+        if s is None:
+            if was:
+                self.voice.say("lost")
+            return
+        if was is None:
+            self.voice.say("emulate" if self.fake else "connect")
+            return
+        say = self.voice.say
+        if s.get("controlMode") != was.get("controlMode") and s.get("controlMode") is not None:
+            say("mode_" + MODES[s["controlMode"] % len(MODES)])
+        if s.get("gait") != was.get("gait") and s.get("gait") is not None:
+            say("gait", gait=GAITS[s["gait"] % len(GAITS)][0].title())
+        if s.get("blocked") and not was.get("blocked"):
+            say("wall")
+        if s.get("sysState") != was.get("sysState"):
+            if s.get("sysState") == 1:
+                say("tilt")
+            elif s.get("sysState") == 3:
+                say("held")
+            elif was.get("sysState") == 3:
+                say("down")
+        if s.get("resting") != was.get("resting"):
+            say("rest" if s.get("resting") else "wake")
+        if s.get("calibrating") and not was.get("calibrating"):
+            say("center")
+        if s.get("ps2") and not was.get("ps2"):
+            say("ps2")
+
+    def _toggle_voice(self):
+        self.voice.on = not self.voice.on
+        self.settings["voice"] = self.voice.on
+        try:
+            with open(SETTINGS_JSON, "w", encoding="utf-8") as f:
+                json.dump(self.settings, f, indent=2)
+        except OSError:
+            pass
 
     def _sync_mind(self):
         # The robot's mode is the switch: MIND here (M / Start) or on his web page starts the mind,
@@ -604,6 +680,7 @@ class ControllerLayout:
 
             self._update_drive()
             self._sync_mind()
+            self._voice_tick()
             self.draw()
             self.clock.tick(60)
 
@@ -1100,6 +1177,10 @@ class ControllerLayout:
             color = MUTED_TEXT
         self.screen.blit(self.font.render(self._fit(status, self.font, WIDTH - tx - 20), True, color), (tx, 50))
 
+        voice = pygame.Rect(WIDTH - 490, 14, 150, 26)
+        self._pill(voice, "VOICE ON" if self.voice.on else "VOICE OFF", self.voice.on, OK_COLOR)
+        self._hits.append((voice, self._toggle_voice))
+
         xml = pygame.Rect(WIDTH - 330, 14, 150, 26)
         rec = self.recorder is not None
         self._pill(xml, f"REC XML {self.recorder.lines()}" if rec else "XML", rec, ACTIVE_COLOR if rec else ACCENT2)
@@ -1280,6 +1361,8 @@ class ControllerLayout:
         m = self.mind
         if m.on:
             head, color = f"MIND: {m.state}   (M / Start: off)", OK_COLOR
+        elif self.voice.said and self.voice.on:
+            head, color = f'WHIP: "{self.voice.said}"', TEXT_COLOR
         elif self.link.mind_capable:
             head, color = f"MIND: off  -  M / Start to switch it on  ({self.mind_check})", MUTED_TEXT
         else:
