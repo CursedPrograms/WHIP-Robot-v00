@@ -363,8 +363,10 @@ What RTrobot's ServoController program does, as our own, plus WHIP on screen:
   stops it, `~RE` restarts the board; its replies ("OK") show under the connection.
 - **Not yet**: the board's own settings (its UART baud, start positions, deviation -99..99, buzzer, auto
   run) and Download / Read / Erase of its stored groups. RTrobot doesn't publish those commands; the clean
-  way to learn them is to listen to what RTrobot's program sends when you click them (a serial "sniff"
-  between it and the board, through a virtual COM pair such as com0com), then the studio can send the same.
+  way to learn them is to listen to what RTrobot's program sends when you click them, then the studio can
+  send the same: `python scripts/rtrobot_sniff.py COM5` relays their program's TCP connection (ServoController:
+  TCP, 127.0.0.1, port 8080) to the board's USB port and writes both directions to `rtrobot_sniff.log`. Don't
+  set the board's password: their program says that erases its flash.
 
 ### His IK calibration (`scripts/ik_values.py`)
 ```bash

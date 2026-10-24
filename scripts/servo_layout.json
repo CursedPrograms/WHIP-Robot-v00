@@ -1,0 +1,128 @@
+[
+ {
+  "ch": 1,
+  "x": 529,
+  "y": 285,
+  "parent": null,
+  "name": "LF hip"
+ },
+ {
+  "ch": 2,
+  "x": 475,
+  "y": 256,
+  "parent": 1,
+  "name": "LF knee"
+ },
+ {
+  "ch": 3,
+  "x": 357,
+  "y": 169,
+  "parent": 2,
+  "name": "LF foot"
+ },
+ {
+  "ch": 4,
+  "x": 490,
+  "y": 400,
+  "parent": null,
+  "name": "LM hip"
+ },
+ {
+  "ch": 5,
+  "x": 425,
+  "y": 400,
+  "parent": 4,
+  "name": "LM knee"
+ },
+ {
+  "ch": 6,
+  "x": 274,
+  "y": 400,
+  "parent": 5,
+  "name": "LM foot"
+ },
+ {
+  "ch": 7,
+  "x": 529,
+  "y": 514,
+  "parent": null,
+  "name": "LB hip"
+ },
+ {
+  "ch": 8,
+  "x": 475,
+  "y": 543,
+  "parent": 7,
+  "name": "LB knee"
+ },
+ {
+  "ch": 9,
+  "x": 357,
+  "y": 630,
+  "parent": 8,
+  "name": "LB foot"
+ },
+ {
+  "ch": 24,
+  "x": 650,
+  "y": 285,
+  "parent": null,
+  "name": "RF hip"
+ },
+ {
+  "ch": 25,
+  "x": 704,
+  "y": 256,
+  "parent": 24,
+  "name": "RF knee"
+ },
+ {
+  "ch": 26,
+  "x": 822,
+  "y": 169,
+  "parent": 25,
+  "name": "RF foot"
+ },
+ {
+  "ch": 27,
+  "x": 689,
+  "y": 400,
+  "parent": null,
+  "name": "RM hip"
+ },
+ {
+  "ch": 28,
+  "x": 754,
+  "y": 400,
+  "parent": 27,
+  "name": "RM knee"
+ },
+ {
+  "ch": 29,
+  "x": 905,
+  "y": 400,
+  "parent": 28,
+  "name": "RM foot"
+ },
+ {
+  "ch": 30,
+  "x": 650,
+  "y": 514,
+  "parent": null,
+  "name": "RB hip"
+ },
+ {
+  "ch": 31,
+  "x": 704,
+  "y": 543,
+  "parent": 30,
+  "name": "RB knee"
+ },
+ {
+  "ch": 32,
+  "x": 822,
+  "y": 630,
+  "parent": 31,
+  "name": "RB foot"
+ }
+]

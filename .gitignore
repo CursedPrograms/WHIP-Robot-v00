@@ -165,3 +165,6 @@ scripts/gait_test/test
 
 # controller theme / custom colours (per PC)
 scripts/controller_settings.json
+
+# what RTrobot's program said to the board (rtrobot_sniff.py)
+rtrobot_sniff.log
