@@ -35,6 +35,21 @@ obstacle avoidance, tilt safety, PIN.
       peak still 30 mm (`LIFT`). Compiles at 1.89 MB. Still to watch on the robot: the feet now
       clear the ground higher near lift-off and touch-down than the old triangle did.
 - [ ] Later, easy with IK: walking sideways, "walk 10 cm", body tilt.
+
+## Beyond most hexapods (2026-10-24)
+
+What the serious hexapods (Phoenix, PhantomX, the ROS ones) do that WHIP doesn't yet:
+
+- [ ] **Body IK on the sticks** (the big one): while he stands, the left stick slides his body (x / y),
+      the right stick tilts it (roll / pitch), L1 / R1 twist it (yaw); the feet stay planted. ik_gait.h
+      already solves any foot position: move the feet the other way in the body frame. On the PS2 pad
+      (ps2.h), the PC controller's sticks, and a mode in Servo Studio.
+- [ ] **Terrain adaptation**: keep the body level on a slope with the MPU6050 (tilt the body against it).
+- [ ] **Foot contact**: a switch or current sense per foot, so each foot stops when it touches down.
+- [ ] **Physics simulation** (Gazebo / ROS, or a simple one in the emulator): the fake WHIP and Servo
+      Studio show his geometry, not whether he'd fall over.
+- [ ] First: flash esp32_gaits, calibrate, and try what's built (six gaits, PS2 pad, /servo, Servo Studio
+      over WiFi): all compiled and PC-tested, none of it on the robot yet.
 - [x] **Gaits sketch** (2026-10-24, `scripts/esp32_gaits`, flash_gaits.bat): tripod, ripple and wave from
       one phase engine (gaits.h), smooth lift-off / touch-down, stops by stepping; gait dropdown with a
       little animation on the web page and the controller (G / 1 2 3, L1 / R1); tilt safety switch
