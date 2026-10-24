@@ -11,6 +11,11 @@ firmware already speaks, nothing taken from their program), plus WHIP on screen:
            its servo. Starts out laid out like WHIP; EDIT to move / link / add / remove (kept in
            servo_layout.json), so it works for ARM or anything else on the same board.
   SLIDERS  all 32 channels, to play with.
+  3D BODY  mithi's inverse-kinematics page, for WHIP: WHIP in 3D (drag empty space to orbit), the
+           support polygon under his feet and his centre of gravity with its balance margin; slide /
+           tilt his body with the sliders, or drag the body itself (Shift: tilt, wheel: twist): the feet
+           stay planted and his IK sets all 18 servos (whip_body.fit_pose: the same maths as on him),
+           with every joint's angle in a table.
 
   Groups   255 of them, each a list of poses ("#1P1500#2P1600T300D0"): ADD the sliders as a pose,
            INSERT / UPDATE / DELETE / UP / DOWN, RUN, LOOP, STOP; open and save RTrobot's XML (gait.xml,
@@ -330,6 +335,8 @@ class Studio:
         self.loop, self.playing, self._stop = False, False, threading.Event()
         self.note = f"opened {os.path.basename(path)}" if path and os.path.exists(path) else "new groups"
         self.edit = False
+        self.pose, self.pose_k = [0.0] * 6, 1.0   # 3D BODY: his body over planted feet (x y z mm, roll pitch yaw deg)
+        self.cam = [-0.65, 0.55]                    # 3D BODY: the camera's turn and tilt (radians)
         self.layout = self._load_layout()
         self.drag = None                  # what the mouse is dragging
         self.hits = []
@@ -638,6 +645,135 @@ class Studio:
             self.label(wb.LEGS[l], (top(pts[3])[0] + 8, top(pts[3])[1] - 6), col)
         self._top, self._side = (cx, cy, s), (sx, sy, ss)
 
+    # ---- 3D BODY: mithi's inverse-kinematics page, for WHIP ----
+    POSE_NAMES = ("slide x", "slide y", "slide z", "roll", "pitch", "yaw")
+    POSE_LIMITS = (wb.BODY_SLIDE_MAX,) * 3 + (wb.BODY_TILT_MAX,) * 3
+    STAND_Z = -90 + (-80) * 5 / 9   # his stance at height 5 (ik_gait.h homeZ)
+
+    def feet_planted(self):
+        return [(x, y, self.STAND_Z) for x, y in wb.HOME]
+
+    def apply_pose(self):
+        """The body pose -> fitted (fit_pose) -> each leg's IK -> all 18 servos (sent live if connected)."""
+        servos = [[servo_of(l, j) for j in range(3)] for l in range(6)]
+        pose, self.pose_k = wb.fit_pose(self.feet_planted(), self.pose, servos)
+        self.pose_fit = list(pose)
+        for l, f in enumerate(wb.body_frame(self.feet_planted(), *pose)):
+            a = wb.angles(l, f)
+            if a is None:
+                continue
+            for j, (ch, rev, trim) in enumerate(CAL[l]):
+                self.set_us(ch, wb.to_us(a[j], trim, rev, servos[l][j]))
+
+    def proj(self, p):
+        """World (x forward, y left, z up, mm) -> the 3D area's screen, from the orbiting camera."""
+        az, el = self.cam
+        ca, sa, ce, se = math.cos(az), math.sin(az), math.cos(el), math.sin(el)
+        x, y, z = p
+        xr, yr = x * ca - y * sa, x * sa + y * ca
+        return (int(self._c3[0] - yr * self._c3[2]), int(self._c3[1] - (z * ce + xr * se) * self._c3[2]))
+
+    def draw_3d(self):
+        v = self.VIEW
+        pose = getattr(self, "pose_fit", self.pose)
+        self._c3 = (v.x + 435, v.y + 360, 0.95)   # the 3D area's middle, and mm -> px
+        area = pygame.Rect(v.x + 210, v.y + 24, v.w - 214, v.h - 30)
+        self.label("drag empty space to orbit, drag the body to slide it (Shift: tilt, wheel: twist)", (v.x + 212, v.y + 4))
+        to_world = lambda q: wb.body_to_world(q, *pose)
+        gz = self.STAND_Z
+        self.screen.set_clip(area)
+        for k in range(-5, 6):   # the ground: a 50 mm grid
+            pygame.draw.line(self.screen, DIV, self.proj((k * 50, -250, gz)), self.proj((k * 50, 250, gz)), 1)
+            pygame.draw.line(self.screen, DIV, self.proj((-250, k * 50, gz)), self.proj((250, k * 50, gz)), 1)
+        legs = [[to_world(q) for q in pts] for pts in self.legs_now()]
+        down = [pts[3] for pts in legs if pts[3][2] <= gz + 4]
+        hull = self._hull([(q[0], q[1]) for q in down])
+        cog = (pose[0], pose[1])                    # his centre of gravity: the middle of his body, on the ground
+        margin = self._margin(hull, cog)
+        if len(hull) >= 3:                          # the support polygon
+            poly = [self.proj((x, y, gz)) for x, y in hull]
+            surf = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+            pygame.draw.polygon(surf, (*ACC2, 60), poly)
+            self.screen.blit(surf, (0, 0))
+            pygame.draw.polygon(self.screen, ACC2, poly, 2)
+        body_c = to_world((0, 0, 0))
+        pygame.draw.line(self.screen, OK, self.proj(body_c), self.proj((cog[0], cog[1], gz)), 1)
+        pygame.draw.circle(self.screen, OK if margin > 0 else ACC, self.proj((cog[0], cog[1], gz)), 6)
+        plate = [self.proj(to_world((x, y, 0))) for x, y in wb.BODY]
+        pygame.draw.polygon(self.screen, kit.mix(ACC, BG, 0.65), plate)
+        pygame.draw.polygon(self.screen, ACC, plate, 3)
+        pygame.draw.circle(self.screen, ACC2, self.proj(to_world((92, 0, 0))), 6)   # his head
+        self.joint_hits = []
+        for l, pts in enumerate(legs):
+            ps = [self.proj(q) for q in pts]
+            pygame.draw.lines(self.screen, ACC if l < 3 else ACC3, False, ps, 4)
+            for j in range(3):
+                ch = CAL[l][j][0]
+                pygame.draw.circle(self.screen, OK if ch == self.sel else PANEL, ps[j], 6)
+                pygame.draw.circle(self.screen, ACC if l < 3 else ACC3, ps[j], 6, 2)
+                self.joint_hits.append((ps[j], ch))
+            pygame.draw.circle(self.screen, TEXT, ps[3], 4)
+        pygame.draw.circle(self.screen, OK, self.proj(body_c), 9, 2)
+        self._body_px = self.proj(body_c)
+        self.screen.set_clip(None)
+        self.label(f"balance: centre {margin:+.0f} mm inside the feet" if margin > 0 else
+                   f"balance: centre OUTSIDE the feet ({margin:.0f} mm): he'd tip", (area.x + 6, area.bottom - 18),
+                   OK if margin > 0 else ACC)
+        # the sliders, mithi-style
+        x0, y0 = v.x + 10, v.y + 28
+        self.pose_sliders = []
+        for i, (name, lim) in enumerate(zip(self.POSE_NAMES, self.POSE_LIMITS)):
+            y = y0 + i * 46
+            self.label(name, (x0, y), DIM)
+            unit = "mm" if i < 3 else "deg"
+            self.label(f"{self.pose[i]:+.0f} {unit}", (x0 + 130, y), TEXT)
+            tr = pygame.Rect(x0, y + 18, 190, 8)
+            pygame.draw.rect(self.screen, DIV, tr, border_radius=4)
+            kx = tr.x + (self.pose[i] + lim) / (2 * lim) * tr.w
+            pygame.draw.circle(self.screen, ACC, (int(kx), tr.centery), 8)
+            self.pose_sliders.append((tr, i))
+        y = y0 + 6 * 46
+        self.btn((x0, y, 92, 26), "NEUTRAL", self._neutral)
+        self.label(f"{round(100 * self.pose_k)}% fits", (x0 + 102, y + 6), OK if self.pose_k >= 1 else ACC)
+        y += 40
+        self.label("joint angles (deg)", (x0, y), DIM)
+        self.label("     hip   knee  foot", (x0, y + 16), DIM)
+        for l in range(6):   # every joint's angle, as mithi's table
+            d = [deg_of(ch, self.shown.get(ch, 1500)) for ch, _, _ in CAL[l]]
+            self.label(f"{wb.LEGS[l]}  {d[0]:+5.1f} {d[1]:+5.1f} {d[2]:+5.1f}", (x0, y + 32 + l * 15), TEXT)
+
+    def _neutral(self):
+        self.pose = [0.0] * 6
+        self.apply_pose()
+
+    @staticmethod
+    def _hull(pts):
+        pts = sorted(set(pts))
+        if len(pts) < 3:
+            return pts
+        cross = lambda o, a, b: (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+        lo, up = [], []
+        for q in pts:
+            while len(lo) >= 2 and cross(lo[-2], lo[-1], q) <= 0:
+                lo.pop()
+            lo.append(q)
+        for q in reversed(pts):
+            while len(up) >= 2 and cross(up[-2], up[-1], q) <= 0:
+                up.pop()
+            up.append(q)
+        return lo[:-1] + up[:-1]
+
+    @staticmethod
+    def _margin(hull, c):
+        """mm from c to the support polygon's nearest edge (+ inside, - outside)."""
+        if len(hull) < 3:
+            return -999
+        m = 1e9
+        for i in range(len(hull)):
+            (x1, y1), (x2, y2) = hull[i], hull[(i + 1) % len(hull)]
+            m = min(m, ((x2 - x1) * (c[1] - y1) - (y2 - y1) * (c[0] - x1)) / math.hypot(x2 - x1, y2 - y1))
+        return m
+
     def draw_layout(self):
         v = self.VIEW
         self.label("your linkage drawing: EDIT to move (drag), link (right-drag), +SERVO / Del", (v.x + 8, v.y + 4))
@@ -793,14 +929,15 @@ class Studio:
         self.screen.fill(BG)
         self.label("WHIP", (12, 12), ACC, self.f_big)
         self.label("Servo Studio", (78, 12), TEXT, self.f_big)
-        for k, v in enumerate(("ROBOT", "LAYOUT", "SLIDERS")):
+        for k, v in enumerate(("ROBOT", "3D BODY", "LAYOUT", "SLIDERS")):
             self.btn((256 + k * 110, 14, 104, 28), v, lambda v=v: setattr(self, "view", v), self.view == v)
         if self.view == "LAYOUT":
-            self.btn((596, 14, 90, 28), "EDIT ON" if self.edit else "EDIT", lambda: setattr(self, "edit", not self.edit), self.edit)
-            self.btn((690, 14, 90, 28), "+SERVO", self._add_widget)
-            self.btn((784, 14, 90, 28), "RESET", self._reset_layout)
+            self.btn((700, 14, 70, 28), "EDIT ON" if self.edit else "EDIT", lambda: setattr(self, "edit", not self.edit), self.edit)
+            self.btn((774, 14, 70, 28), "+SERVO", self._add_widget)
+            self.btn((848, 14, 70, 28), "RESET", self._reset_layout)
         pygame.draw.rect(self.screen, kit.mix(BG, PANEL, 0.5), self.VIEW, border_radius=10)
-        {"ROBOT": self.draw_robot, "LAYOUT": self.draw_layout, "SLIDERS": self.draw_sliders}[self.view]()
+        {"ROBOT": self.draw_robot, "3D BODY": self.draw_3d, "LAYOUT": self.draw_layout,
+         "SLIDERS": self.draw_sliders}[self.view]()
         self.draw_selected()
         self.draw_left()
         self.draw_right()
@@ -868,6 +1005,10 @@ class Studio:
                     if w.get("parent") == self.sel:
                         w["parent"] = None
                 self.save_layout()
+        elif ev.type == pygame.MOUSEWHEEL and self.view == "3D BODY" and self.VIEW.collidepoint(pygame.mouse.get_pos()) \
+                and math.dist(pygame.mouse.get_pos(), getattr(self, "_body_px", (-99, -99))) < 60:
+            self.pose[5] = max(-wb.BODY_TILT_MAX, min(wb.BODY_TILT_MAX, self.pose[5] + ev.y))   # twist
+            self.apply_pose()
         elif ev.type == pygame.MOUSEWHEEL:
             step = (1 if pygame.key.get_mods() & pygame.KMOD_SHIFT else 10) * ev.y
             over = self._over(pygame.mouse.get_pos())
@@ -885,6 +1026,18 @@ class Studio:
                 self.drag = ("bar",)
                 self._drag_to(ev.pos)
                 return True
+            if self.view == "3D BODY":
+                for tr, i in getattr(self, "pose_sliders", []):
+                    if tr.inflate(10, 16).collidepoint(ev.pos):
+                        self.drag = ("pose", i)
+                        self._drag_to(ev.pos)
+                        return True
+                if math.dist(ev.pos, getattr(self, "_body_px", (-99, -99))) < 16:
+                    self.drag = ("bodydrag", ev.pos, list(self.pose), bool(pygame.key.get_mods() & pygame.KMOD_SHIFT))
+                    return True
+                if self.VIEW.collidepoint(ev.pos) and not isinstance(self._over(ev.pos), int):
+                    self.drag = ("orbit", ev.pos, list(self.cam))
+                    return True
             over = self._over(ev.pos)
             if isinstance(over, tuple) and over[0] == "foot":
                 self.drag = over
@@ -932,6 +1085,27 @@ class Studio:
             self.foot_to(d[1], d[2], pos)
         elif d[0] == "turn":
             self.set_us(d[1], d[3] + (d[2] - pos[1]) * 4)
+        elif d[0] == "pose":
+            tr, i = next((t, k) for t, k in self.pose_sliders if k == d[1])
+            lim = self.POSE_LIMITS[i]
+            self.pose[i] = round(max(-lim, min(lim, ((pos[0] - tr.x) / tr.w * 2 - 1) * lim)), 1)
+            self.apply_pose()
+        elif d[0] == "bodydrag":
+            dx, dy = pos[0] - d[1][0], pos[1] - d[1][1]
+            pose = list(d[2])
+            if d[3]:   # Shift: tilt
+                pose[3] = max(-15, min(15, d[2][3] + dx * 0.15))
+                pose[4] = max(-15, min(15, d[2][4] + dy * 0.15))
+            else:      # slide in the ground's plane, as the camera sees it
+                az, el = self.cam
+                s3 = self._c3[2]
+                yr, xr = -dx / s3, -dy / (s3 * max(0.2, math.sin(el)))
+                pose[0] = max(-40, min(40, d[2][0] + xr * math.cos(az) + yr * math.sin(az)))
+                pose[1] = max(-40, min(40, d[2][1] - xr * math.sin(az) + yr * math.cos(az)))
+            self.pose = [round(v, 1) for v in pose]
+            self.apply_pose()
+        elif d[0] == "orbit":
+            self.cam = [d[2][0] + (pos[0] - d[1][0]) * 0.01, max(0.1, min(1.45, d[2][1] + (pos[1] - d[1][1]) * 0.01))]
         elif d[0] == "move":
             w = next(w for w in self.layout if w["ch"] == d[1])
             w["x"], w["y"] = max(self.VIEW.x + 20, min(self.VIEW.right - 20, pos[0])), max(self.VIEW.y + 30, min(self.VIEW.bottom - 20, pos[1]))
