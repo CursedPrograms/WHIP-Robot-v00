@@ -65,5 +65,23 @@ static const char LIGHTS_HTML[] PROGMEM = R"lights(<!DOCTYPE html>
     });
   });
   call('').then(show);
+
+  // Servo Studio holds him: say so (everything here is refused until it lets go)
+  var studioBar = document.createElement('div');
+  studioBar.textContent = 'SERVO STUDIO HAS HIM: everything else waits until it lets go';
+  studioBar.style.cssText = 'display:none;position:fixed;top:0;left:0;right:0;z-index:10000;padding:8px;' +
+    'text-align:center;font-weight:bold;letter-spacing:1px;background:#b3262e;color:#fff';
+  document.body.appendChild(studioBar);
+  function studioNote(on) { studioBar.style.display = on ? '' : 'none'; }
+
+  var settingsRev = null;
+  setInterval(function () {
+    fetch('/status').then(function (r) { return r.json(); }).then(function (j) {
+      studioNote(j.studio);
+      var busy = document.activeElement && /^(INPUT|SELECT)$/.test(document.activeElement.tagName);
+      if (settingsRev !== null && j.rev !== settingsRev && !busy) call('').then(show);
+      settingsRev = j.rev;
+    }).catch(function () {});
+  }, 1500);
 </script>
 </body></html>)lights";

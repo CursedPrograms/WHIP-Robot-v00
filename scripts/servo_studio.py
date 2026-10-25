@@ -22,7 +22,15 @@ firmware already speaks, nothing taken from their program), plus WHIP on screen:
            gait_emulated.xml, gait_real.xml; gait.xml itself is saved as gait_studio.xml).
   Connect  EMULATE (just the drawing) / SERIAL (the servo board's own USB, 115200 fixed; or a USB-TTL
            on its UART at the baud set on the board: 4800-115200, 9600 out of the box) / WHIP WIFI
-           (through WHIP: his /servo route; he holds still meanwhile, STAND gives him back).
+           (through WHIP: his /servo route). Connected to WHIP (WHIP WIFI, or SERIAL while his WiFi
+           answers), the studio HOLDS him (his /studio): it's the testing software, so it outranks
+           everything. His controller, his web page, the IR remote, the PS2 pad, MIND and tilt safety
+           all wait, even from this same PC. STAND (or closing the studio) gives him back; if the
+           studio just goes quiet, he's his own again after 5 s.
+  Calib    the picked servo's TRIM and REV (Shift: 1 us), WIGGLE it, SAVE ON WHIP, DEFAULTS: the
+           same calibration as his /calib page, kept in whip_calibration.json and on him. A change
+           made anywhere shows everywhere: his /status carries a fingerprint of every setting (rev).
+  REBOOT   restarts his ESP32.
   Board    RTrobot's commands: G<n>F<times> runs a group stored on the board, ~ST stops it, ~RE
            restarts it; replies ("OK") show under the connection. The board's own settings (its UART
            baud, start positions, deviation, buzzer, auto run) and Download / Read / Erase have no
@@ -42,6 +50,7 @@ import re
 import sys
 import threading
 import time
+import uuid
 from xml.sax.saxutils import quoteattr
 
 import pygame
@@ -236,21 +245,92 @@ class SerialLink:
 
     def close(self):
         self._on = False
+        if getattr(self, "hold", None):
+            self.hold.release()
         try:
             self.s.close()
         except Exception:
             pass
 
 
-class WhipWifi:
-    """Through WHIP: his /servo route (he holds still; /calib/done gives him back)."""
+class StudioHold:
+    """The studio holds WHIP (his /studio): only the studio drives him; his controller, his page,
+    the IR remote and the PS2 pad wait. It checks in every second (quiet for 5 s and he's his own
+    again). Every request carries the studio's session id (sid), so the controller on this same PC
+    is still kept out. The check-in answers with his settings' fingerprint (rev): when it moves,
+    his calibration is fetched again (cal_state), so the studio shows what he really has."""
 
     def __init__(self, url):
-        self.base, self.name = url.rstrip("/"), f"WHIP WIFI {url}"
+        self.base = url.rstrip("/")
         self.session = requests.Session()
-        r = self.session.get(f"{self.base}/unlock", params={"pw": CONTROL_PIN}, timeout=2)
-        self.connected = r.status_code == 200
-        self.reply = "unlocked: he holds still while the studio drives" if self.connected else "wrong PIN"
+        self.sid = uuid.uuid4().hex[:12]
+        self.rev, self.cal_state, self.error, self._on = None, None, "", True
+        r = self.session.get(f"{self.base}/studio", params=self.p(on=1, pw=CONTROL_PIN), timeout=2)
+        if r.status_code != 200:
+            try:
+                why = r.json().get("error", r.text)
+            except ValueError:
+                why = r.text or f"HTTP {r.status_code}"
+            raise ConnectionError(why[:70])
+        self._seen(r.json())
+        threading.Thread(target=self._beat, daemon=True).start()
+
+    def p(self, **params):
+        params["sid"] = self.sid
+        return params
+
+    def get(self, path, timeout=2, **params):
+        return self.session.get(f"{self.base}{path}", params=self.p(**params), timeout=timeout)
+
+    def _seen(self, j):
+        if j.get("rev") != self.rev:
+            self.rev = j.get("rev")
+            try:
+                self.cal_state = self.session.get(f"{self.base}/calib/state", timeout=2).json()
+            except (requests.RequestException, ValueError):
+                self.rev = None   # try again next check-in
+
+    def _beat(self):
+        while self._on:
+            time.sleep(1.0)
+            if not self._on:
+                break
+            try:
+                r = self.get("/studio", on=1, pw=CONTROL_PIN)
+                if r.status_code == 200:
+                    self.error = ""
+                    self._seen(r.json())
+                else:
+                    self.error = f"he refused: {r.status_code} {r.text[:40]}"
+            except requests.RequestException as e:
+                self.error = f"no answer: {e.__class__.__name__}"
+
+    def reboot(self):
+        try:
+            self.get("/reboot")
+        except requests.RequestException:
+            pass   # he went down mid-answer
+        self._on = False
+
+    def release(self):
+        if not self._on:
+            return
+        self._on = False
+        try:
+            self.get("/studio", on=0)
+        except requests.RequestException:
+            pass   # he lets go by himself after 5 s
+
+
+class WhipWifi:
+    """Through WHIP: his /servo route, while the studio holds him (StudioHold). STAND lets go."""
+
+    def __init__(self, url):
+        self.name = f"WHIP WIFI {url}"
+        self.hold = StudioHold(url)
+        self.base, self.session = self.hold.base, self.hold.session
+        self.connected = True
+        self.reply = "the studio holds him: nothing else drives him"
         self._q, self._wake = [], threading.Event()
         threading.Thread(target=self._sender, daemon=True).start()
 
@@ -261,7 +341,7 @@ class WhipWifi:
             while self._q:
                 line = self._q.pop(0)
                 try:
-                    r = self.session.get(f"{self.base}/servo", params={"l": line}, timeout=2)
+                    r = self.hold.get("/servo", l=line)
                     self.reply = "OK" if r.status_code == 200 else f"{r.status_code} {r.text[:40]}"
                 except requests.RequestException as e:
                     self.reply = f"no answer: {e.__class__.__name__}"
@@ -275,22 +355,40 @@ class WhipWifi:
     def set_channel(self, leg, joint, ch):
         """His own channel map too (/calib/set while he holds still, then /calib/save)."""
         try:
-            self.session.get(f"{self.base}/calib/start", timeout=2)
-            self.session.get(f"{self.base}/calib/set", params={"leg": leg, "joint": joint, "ch": ch}, timeout=2)
-            self.session.get(f"{self.base}/calib/save", timeout=2)
+            self.hold.get("/calib/set", leg=leg, joint=joint, ch=ch)
+            self.hold.get("/calib/save")
             self.reply = f"his {wb.LEGS[leg]} {wb.JOINTS[joint]} is on pin {ch} now (saved on him)"
         except requests.RequestException as e:
             self.reply = f"couldn't tell him: {e.__class__.__name__}"
 
-    def stand(self):
+    def calib(self, leg, joint, **values):
+        """A trim / direction on him too (/calib/set; SAVE ON WHIP keeps it over a restart)."""
         try:
-            self.session.get(f"{self.base}/calib/done", timeout=2)
-            self.reply = "STAND: he's his own again"
+            r = self.hold.get("/calib/set", leg=leg, joint=joint, **values)
+            self.reply = "OK (SAVE ON WHIP to keep it)" if r.status_code == 200 else f"{r.status_code} {r.text[:40]}"
+        except requests.RequestException as e:
+            self.reply = f"couldn't tell him: {e.__class__.__name__}"
+
+    def save_cal(self):
+        try:
+            self.hold.get("/calib/save")
+            self.reply = "calibration saved on him"
+        except requests.RequestException as e:
+            self.reply = f"couldn't save on him: {e.__class__.__name__}"
+
+    def defaults(self):
+        try:
+            self.hold.get("/calib/defaults")
         except requests.RequestException:
             pass
 
+    def stand(self):
+        self.hold.release()
+        self.connected = False
+        self.reply = "STAND: he's his own again (CONNECT to take him back)"
+
     def close(self):
-        self.stand()
+        self.hold.release()
 
 
 def serial_ports():
@@ -387,6 +485,11 @@ class Studio:
         try:
             if self.mode == "SERIAL":
                 self.link = SerialLink(self.ports[self.port_i], BAUDS[self.baud_i])
+                try:   # his ESP32 talks to the same board: hold him still while the studio drives it
+                    self.link.hold = StudioHold(self.wifi_url)
+                    self.link.reply = "connected; WHIP holds still (the studio holds him over WiFi)"
+                except (requests.RequestException, ConnectionError):
+                    self.link.reply = "connected; WHIP not reached over WiFi: his ESP32 may still drive the board"
             elif self.mode == "WHIP WIFI":
                 self.link = WhipWifi(self.wifi_url)
             else:
@@ -504,6 +607,105 @@ class Studio:
             self.note = "servo_config.h written; flashing WHIP in its own window"
         except OSError as e:
             self.note = f"servo_config.h written; couldn't start the flash: {e}"
+
+    # -- calibration: the picked servo's trim and direction, as his /calib page --
+    def _picked_joint(self):
+        if self.sel not in JOINT_OF:
+            self.note = f"channel {self.sel} isn't one of his joints"
+            return None
+        return JOINT_OF[self.sel][:2]
+
+    def _tell_whip(self, leg, joint, **values):
+        f = getattr(self.link, "calib", None)
+        if f:
+            threading.Thread(target=f, args=(leg, joint), kwargs=values, daemon=True).start()
+
+    def trim(self, step):
+        """TRIM - / +: the joint moves with it, so you can line it up by eye (Shift: 1 us)."""
+        lj = self._picked_joint()
+        if lj is None:
+            return
+        l, j = lj
+        ch, rev, old = CAL[l][j]
+        step = step if pygame.key.get_mods() & pygame.KMOD_SHIFT else step * 5
+        new = max(-400, min(400, old + step))
+        if new == old:
+            return
+        CAL[l][j] = (ch, rev, new)
+        remap()
+        save_cal()
+        self.set_us(ch, self.target.get(ch, 1500) + new - old)
+        self._tell_whip(l, j, trim=new)
+        self.note = f"{name_of(ch)}: trim {new:+d} us"
+
+    def flip_rev(self):
+        lj = self._picked_joint()
+        if lj is None:
+            return
+        l, j = lj
+        ch, rev, trim = CAL[l][j]
+        CAL[l][j] = (ch, not rev, trim)
+        remap()
+        save_cal()
+        self._tell_whip(l, j, rev=int(not rev))
+        self.note = f"{name_of(ch)}: {'reversed' if not rev else 'not reversed'}"
+
+    def wiggle(self):
+        """That servo out and back twice: which leg is it on?"""
+        ch, base = self.sel, self.target.get(self.sel, 1500)
+
+        def go():
+            for d in (150, 0, 150, 0):
+                self.link.send(fmt({ch: max(500, min(2500, base + d))}, 250))
+                time.sleep(0.3)
+        threading.Thread(target=go, daemon=True).start()
+        self.note = f"wiggling channel {ch}"
+
+    def cal_save(self):
+        f = getattr(self.link, "save_cal", None)
+        if f:
+            threading.Thread(target=f, daemon=True).start()
+            self.note = "calibration saved here and on WHIP"
+        else:
+            self.note = "saved in whip_calibration.json (WHIP WIFI saves it on him too)"
+
+    def cal_defaults(self):
+        CAL[:] = [list(leg) for leg in wb.DEFAULT_CAL]
+        remap()
+        save_cal()
+        f = getattr(self.link, "defaults", None)
+        if f:
+            threading.Thread(target=f, daemon=True).start()
+        self.note = "calibration back to his defaults (trims 0)"
+
+    def reboot(self):
+        hold = getattr(self.link, "hold", None)
+        if hold is None:
+            self.note = "REBOOT needs WHIP: connect over WHIP WIFI"
+            return
+        threading.Thread(target=hold.reboot, daemon=True).start()
+        self.link.reply = "REBOOT: his ESP32 restarts (CONNECT again once he's up)"
+        self.note = "WHIP is restarting"
+
+    def sync_cal(self):
+        """His calibration as he has it (fetched when his settings' rev moved), and the hold's health."""
+        hold = getattr(self.link, "hold", None)
+        if hold is None:
+            return
+        if hold.error:
+            self.link.reply = hold.error
+        st, hold.cal_state = hold.cal_state, None
+        if not st or "legs" not in st:
+            return
+        try:
+            his = [[(s["ch"], bool(s["rev"]), int(s["trim"])) for s in leg["servos"]] for leg in st["legs"]]
+        except (KeyError, TypeError, ValueError):
+            return
+        if his != [list(leg) for leg in CAL]:
+            CAL[:] = his
+            remap()
+            save_cal()
+            self.note = "his calibration, from WHIP"
 
     # -- moving a servo to another pin on the board --
     def move_pin(self, step):
@@ -842,11 +1044,23 @@ class Studio:
         self.btn((x, y, 108, 26), f"RUN G{self.gi} F1", lambda: self.link.send(f"G{self.gi}F1"))
         self.btn((x + 112, y, 108, 26), "STOP  ~ST", lambda: self.link.send("~ST")); y += 32
         self.btn((x, y, 108, 26), "RESTART ~RE", lambda: self.link.send("~RE"))
-        self.btn((x + 112, y, 108, 26), "STAND (WHIP)", lambda: getattr(self.link, "stand", lambda: None)()); y += 38
+        self.btn((x + 112, y, 108, 26), "STAND (WHIP)", lambda: getattr(self.link, "stand", lambda: None)()); y += 32
+        self.btn((x, y, 220, 26), "REBOOT WHIP (his ESP32)", self.reboot); y += 38
 
         self.label("POSES", (x, y)); y += 18
         self.btn((x, y, 108, 26), "STANCE", lambda: self.send_pose(stand_pose(), 600))
         self.btn((x + 112, y, 108, 26), "ZERO 1500+trim", lambda: self.send_pose(zero_pose(), 600)); y += 38
+
+        self.label(kit.fit(f"CALIBRATION: {name_of(self.sel) or f'ch {self.sel}'}", self.f_s, 220), (x, y)); y += 18
+        trim = JOINT_OF[self.sel][3] if self.sel in JOINT_OF else 0
+        rev = JOINT_OF[self.sel][2] if self.sel in JOINT_OF else False
+        self.btn((x, y, 70, 26), "TRIM -", lambda: self.trim(-1))
+        self.label(f"{trim:+d} us", (x + 82, y + 6), TEXT)
+        self.btn((x + 150, y, 70, 26), "TRIM +", lambda: self.trim(1)); y += 32
+        self.btn((x, y, 108, 26), "REV ON" if rev else "REV OFF", self.flip_rev, rev)
+        self.btn((x + 112, y, 108, 26), "WIGGLE", self.wiggle); y += 32
+        self.btn((x, y, 108, 26), "SAVE ON WHIP", self.cal_save, color=OK)
+        self.btn((x + 112, y, 108, 26), "DEFAULTS", self.cal_defaults); y += 38
 
         self.label("FILE", (x, y)); y += 18
         self.btn((x, y, 150, 26), f"OPEN > {os.path.basename(self.path) if self.path else '-'}", self.open_next)
@@ -1144,6 +1358,7 @@ class Studio:
                 running = self.on_event(ev) and running
             self.tick_anim()
             self.tick_live()
+            self.sync_cal()
             self.draw()
             self.clock.tick(60)
         self._stop.set()

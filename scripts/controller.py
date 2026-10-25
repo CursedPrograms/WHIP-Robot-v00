@@ -415,6 +415,7 @@ WHIP_LINES = {
     "hello": ["Hello there! Yes, it's me, WHIP.", "Greetings, admirers!"],
     "dance": ["Music? No? I'll dance anyway.", "Behold, the hexapod shuffle."],
     "center": ["All servos to the middle. Calibration time.", "Hold still, everyone. Especially me."],
+    "studio": ["Servo Studio has me. You'll have to wait.", "I'm being tested. Hands off the controls."],
     "ps2": ["A real gamepad, plugged into me. How retro.", "PlayStation pad detected. Let's play."],
 }
 MIND_MOVE_TIMEOUT = 25.0   # s: the longest a /mind move (4 cycles) should take
@@ -645,7 +646,9 @@ class ControllerLayout:
                 say("down")
         if s.get("resting") != was.get("resting"):
             say("rest" if s.get("resting") else "wake")
-        if s.get("calibrating") and not was.get("calibrating"):
+        if s.get("studio") and not was.get("studio"):
+            say("studio")
+        elif s.get("calibrating") and not was.get("calibrating"):
             say("center")
         if s.get("ps2") and not was.get("ps2"):
             say("ps2")
@@ -1242,6 +1245,8 @@ class ControllerLayout:
             text, color = "EMULATED WHIP: starting...", WARN_COLOR
         elif self.link.searching:
             text, color = "WHIP: searching (NORA's network, then WHIP's own AP)...", MUTED_TEXT
+        elif self.link.connected and (self.link.status or {}).get("studio"):
+            text, color = "SERVO STUDIO HAS HIM: everything here waits until it lets go", WARN_COLOR
         elif self.link.connected:
             text, color = f"WHIP: connected @ {self.link.base_url}", OK_COLOR
         else:

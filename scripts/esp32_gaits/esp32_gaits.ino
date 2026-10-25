@@ -160,14 +160,26 @@ bool radarInFlight = false;
 bool radarRequested = false;
 
 // === CONTROL LOCK ===
-// A device must unlock with the PIN before it can drive WHIP. The unlocked
-// device is remembered by IP; a new device must re-enter the PIN. Looking
-// (page, /status, /radar) is always allowed; driving is not.
+// A device must unlock with the PIN before it can drive WHIP. Unlocked devices
+// are remembered by IP, up to MAX_CONTROLLERS at once (the PC controller, his page
+// on a phone, ...): a new one takes the oldest one's place. Looking (page, /status,
+// /radar) is always allowed; driving is not. Servo Studio outranks them all: while
+// it holds him (/studio), only the studio drives him.
 // (radar + lock helper functions are defined lower down, after the type
 // declarations, so the auto-generated prototypes land after those types.)
 const char* const CONTROL_PIN = "1234";
-IPAddress controllerIP(0, 0, 0, 0);
-bool controllerUnlocked = false;
+const uint8_t MAX_CONTROLLERS = 4;
+IPAddress controllerIPs[MAX_CONTROLLERS];
+uint8_t controllerCount = 0, controllerNext = 0;
+// Servo Studio: it checks in on /studio about every second while it's connected. No word
+// for STUDIO_TIMEOUT_MS (closed, crashed, out of range) and he's his own again. It's known by
+// its session id (sid=, on every request it makes), not its IP: the controller and his page
+// are often on the same PC as the studio, and they mustn't drive him while it holds him.
+const unsigned long STUDIO_TIMEOUT_MS = 5000;
+String studioSid;
+IPAddress studioIP(0, 0, 0, 0);
+unsigned long studioSeen = 0;
+bool studioActive = false;
 // The mind host: a PC controller that can run the LLM (mind.py can_think()) unlocks with
 // /unlock?pw=&ctl=1 and checks in on every /status?ctl=1. MIND mode needs it there: the
 // button (controller or web page) only works while it is, and only it drives /mind.
@@ -577,6 +589,7 @@ void loop() {
   outputsTick(false);
 
   if (centreSwitchLoop()) return;   // the build switch holds every servo at 1500 us
+  if (studioLoop()) return;         // Servo Studio holds him: it moves the servos, nothing else
   pollTilt();
   if (sysState == SYS_TILT_SAFE || sysState == SYS_HELD) return;
 
@@ -1764,8 +1777,60 @@ void radarLoop() {
   }
 }
 
+bool studioHolds() { return studioActive && millis() - studioSeen < STUDIO_TIMEOUT_MS; }
+
 bool isController() {
-  return controllerUnlocked && server.client().remoteIP() == controllerIP;
+  const IPAddress ip = server.client().remoteIP();
+  if (studioHolds()) return server.arg("sid") == studioSid;   // the testing software outranks everyone
+  for (uint8_t i = 0; i < controllerCount; i++) if (controllerIPs[i] == ip) return true;
+  return false;
+}
+
+void addController(IPAddress ip) {
+  for (uint8_t i = 0; i < controllerCount; i++) if (controllerIPs[i] == ip) return;
+  if (controllerCount < MAX_CONTROLLERS) { controllerIPs[controllerCount++] = ip; return; }
+  controllerIPs[controllerNext] = ip;   // full: the oldest one makes room
+  controllerNext = (controllerNext + 1) % MAX_CONTROLLERS;
+}
+
+// He's his own again: the studio let go or went quiet. He stands in WEB mode, not walking off.
+void studioRelease() {
+  if (!studioActive) return;
+  studioActive = false;
+  calibrating = false;
+  controlMode = CTRL_WEB; webActiveCmd = 0;
+  ikNow = ik::home();
+  standNow();
+  stoodSince = millis();
+  Serial2.println(F("STUDIO: let go, standing (web mode)"));
+}
+
+// true while Servo Studio holds him: loop() does nothing else, so no remote, pad, tilt
+// safety or walk moves a servo under the studio's hands
+bool studioLoop() {
+  if (studioActive && !studioHolds()) studioRelease();   // it went quiet
+  return studioActive;
+}
+
+// Every saved setting in one number (FNV-1a): lights, gait, height, speed, tilt safety,
+// sound, body, calibration. /status carries it, so every page and program sees at once that
+// something changed somewhere, and fetches what it shows again.
+uint32_t settingsRev() {
+  uint32_t h = 2166136261u;
+  auto mix = [&h](const void* p, size_t n) {
+    const uint8_t* b = (const uint8_t*)p;
+    while (n--) { h ^= *b++; h *= 16777619u; }
+  };
+  mix(leds::cfg, sizeof leds::cfg); mix(&leds::brightness, sizeof leds::brightness);
+  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1);
+  mix(&tiltGuard, sizeof tiltGuard); mix(&buzzer::muted, sizeof buzzer::muted);
+  mix(&bodyK, sizeof bodyK); mix(&ik::calibrated, sizeof ik::calibrated);
+  for (uint8_t l = 0; l < ik::LEGS; l++)
+    for (uint8_t j = 0; j < ik::JOINTS; j++) {
+      const ik::ServoCal& c = ik::cal[l][j];
+      mix(&c.ch, sizeof c.ch); mix(&c.rev, sizeof c.rev); mix(&c.trim, sizeof c.trim);
+    }
+  return h;
 }
 
 void handleWebCmd() {
@@ -1797,7 +1862,7 @@ void handleWebCmd() {
 bool mindHostAlive() { return mindHostSeen && millis() - mindHostSeen < MIND_HOST_TTL_MS; }
 
 void handleMindCmd() {
-  if (!mindHostAlive() || server.client().remoteIP() != mindHostIP) { server.send(403, "text/plain", "LOCKED"); return; }
+  if (studioHolds() || !mindHostAlive() || server.client().remoteIP() != mindHostIP) { server.send(403, "text/plain", "LOCKED"); return; }
   if (controlMode != CTRL_MIND) { server.send(409, "application/json", "{\"ok\":false,\"error\":\"not in mind mode\"}"); return; }
   String act = server.arg("act");
   int steps = server.hasArg("steps") ? server.arg("steps").toInt() : 1;
@@ -1899,6 +1964,8 @@ void handleStatus() {
   json += "\"resting\":"     + String(resting ? 1 : 0) + ",";
   json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0) + ",";
   json += "\"centred\":"     + String(centred ? 1 : 0) + ",";
+  json += "\"studio\":"      + String(studioHolds() ? 1 : 0) + ",";
+  json += "\"rev\":"         + String(settingsRev()) + ",";
   json += "\"bodyMode\":"    + String(bodyMode ? 1 : 0) + ",";
   json += "\"bodyK\":"       + String(bodyK, 2) + ",";
   json += "\"body\":["       + String(bodyNow.x, 1) + "," + String(bodyNow.y, 1) + "," + String(bodyNow.z, 1) + "," +
@@ -1924,15 +1991,51 @@ void setupWebServer() {
   });
   server.on("/unlock",   []() {
     if (server.hasArg("pw") && server.arg("pw") == CONTROL_PIN) {
-      controllerIP = server.client().remoteIP();
-      controllerUnlocked = true;
-      if (server.arg("ctl") == "1") { mindHostIP = controllerIP; mindHostSeen = millis(); }
-      server.send(200, "application/json", "{\"ok\":true,\"controller\":\"" + controllerIP.toString() + "\"}");
+      const IPAddress ip = server.client().remoteIP();
+      addController(ip);
+      if (server.arg("ctl") == "1") { mindHostIP = ip; mindHostSeen = millis(); }
+      server.send(200, "application/json", "{\"ok\":true,\"controller\":\"" + ip.toString() + "\",\"studio\":" +
+                  String(studioHolds() && server.arg("sid") != studioSid ? 1 : 0) + "}");
     } else {
       server.send(403, "application/json", "{\"ok\":false,\"error\":\"bad pin\"}");
     }
   });
   server.on("/keys",     []() { server.send_P(200, "text/html", KEYS_HTML); });
+  // Servo Studio: ?pw=<PIN>&sid=<its session>&on=1 takes him and checks in (about every second),
+  // on=0 lets go.
+  // While it holds him nobody else drives him (403), and IR, the PS2 pad and tilt safety rest.
+  server.on("/studio",   []() {
+    const IPAddress ip = server.client().remoteIP();
+    if (server.arg("on") == "0") {
+      if (studioActive && server.arg("sid") == studioSid) studioRelease();
+      server.send(200, "application/json", "{\"ok\":true,\"studio\":0}");
+      return;
+    }
+    if (server.arg("pw") != CONTROL_PIN) { server.send(403, "application/json", "{\"ok\":false,\"error\":\"bad pin\"}"); return; }
+    const String sid = server.arg("sid");
+    if (sid.length() < 4) { server.send(400, "application/json", "{\"ok\":false,\"error\":\"sid= missing\"}"); return; }
+    if (studioHolds() && sid != studioSid) {
+      server.send(409, "application/json", "{\"ok\":false,\"error\":\"another Servo Studio has him: " + studioIP.toString() + "\"}");
+      return;
+    }
+    if (!studioActive) {
+      Serial2.print(F("STUDIO: ")); Serial2.print(ip); Serial2.println(F(" has him"));
+      abortMovement = true; webActiveCmd = 0; irActiveCmd = 0; gaitNow.running = false;
+      currentMove = MOVE_STAND; calibrating = true;
+      wakeUp();
+    }
+    studioSid = sid; studioIP = ip; studioSeen = millis(); studioActive = true;
+    addController(ip);
+    server.send(200, "application/json", "{\"ok\":true,\"studio\":1,\"rev\":" + String(settingsRev()) + "}");
+  });
+  // Restart his ESP32 (the controller's / the studio's REBOOT): the reply goes out first
+  server.on("/reboot",   []() {
+    if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
+    server.send(200, "text/plain", "OK");
+    Serial2.println(F("REBOOT (web)"));
+    delay(300);
+    ESP.restart();
+  });
   server.on("/",         handleRoot);
   server.on("/web",      handleWebCmd);
   server.on("/mode",     handleModeCmd);
@@ -2297,8 +2400,18 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     const MOVE_NAMES  = ['STAND', 'WALK', 'BACKWARD', 'TURN L', 'TURN R'];
     const WIFI_NAMES  = ['JOINED', 'HOSTING'];
 
+
+    // Servo Studio holds him: say so (everything here is refused until it lets go)
+    var studioBar = document.createElement('div');
+    studioBar.textContent = 'SERVO STUDIO HAS HIM: everything else waits until it lets go';
+    studioBar.style.cssText = 'display:none;position:fixed;top:0;left:0;right:0;z-index:10000;padding:8px;' +
+      'text-align:center;font-weight:bold;letter-spacing:1px;background:#b3262e;color:#fff';
+    document.body.appendChild(studioBar);
+    function studioNote(on) { studioBar.style.display = on ? '' : 'none'; }
+
     function updateStatus() {
       fetch('/status').then(function (r) { return r.json(); }).then(function (j) {
+        studioNote(j.studio);
         document.getElementById('sDist').textContent = j.distance >= 0 ? j.distance : '--';
         document.getElementById('sTilt').textContent = Math.max(Math.abs(j.pitch), Math.abs(j.roll)).toFixed(1);
         document.getElementById('modeMind').style.display = j.mindHost ? '' : 'none';   // only while his controller can think
@@ -2635,7 +2748,7 @@ void setupCalibRoutes() {
     if (server.hasArg("ch"))   c.ch   = constrain(server.arg("ch").toInt(), 0, 32);
     if (server.hasArg("rev"))  c.rev  = server.arg("rev") == "1";
     if (server.hasArg("trim")) c.trim = constrain(server.arg("trim").toInt(), -400, 400);
-    calibShow(calibPose);
+    if (!studioHolds()) calibShow(calibPose);   // the studio moves the servos itself
     calibState();
   });
   // /servo?l=<line>: a line straight to the servo controller (Servo Studio): "#1P1500#2P1600T300",
@@ -2676,7 +2789,7 @@ void setupCalibRoutes() {
   server.on("/calib/defaults", []() {
     if (!calibAllowed()) return;
     ik::loadDefaults();
-    if (calibrating) calibShow(calibPose);
+    if (calibrating && !studioHolds()) calibShow(calibPose);
     calibState();
   });
   server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9, saved

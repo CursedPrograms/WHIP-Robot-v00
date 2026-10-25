@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -30,6 +31,7 @@ HOST, PORT = "127.0.0.1", 5005    # WHIP's port, on this PC only
 CONTROL_PIN = "1234"              # as esp32_gaits.ino
 WEB_TIMEOUT_S = 0.5               # no /web for this long: he stands (as the firmware)
 MIND_HOST_TTL_S = 5.0
+STUDIO_TIMEOUT_S = 5.0            # Servo Studio quiet this long: he's his own again (as the firmware)
 MIN_DISTANCE_CM = 35              # obstacle mode turns away here, MIND refuses to walk at it
 HAND_WALL_CM = 20                 # driven by hand: no walking forward closer than this
 ROOM_CM = 200                     # the pretend wall ahead, from where he starts
@@ -53,6 +55,7 @@ class Whip:
     def __init__(self):
         self.lock = threading.Lock()
         self.unlocked = False
+        self.studio_sid, self.studio_seen = None, 0.0   # Servo Studio holds him (as his /studio)
         self.mind_host_seen = 0.0
         self.mode = MODES["obstacle"]       # he boots in obstacle avoidance
         self.move = STAND
@@ -114,6 +117,14 @@ class Whip:
             if self.mode == MODES["mind"] and now >= self.mind_until:
                 self.mind_move = STAND
 
+    def studio_holds(self):
+        return self.studio_sid is not None and time.monotonic() - self.studio_seen < STUDIO_TIMEOUT_S
+
+    def rev(self):
+        """Every saved setting in one number, as his settingsRev(): it moves when anything changes."""
+        return zlib.crc32(repr((self.gait, self.height, self.speed, self.tilt_guard, self.sound, self.body_k,
+                                self.calibrated, self.cal)).encode())
+
     def status(self):
         t = time.monotonic()
         walking = self.move != STAND
@@ -127,6 +138,7 @@ class Whip:
             "mindSteps": int(self.mode == MODES["mind"] and t < self.mind_until),
             "blocked": int(self.blocked), "height": self.height, "speed": self.speed, "gait": self.gait,
             "tiltGuard": int(self.tilt_guard), "sound": int(self.sound), "resting": int(self.resting),
+            "studio": int(self.studio_holds()), "rev": self.rev(),
         }
 
 
@@ -196,8 +208,38 @@ class Handler(BaseHTTPRequestHandler):
                 "legs": [{"name": LEG_NAMES[l], "servos": [
                     {"joint": JOINT_NAMES[k], "ch": c[0], "rev": c[1], "trim": c[2]} for k, c in enumerate(leg)]}
                     for l, leg in enumerate(w.cal)]})
+        if path == "/studio":      # Servo Studio takes him (on=1, about every second) or lets go (on=0)
+            if q.get("on") == "0":
+                if w.studio_sid is not None and q.get("sid") == w.studio_sid:
+                    w.studio_sid, w.calibrating, w.mode, w.web_move = None, False, MODES["web"], STAND
+                    log("Servo Studio let go: stands (web mode)")
+                return self.reply(200, {"ok": True, "studio": 0})
+            if q.get("pw") != CONTROL_PIN:
+                return self.reply(403, {"ok": False, "error": "bad pin"})
+            if len(q.get("sid", "")) < 4:
+                return self.reply(400, {"ok": False, "error": "sid= missing"})
+            if w.studio_holds() and q["sid"] != w.studio_sid:
+                return self.reply(409, {"ok": False, "error": "another Servo Studio has him: 127.0.0.1"})
+            if not w.studio_holds():
+                log("Servo Studio has him: everything else waits")
+            w.studio_sid, w.studio_seen, w.unlocked = q["sid"], now, True
+            w.calibrating, w.web_move, w.move = True, STAND, STAND
+            return self.reply(200, {"ok": True, "studio": 1, "rev": w.rev()})
+        if w.studio_sid is not None and not w.studio_holds():   # the studio went quiet
+            w.studio_sid, w.calibrating, w.mode, w.web_move = None, False, MODES["web"], STAND
+            log("Servo Studio went quiet: stands (web mode)")
+        if w.studio_holds() and q.get("sid") != w.studio_sid:
+            return self.reply(403, "LOCKED")
         if not w.unlocked:
             return self.reply(403, "LOCKED")
+        if path == "/servo":       # a line straight to the servo board (Servo Studio)
+            log(f"servo board: {q.get('l', '')[:60]}")
+            w.calibrating = True
+            return self.reply(200, {"ok": True})
+        if path == "/reboot":
+            log("REBOOT: (a pretend one) back in obstacle avoidance")
+            w.mode, w.move, w.web_move, w.calibrating, w.studio_sid = MODES["obstacle"], STAND, STAND, False, None
+            return self.reply(200, "OK")
 
         if path == "/web":
             cmd = q.get("cmd", "")
@@ -286,6 +328,10 @@ class Handler(BaseHTTPRequestHandler):
             if "trim" in q:
                 c[2] = max(-400, min(400, int(q["trim"])))
             log(f"{LEG_NAMES[int(q['leg'])]} {JOINT_NAMES[int(q['joint'])]}: ch {c[0]} rev {c[1]} trim {c[2]:+d} us")
+            return self.reply(200, {"ok": True})
+        if path == "/calib/defaults":
+            w.cal = [[list(c) for c in leg] for leg in DEFAULT_CAL]
+            log("calibration: back to the defaults")
             return self.reply(200, {"ok": True})
         if path == "/calib/save":
             w.calibrated = True

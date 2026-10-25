@@ -405,7 +405,20 @@ What RTrobot's ServoController program does, as our own, plus WHIP on screen:
   LOOP; open and save RTrobot XML (`gait.xml` itself is saved as `gait_studio.xml`).
 - **Connect**: EMULATE (just the drawing), SERIAL (the servo board's own USB, 115200; or a USB-TTL on its
   UART at the baud set on the board, 4800-115200, 9600 out of the box) or WHIP WIFI (through his `/servo`
-  route: he holds still meanwhile, STAND gives him back).
+  route).
+- **The studio outranks everything**: it's the testing software. Connected to WHIP (WHIP WIFI, or SERIAL
+  while his WiFi answers), it holds him (`/studio`). His controller, his web page, the IR remote, the PS2
+  pad, MIND and tilt safety all wait, even on the same PC, because the studio is known by its session id,
+  not its IP. They say "SERVO STUDIO HAS HIM". STAND (or closing the studio) gives him back, and he stands
+  in WEB mode. If the studio just goes quiet, he's his own again after 5 s. A second studio is refused.
+- **CALIBRATION**: the picked servo's TRIM - / + (5 us, Shift: 1 us; the joint moves with it), REV, WIGGLE,
+  SAVE ON WHIP, DEFAULTS: the same calibration as his `/calib` page, kept in `whip_calibration.json` and on
+  him. **REBOOT WHIP** restarts his ESP32.
+- **One setting, everywhere**: every unlocked device can drive him at once (up to four: the PC controller,
+  his page on a phone...). His `/status` carries `rev`, a fingerprint of every saved setting (lights, gait,
+  height, speed, tilt safety, sound, body, calibration), so a change made anywhere shows everywhere: his
+  pages (control, `/lights`, `/calib`), the controller and the studio fetch what they show again when it
+  moves.
 - **The board's commands** (from RTrobot's manual): `G<n>F<times>` runs a group stored on the board, `~ST`
   stops it, `~RE` restarts the board; its replies ("OK") show under the connection.
 - **Not yet**: the board's own settings (its UART baud, start positions, deviation -99..99, buzzer, auto
