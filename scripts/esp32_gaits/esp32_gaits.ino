@@ -964,7 +964,10 @@ bool dance() {
 }
 
 void runAct(char a) {
-  if      (a == 'r') restDown();
+  if      (a == 'r') {   // lying down means staying down: out of walking by himself, into WEB mode
+    if (controlMode == CTRL_OBSTACLE) { controlMode = CTRL_WEB; webActiveCmd = 0; Serial2.println(F("CONTROL -> WEB (rest)")); }
+    restDown();
+  }
   else if (a == 'w') wakeUp();
   else if (a == 'h') waveHello();
   else if (a == 'd') dance();
@@ -1146,7 +1149,7 @@ void setBody(ik::BodyPose b) {
 
 // Standing: move to the body pose if it changed (a short, smooth move)
 void applyBody() {
-  if (currentMove != MOVE_STAND || gaitNow.running) return;
+  if (resting || currentMove != MOVE_STAND || gaitNow.running) return;   // lying down: stays down till you drive him
   const ik::Frame f = standFrame();
   if (ik::maxOffset(ikNow, f) > 0.5f) ikMoveTo(f, false, true);
 }
