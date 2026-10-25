@@ -172,6 +172,9 @@ All grounds tied together
 | RGB LED grid DIN (~330 Ω in line) | GPIO 18 |
 | Buzzer | GPIO 19 |
 | PS2 pad receiver DAT / CMD / ATT / CLK | GPIO 27 / 25 / 26 / 32, VCC from **3.3 V** (H16's middle pin) |
+| Build switch (on: every servo at 1500 us) | GPIO 33 → switch → GND |
+
+**Build switch:** a toggle switch from GPIO 33 to GND (the ESP32's own pull-up, no resistor). On, every servo goes to its plain middle, 1500 us with no trim and no direction, so each horn goes on straight while he's built; he holds it and nothing drives him. On at power-up, he goes straight to the middle without standing first. Off, he stands up in WEB mode and waits (he doesn't walk off by himself). `/status` says `centred`. CENTER on the controller and ZERO on `/calib` are different: those add each servo's trim.
 
 The servo controller shares UART0 with the USB-serial bridge, exactly like NORA's ESP32↔Arduino link. **Disconnect the controller's wires before uploading**, then reconnect. Boot and status logging goes to Serial2 (GPIO 17) instead.
 

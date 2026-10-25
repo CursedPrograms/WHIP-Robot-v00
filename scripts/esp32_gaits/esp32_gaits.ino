@@ -38,6 +38,7 @@
     IR Receiver                : OUT -> GPIO14
     4x4 RGB grid (WS2812)      : DIN -> GPIO18, 5V, GND (leds.h)
     Buzzer (passive)           : + -> GPIO19 (~100 ohm), - -> GND (buzzer.h)
+    Build switch               : GPIO33 -> switch -> GND (on: every servo at 1500 us)
 
   ---------------------------------------------------------------------------
   WIFI
@@ -195,6 +196,7 @@ const unsigned long FLEET_HEARTBEAT_MS = 10000;
 const int TRIG_PIN = 12;   // strapping pin (MTDI) -- we drive it, nothing external holds it at boot
 const int ECHO_PIN = 13;
 const int IRR_PIN  = 14;
+const int CENTRE_PIN = 33;  // build switch to GND (internal pull-up): on, every servo to 1500 us
 const int MPU_ADDR = 0x68;
 
 // ---------------------------------------------------------------------------
@@ -341,6 +343,7 @@ bool calibrating = false; // /calib is open: WHIP stands still and takes no driv
 // Lying down (REST, idle, shutdown): belly on the floor, legs folded up. Every move gets him
 // up first (wakeUp()).
 bool resting = false;
+bool centred = false;     // the build switch is on: every servo at 1500 us, nothing moves him
 float restAngles[ik::LEGS][ik::JOINTS];   // the joint angles while he lies down / folds
 unsigned long stoodSince = 0;             // standing still since (he lies down after REST_AFTER_MS)
 bool dancing = false;
@@ -500,6 +503,7 @@ void setup() {
 
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
+  pinMode(CENTRE_PIN, INPUT_PULLUP);
 
   leds::begin();
   buzzer::begin();
@@ -518,8 +522,14 @@ void setup() {
   ps2::begin();   // nothing plugged in: it just finds no pad
   ikNow = ik::home();
   Serial2.println(ik::calibrated ? F("IK: calibration loaded") : F("IK: default calibration (fine-tune on /calib)"));
-  standNow();
-  Serial2.println(F("Sent: stand pose"));
+  if (digitalRead(CENTRE_PIN) == LOW) {   // build switch on: straight to the middle, no standing up
+    centred = true;
+    centreAll();
+    Serial2.println(F("Sent: every servo at 1500 us (build switch)"));
+  } else {
+    standNow();
+    Serial2.println(F("Sent: stand pose"));
+  }
   currentMove = MOVE_STAND;
   delay(BOOT_SETTLE_MS);
 
@@ -566,6 +576,7 @@ void loop() {
   }
   outputsTick(false);
 
+  if (centreSwitchLoop()) return;   // the build switch holds every servo at 1500 us
   pollTilt();
   if (sysState == SYS_TILT_SAFE || sysState == SYS_HELD) return;
 
@@ -667,6 +678,7 @@ void clampCommand(const char* in, char* out, size_t outSize) {
 
 // One frame to the controller, moving over `ms`. False if a foot is out of reach.
 bool ikSend(const ik::Frame& f, uint16_t ms) {
+  if (centred) return false;   // the build switch holds every servo at 1500 us
   if (!ik::line(f, cmdBuf, sizeof(cmdBuf))) {
     Serial2.println(F("IK: foot out of reach, frame skipped"));
     return false;
@@ -826,6 +838,49 @@ void Stand() {
   Serial2.println(F("MOVE -> STAND"));
 }
 
+// The build switch (CENTRE_PIN to GND): every servo to its plain middle, the servo type's
+// centre (1500 us) with no trim and no direction, so a horn goes on straight while he's built.
+// He holds it while the switch is on, nothing drives him, and when it goes off he stands up
+// in WEB mode (not walking off by himself).
+bool centreSwitchOn() {
+  static bool last = false;
+  static unsigned long since = 0;
+  const bool now = digitalRead(CENTRE_PIN) == LOW;
+  if (now != last) { last = now; since = millis(); }
+  return millis() - since >= 30 ? now : centred;   // 30 ms to settle: a switch bounces
+}
+
+void centreAll() {
+  size_t used = 0;
+  cmdBuf[0] = '\0';
+  for (uint8_t l = 0; l < ik::LEGS; l++)
+    for (uint8_t j = 0; j < ik::JOINTS; j++)
+      used += snprintf(cmdBuf + used, sizeof(cmdBuf) - used, "#%uP%d", ik::cal[l][j].ch, servocfg::JOINT[l][j].usCenter);
+  clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
+  Serial.print(safeBuf); Serial.print("T800\r\n");
+}
+
+// true while the switch holds him at the middle (loop() does nothing else then)
+bool centreSwitchLoop() {
+  const bool on = centreSwitchOn();
+  if (on && !centred) {
+    centred = true;
+    abortMovement = true; webActiveCmd = 0; gaitNow.running = false;
+    resting = false; currentMove = MOVE_STAND;
+    centreAll();
+    buzzer::play(buzzer::LOCK);
+    Serial2.println(F("BUILD SWITCH ON: every servo at 1500 us"));
+  } else if (!on && centred) {
+    centred = false;
+    controlMode = CTRL_WEB; webActiveCmd = 0;
+    ikSend(ik::home(), 800);
+    stoodSince = millis();
+    buzzer::play(buzzer::WAKE);
+    Serial2.println(F("BUILD SWITCH OFF: standing (web mode)"));
+  }
+  return centred;
+}
+
 bool MoveForward()   { return gaitCycle(1, 0, 0, true); }
 bool StrafeLeft()    { return gaitCycle(0, 1, 0, false); }
 bool StrafeRight()   { return gaitCycle(0, -1, 0, false); }
@@ -861,6 +916,7 @@ ik::Frame crouchPose() {    // his lowest stance
 }
 
 void anglesSend(const float a[ik::LEGS][ik::JOINTS], uint16_t ms) {
+  if (centred) return;
   ik::anglesLine(a, cmdBuf, sizeof(cmdBuf));
   clampCommand(cmdBuf, safeBuf, sizeof(safeBuf));
   Serial.print(safeBuf);
@@ -1063,7 +1119,7 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
 
     if (controlMode == CTRL_IR  && irActiveCmd  != irCmdAtMoveStart)  return false;
     if (controlMode == CTRL_WEB && webActiveCmd != webCmdAtMoveStart) return false;
-    if (abortMovement || linkLocked || sysState != SYS_ACTIVE) return false;
+    if (abortMovement || linkLocked || sysState != SYS_ACTIVE || centreSwitchOn()) return false;
   }
   return true;
 }
@@ -1842,6 +1898,7 @@ void handleStatus() {
   json += "\"sound\":"       + String(buzzer::muted ? 0 : 1) + ",";
   json += "\"resting\":"     + String(resting ? 1 : 0) + ",";
   json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0) + ",";
+  json += "\"centred\":"     + String(centred ? 1 : 0) + ",";
   json += "\"bodyMode\":"    + String(bodyMode ? 1 : 0) + ",";
   json += "\"bodyK\":"       + String(bodyK, 2) + ",";
   json += "\"body\":["       + String(bodyNow.x, 1) + "," + String(bodyNow.y, 1) + "," + String(bodyNow.z, 1) + "," +
