@@ -194,7 +194,7 @@ The board counts its pins right to left, so channel 1 is its furthest right. Eac
         back
 ```
 
-Don't assume both sides run front to back (the old default did, and he turned the wrong way). The map lives in `DEFAULT_CAL` in `scripts/esp32_gaits/ik_gait.h`, `scripts/whip_body.py`, `scripts/fake_whip.py` and `whip_calibration.json`: keep them the same.
+Don't assume both sides run front to back (the old default did, and he turned the wrong way). Every hip servo also turns clockwise (seen from above) for a bigger pulse, the other way to the IK, so all six hips are reversed (`rev`). The old default had both wrong, and the two mistakes cancelled out for walking forward but not for turning. The map lives in `DEFAULT_CAL` in `scripts/esp32_gaits/ik_gait.h`, `scripts/whip_body.py`, `scripts/fake_whip.py` and `whip_calibration.json`: keep them the same.
 
 | Channels (hip, knee, foot) | Leg | Old default (wrong, before Oct 2026) |
 |---|---|---|

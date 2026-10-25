@@ -102,18 +102,20 @@ struct ServoCal { uint8_t ch; bool rev; int16_t trim; };
 // How WHIP is wired: each leg on the servo board's pins nearest it. Channels 1-3 sit by his
 // right back leg, so side A (1-9) is the right side, back to front; side B (24-32) is the
 // left, front to back (30-32 by his left back leg). hip / knee / foot = coxa / femur / tibia;
-// side B's femur and tibia turn the other way (WHIP's own gait data). A direction and a trim
-// belong to the servo, so they go with its channel (MAP_VERSION moves old saved ones over).
+// side B's femur and tibia turn the other way (WHIP's own gait data), and every hip turns
+// clockwise (seen from above) for a bigger pulse, against the IK's anticlockwise: rev.
+// A direction and a trim belong to the servo, so they go with its channel.
 const ServoCal DEFAULT_CAL[LEGS][JOINTS] = {
-  { {24, false, 0}, {25, true, 0},  {26, true, 0}  },   // LF
-  { {27, false, 0}, {28, true, 0},  {29, true, 0}  },   // LM
-  { {30, false, 0}, {31, true, 0},  {32, true, 0}  },   // LB
-  { {7, false, 0},  {8, false, 0},  {9, false, 0}  },   // RF
-  { {4, false, 0},  {5, false, 0},  {6, false, 0}  },   // RM
-  { {1, false, 0},  {2, false, 0},  {3, false, 0}  },   // RB
+  { {24, true, 0}, {25, true, 0},  {26, true, 0}  },   // LF
+  { {27, true, 0}, {28, true, 0},  {29, true, 0}  },   // LM
+  { {30, true, 0}, {31, true, 0},  {32, true, 0}  },   // LB
+  { {7, true, 0},  {8, false, 0},  {9, false, 0}  },   // RF
+  { {4, true, 0},  {5, false, 0},  {6, false, 0}  },   // RM
+  { {1, true, 0},  {2, false, 0},  {3, false, 0}  },   // RB
 };
-// 1: channels 1-9 were taken for the left legs front to back, 24-32 the right (wrong: he turned
-// the wrong way, waved a back leg). 2: as wired.
+// 1: channels 1-9 were taken for the left legs front to back, 24-32 the right, hips not
+// reversed. The two mistakes cancelled for walking forward, not for turning (he turned the
+// wrong way, waved a back leg). 2: as wired, hips reversed: remap() moves a saved one over.
 const uint8_t MAP_VERSION = 2;
 
 ServoCal cal[LEGS][JOINTS];
@@ -140,6 +142,7 @@ inline bool remap(uint8_t version) {
       for (uint8_t ol = 0; ol < LEGS; ol++)
         for (uint8_t oj = 0; oj < JOINTS; oj++)
           if (old[ol][oj].ch == DEFAULT_CAL[l][j].ch && oj == j) cal[l][j] = old[ol][oj];
+  if (version < 2) for (uint8_t l = 0; l < LEGS; l++) cal[l][HIP].rev = !cal[l][HIP].rev;   // the hips, the other way
   return true;
 }
 
