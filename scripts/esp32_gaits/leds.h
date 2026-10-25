@@ -15,12 +15,18 @@
 
   Tilt stop: the whole grid flashes orange. Legs locked: everything dim red. Lying down:
   his mode colour, very dim and slow. Picked up: violet flicker. Dancing: colours.
+  Starting (the 5 s after power-on before he walks off): red, filling row by row. BODY mode: amber.
+
+  Every look's colour and effect (solid / breathe / blink / rainbow / off) and the brightness are
+  his to change: the /lights page (colour pickers), /leds?look=web&rgb=ff0000&fx=1 or ?bright=40,
+  kept in flash (Preferences "whip_leds"); /leds?reset=1 puts the colours above back.
   If the picture comes out turned or mirrored, set GRID_ROTATE / GRID_MIRROR;
   if every other row is backwards, the grid is wired zig-zag: GRID_SERPENTINE.
   Brightness stays low (GRID_BRIGHTNESS): 16 LEDs at full white pull ~1 A.
 */
 #pragma once
 #include <Adafruit_NeoPixel.h>
+#include <Preferences.h>
 #include "gaits.h"
 
 namespace leds {
@@ -33,7 +39,44 @@ const uint8_t GRID_ROTATE     = 0;      // quarter turns clockwise, 0-3: where L
 const bool    GRID_MIRROR     = false;  // left and right swapped
 const bool    GRID_SERPENTINE = false;  // rows wired zig-zag (every other row runs backwards)
 
-enum Look : uint8_t { OBSTACLE, IR, WEB, MIND, FOLLOW, LOCKED, TILT_STOP, HELD, SHUTDOWN };
+enum Look : uint8_t { OBSTACLE, IR, WEB, MIND, FOLLOW, LOCKED, TILT_STOP, HELD, SHUTDOWN, STARTING, BODY, LOOKS };
+const char* const LOOK_NAMES[LOOKS] = { "obstacle", "ir", "web", "mind", "follow", "locked", "tilt", "held",
+                                        "shutdown", "starting", "body" };
+enum Fx : uint8_t { FX_SOLID, FX_BREATHE, FX_BLINK, FX_RAINBOW, FX_OFF, FXS };
+const char* const FX_NAMES[FXS] = { "solid", "breathe", "blink", "rainbow", "off" };
+
+struct LookCfg { uint8_t r, g, b, fx; };
+const LookCfg DEFAULT_CFG[LOOKS] = {
+  { 26, 123, 217, FX_BREATHE },   // obstacle: his second colour, blue
+  { 150, 80, 230, FX_BREATHE },   // ir: violet
+  { 211, 72, 89, FX_BREATHE },    // web: his red
+  { 230, 80, 180, FX_BREATHE },   // mind: pink
+  { 0, 200, 190, FX_BREATHE },    // follow: teal
+  { 200, 64, 64, FX_SOLID },      // locked: dim red
+  { 255, 150, 0, FX_BLINK },      // tilt stop: orange flashes
+  { 170, 60, 255, FX_BLINK },     // held (picked up): violet flicker
+  { 0, 0, 0, FX_OFF },            // shutdown
+  { 255, 0, 0, FX_SOLID },        // starting: red, filling up as the 5 s run out
+  { 255, 170, 0, FX_BREATHE },    // body mode: amber
+};
+LookCfg cfg[LOOKS];
+uint8_t brightness = 40;
+Preferences store;
+
+inline void load() {
+  memcpy(cfg, DEFAULT_CFG, sizeof(cfg));
+  store.begin("whip_leds", true);
+  if (store.getBytesLength("cfg") == sizeof(cfg)) store.getBytes("cfg", cfg, sizeof(cfg));
+  brightness = store.getUChar("bright", 40);
+  store.end();
+}
+
+inline void save() {
+  store.begin("whip_leds", false);
+  store.putBytes("cfg", cfg, sizeof(cfg));
+  store.putUChar("bright", brightness);
+  store.end();
+}
 
 struct State {
   Look look;
@@ -43,6 +86,7 @@ struct State {
   bool tiltOff;          // tilt safety switched off
   bool resting;          // lying down
   bool dancing;
+  float startFrac = 0;   // STARTING: how much of the 5 s has gone (0..1)
 };
 
 // Which leg each cell shows (row 0 = his head), or -1 for the middle
@@ -57,8 +101,9 @@ Adafruit_NeoPixel px(COUNT, PIN, NEO_GRB + NEO_KHZ800);
 unsigned long lastShow = 0;
 
 inline void begin() {
+  load();
   px.begin();
-  px.setBrightness(GRID_BRIGHTNESS);
+  px.setBrightness(brightness);
   px.clear();
   px.show();
 }
@@ -80,13 +125,17 @@ inline uint32_t scaled(uint8_t r, uint8_t g, uint8_t b, float k) {
 }
 
 inline void lookColour(Look l, uint8_t& r, uint8_t& g, uint8_t& b) {
-  switch (l) {
-    case OBSTACLE: r = 100; g = 150; b = 230; break;   // the fleet's accent blue
-    case IR:       r = 150; g = 80;  b = 230; break;
-    case WEB:      r = 70;  g = 215; b = 100; break;
-    case MIND:     r = 230; g = 80;  b = 180; break;
-    case FOLLOW:   r = 0;   g = 200; b = 190; break;
-    default:       r = 200; g = 64;  b = 64;  break;
+  const LookCfg& c = cfg[l < LOOKS ? l : LOCKED];
+  r = c.r; g = c.g; b = c.b;
+}
+
+// How bright this look's effect is now (0..1); FX_RAINBOW is drawn on its own
+inline float fxLevel(uint8_t fx, unsigned long now) {
+  switch (fx) {
+    case FX_SOLID:   return 0.6f;
+    case FX_BLINK:   return (now / 250) % 2 ? 1.0f : 0.0f;
+    case FX_OFF:     return 0.0f;
+    default:         return 0.35f + 0.25f * sinf(now / 600.0f);   // breathe
   }
 }
 
@@ -97,16 +146,33 @@ inline void update(const State& s, bool force = false) {
   if (!force && now - lastShow < 33) return;
   lastShow = now;
 
-  if (s.look == SHUTDOWN) { px.clear(); px.show(); return; }
+  px.setBrightness(brightness);
+  const LookCfg& lc = cfg[s.look < LOOKS ? s.look : LOCKED];
+  if (s.look == SHUTDOWN || lc.fx == FX_OFF) { px.clear(); px.show(); return; }
+  if (lc.fx == FX_RAINBOW) {   // this look, as a rainbow running round the grid
+    for (uint8_t i = 0; i < COUNT; i++) px.setPixelColor(i, px.ColorHSV((uint16_t)(now * 40 + i * 4096)));
+    px.show();
+    return;
+  }
+  if (s.look == STARTING) {    // the 5 s before he walks off: filling up row by row from his tail
+    const float rows = s.startFrac * SIDE;
+    for (uint8_t row = 0; row < SIDE; row++)
+      for (uint8_t col = 0; col < SIDE; col++) {
+        const float lit = constrain(rows - (SIDE - 1 - row), 0.0f, 1.0f);
+        px.setPixelColor(index(row, col), scaled(lc.r, lc.g, lc.b, 0.08f + 0.92f * lit * fxLevel(lc.fx, now) / 0.6f));
+      }
+    px.show();
+    return;
+  }
   if (s.look == TILT_STOP) {
-    const uint32_t c = (now / 250) % 2 ? scaled(255, 150, 0, 1) : 0;
+    const uint32_t c = scaled(lc.r, lc.g, lc.b, fxLevel(lc.fx, now));
     for (uint8_t i = 0; i < COUNT; i++) px.setPixelColor(i, c);
     px.show();
     return;
   }
 
-  if (s.look == HELD) {   // picked up: a violet flicker
-    for (uint8_t i = 0; i < COUNT; i++) px.setPixelColor(i, scaled(170, 60, 255, (now / 90 + i) % 3 ? 0.25f : 1.0f));
+  if (s.look == HELD) {   // picked up: a flicker
+    for (uint8_t i = 0; i < COUNT; i++) px.setPixelColor(i, scaled(lc.r, lc.g, lc.b, (now / 90 + i) % 3 ? 0.25f : 1.0f));
     px.show();
     return;
   }
@@ -118,7 +184,7 @@ inline void update(const State& s, bool force = false) {
 
   uint8_t r, g, b;
   lookColour(s.look, r, g, b);
-  float breathe = s.look == LOCKED ? 0.15f : 0.35f + 0.25f * sinf(now / 600.0f);
+  float breathe = s.look == LOCKED ? 0.15f : fxLevel(lc.fx, now);
   if (s.resting) breathe = 0.04f + 0.04f * sinf(now / 1500.0f);
 
   for (uint8_t row = 0; row < SIDE; row++) {

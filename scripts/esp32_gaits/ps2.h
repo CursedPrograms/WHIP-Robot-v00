@@ -3,12 +3,12 @@
   kind sold for Arduino), read straight off four pins, no library (the protocol PS2X_lib speaks).
 
   Wiring, on his ACEBOTT ESP32 Max board (from its pin diagram):
-      DAT  -> GPIO 27  (H12's signal pin; the pull-up is the ESP32's own)
-      CMD  -> GPIO 25  (H10's signal pin)
-      ATT  -> GPIO 26  (H11's signal pin)
-      CLK  -> GPIO 32  (H16's signal pin)
-      VCC  -> 3.3 V    (H16's middle pin: rows H16-H21 are 3.3 V)
-      GND  -> GND
+      DAT  -> GPIO 27 - Yellow  (H12's signal pin; the pull-up is the ESP32's own)
+      CMD  -> GPIO 25  - Gray (H10's signal pin)
+      ATT  -> GPIO 26  - Yellow (H11's signal pin)
+      CLK  -> GPIO 32  - Purple (H16's signal pin)
+      VCC  -> 3.3 V   - Red  (H16's middle pin: rows H16-H21 are 3.3 V)
+      GND  -> GND - Black
   Not from an H1-H12 middle pin: those are 5 V, and a receiver on 5 V answers in 5 V, which the
   ESP32 can't take.
 
@@ -41,6 +41,7 @@ struct Pad {
 Pad pad;
 uint16_t pressedNow = 0;         // went down at the last read
 unsigned long lastPoll = 0, lastConfig = 0;
+uint8_t lastRaw[9] = { 0 };      // the receiver's last answer, for /ps2 (all ff: nothing drives DAT)
 
 inline uint8_t transfer(uint8_t out) {
   uint8_t in = 0;
@@ -100,6 +101,7 @@ inline bool poll() {
   static const uint8_t ask[] = { 0x01, 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
   uint8_t in[9];
   packet(ask, in, sizeof ask);
+  memcpy(lastRaw, in, sizeof lastRaw);
   const bool ok = in[2] == 0x5A && (in[1] == 0x41 || in[1] == 0x73 || in[1] == 0x79);
   if (!ok) {
     pad.connected = false;
@@ -119,6 +121,17 @@ inline bool poll() {
     pad.lx = pad.ly = pad.rx = pad.ry = 0;
   }
   return true;
+}
+
+// What the last answer says, in words (for /ps2 and the debug console)
+inline const char* diagnosis() {
+  bool allFF = true, allZero = true;
+  for (uint8_t i = 1; i < 9; i++) { allFF &= lastRaw[i] == 0xFF; allZero &= lastRaw[i] == 0x00; }
+  if (pad.connected) return "pad answering";
+  if (allFF) return "no answer: nothing drives DAT (wiring: DAT / ATT swapped? receiver powered from 3.3 V? try a 4.7-10k pull-up DAT -> 3.3 V)";
+  if (allZero) return "DAT stuck low (DAT shorted, or on the wrong pin)";
+  if (lastRaw[2] == 0x5A) return "receiver answers, but no pad paired (press START / the pad's power, check its light)";
+  return "garbled answer (loose wire, or CLK / CMD swapped)";
 }
 
 inline bool held(uint16_t b) { return pad.buttons & b; }

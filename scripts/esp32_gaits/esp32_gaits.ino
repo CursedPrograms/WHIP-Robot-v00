@@ -97,6 +97,7 @@
 #include "leds.h"               // the 4x4 RGB grid on GPIO18: his mode, his feet as he walks, walls, tilt
 #include "buzzer.h"             // a buzzer on GPIO19: chirps for walls, tilt, gait and mode changes
 #include "ps2.h"                // a PS2 pad's receiver on GPIO 25 / 26 / 27 / 32 (3.3 V): drives him directly
+#include "lights_page.h"        // /lights: every LED look's colour and effect, colour pickers
 #include "keys_page.h"           // /keys: every key and button (generated from scripts/keymap.py)
 #include "calib_page.h"         // /calib: trim each servo, check its channel, pick the gait
 
@@ -276,10 +277,11 @@ const unsigned long STAND_SETTLE_MS = TIMING_MARGIN_MS;   // Stand() itself wait
 const unsigned long STAND_HOLD_MS   = 800;    // hold the stand pose after hitting a wall (was 3 s: too long)
 
 // Boot: he stands, holds still for the gyro, and walks off in obstacle avoidance
-// WALK_AFTER_BOOT_MS after power-on, whatever the WiFi is doing (it joins in the background)
+// WALK_AFTER_BOOT_MS after that (red on the grid meanwhile), whatever the WiFi is doing (it joins in the background)
 const unsigned long CONTROLLER_BOOT_MS = 2000;   // the servo controller boots too: no pose before this
 const unsigned long BOOT_SETTLE_MS     = 1500;   // stand pose sent -> legs still -> calibrate the MPU
 const unsigned long WALK_AFTER_BOOT_MS = 5000;
+unsigned long readyAt = 0;   // when setup finished (standing, gyro calibrated): the 5 s count from here
 
 // ---------------------------------------------------------------------------
 // Obstacle avoidance tuning
@@ -530,6 +532,7 @@ void setup() {
   Serial2.print(WALK_AFTER_BOOT_MS / 1000);
   Serial2.println(F(" s"));
   buzzer::play(buzzer::BOOT);
+  readyAt = millis();
 }
 
 void loop() {
@@ -589,7 +592,7 @@ void loop() {
     mindSteps = 0;
     Serial2.println(F("MIND: controller gone -> WEB (standing)"));
   }
-  if (millis() < WALK_AFTER_BOOT_MS) return;            // just booted: standing until it's time
+  if (millis() - readyAt < WALK_AFTER_BOOT_MS) return;            // just booted: standing until it's time
 
   if (controlMode == CTRL_OBSTACLE) {
     runObstacleMode();
@@ -747,6 +750,8 @@ void outputsTick(bool force) {
   else if (sysState == SYS_TILT_SAFE) st.look = leds::TILT_STOP;
   else if (sysState == SYS_HELD)      st.look = leds::HELD;
   else if (linkLocked)                st.look = leds::LOCKED;
+  else if (bodyMode)                  st.look = leds::BODY;
+  else if (controlMode == CTRL_OBSTACLE && readyAt && millis() - readyAt < WALK_AFTER_BOOT_MS) st.look = leds::STARTING;   // red, 5 s
   else if (controlMode == CTRL_IR)    st.look = leds::IR;
   else if (controlMode == CTRL_WEB)   st.look = leds::WEB;
   else if (controlMode == CTRL_MIND)  st.look = leds::MIND;
@@ -758,6 +763,7 @@ void outputsTick(bool force) {
   st.tiltOff = !tiltGuard;
   st.resting = resting;
   st.dancing = dancing;
+  st.startFrac = constrain((float)(millis() - readyAt) / WALK_AFTER_BOOT_MS, 0.0f, 1.0f);
   leds::update(st, force);
 }
 
@@ -1200,10 +1206,29 @@ void pollWeb() {
 // ---------------------------------------------------------------------------
 bool ps2Driving = false;
 
+// 1: also print the PS2 receiver's raw answer on USB serial twice a second, to debug the pad with only
+// a USB cable. That line goes to the servo board too, so ONLY with the servo board switched off. Keep 0.
+#define PS2_DEBUG_USB 0
+
 void pollPS2() {
   using namespace ps2;
   const bool was = pad.connected;
-  if (!poll()) {
+  const bool ans = poll();
+#if PS2_DEBUG_USB
+  static unsigned long lastUsb = 0;
+  if (millis() - lastUsb > 500) {
+    lastUsb = millis();
+    Serial.print(F("PS2 raw:"));
+    for (uint8_t i = 0; i < 9; i++) Serial.printf(" %02x", lastRaw[i]);
+    Serial.printf("  buttons %04x  L %.2f %.2f  R %.2f %.2f  | %s\r\n", pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry, diagnosis());
+  }
+#endif
+  if (!ans) {
+    static unsigned long lastSay = 0;   // the debug console says why, every few seconds
+    if (millis() - lastSay > 4000) {
+      lastSay = millis();
+      Serial2.print(F("PS2: ")); Serial2.println(diagnosis());
+    }
     if (was) {
       Serial2.println(F("PS2: pad gone"));
       if (ps2Driving) { ps2Driving = false; webActiveCmd = 0; abortMovement = true; }
@@ -1853,6 +1878,39 @@ void setupWebServer() {
   server.on("/mind",     handleMindCmd);
   server.on("/shutdown", handleShutdownCmd);
   server.on("/status",   handleStatus);
+  server.on("/ps2",      []() {                 // the PS2 receiver's last answer, raw, and what it means
+    String j = "{\"connected\":" + String(ps2::pad.connected ? 1 : 0) + ",\"raw\":\"";
+    for (uint8_t i = 0; i < 9; i++) { char h[4]; snprintf(h, sizeof h, "%02x ", ps2::lastRaw[i]); j += h; }
+    j.trim();
+    j += "\",\"buttons\":" + String(ps2::pad.buttons) + ",\"lx\":" + String(ps2::pad.lx, 2) + ",\"ly\":" +
+         String(ps2::pad.ly, 2) + ",\"rx\":" + String(ps2::pad.rx, 2) + ",\"ry\":" + String(ps2::pad.ry, 2) +
+         ",\"pins\":\"DAT 27, CMD 25, ATT 26, CLK 32, VCC 3.3 V\",\"says\":\"" + ps2::diagnosis() + "\"}";
+    server.send(200, "application/json", j);
+  });
+  server.on("/leds",     []() {                 // the lights: GET = every look; ?look=&rgb=rrggbb&fx= / ?bright= / ?reset=1
+    if (server.args() && !isController()) { server.send(403, "text/plain", "LOCKED"); return; }
+    if (server.hasArg("reset")) { memcpy(leds::cfg, leds::DEFAULT_CFG, sizeof(leds::cfg)); leds::brightness = 40; leds::save(); }
+    if (server.hasArg("bright")) { leds::brightness = constrain(server.arg("bright").toInt(), 0, 255); leds::save(); }
+    if (server.hasArg("look")) {
+      for (uint8_t l = 0; l < leds::LOOKS; l++) if (server.arg("look") == leds::LOOK_NAMES[l]) {
+        if (server.hasArg("rgb")) {
+          const long v = strtol(server.arg("rgb").c_str(), nullptr, 16);
+          leds::cfg[l].r = (v >> 16) & 255; leds::cfg[l].g = (v >> 8) & 255; leds::cfg[l].b = v & 255;
+        }
+        if (server.hasArg("fx")) {
+          for (uint8_t f = 0; f < leds::FXS; f++) if (server.arg("fx") == leds::FX_NAMES[f] || server.arg("fx") == String(f)) leds::cfg[l].fx = f;
+        }
+        leds::save();
+      }
+    }
+    String j = "{\"bright\":" + String(leds::brightness) + ",\"looks\":{";
+    for (uint8_t l = 0; l < leds::LOOKS; l++) {
+      char hex[8]; snprintf(hex, sizeof hex, "%02x%02x%02x", leds::cfg[l].r, leds::cfg[l].g, leds::cfg[l].b);
+      j += String(l ? "," : "") + "\"" + leds::LOOK_NAMES[l] + "\":{\"rgb\":\"" + hex + "\",\"fx\":\"" + leds::FX_NAMES[leds::cfg[l].fx] + "\"}";
+    }
+    server.send(200, "application/json", j + "}}");
+  });
+  server.on("/lights",   []() { server.send_P(200, "text/html", LIGHTS_HTML); });
   server.on("/pose",     []() {                 // his joint angles now (deg, LF..RB x hip knee foot) + body pose
     float a[ik::LEGS][ik::JOINTS];
     String j = "{\"a\":[";
