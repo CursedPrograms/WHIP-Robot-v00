@@ -29,7 +29,9 @@ static const char LIGHTS_HTML[] PROGMEM = R"lights(<!DOCTYPE html>
   var FX = ['solid', 'breathe', 'blink', 'rainbow', 'off'];
   var WHAT = { obstacle: 'walking by himself', ir: 'on the IR remote', web: 'driven from here / the controller',
                mind: 'MIND mode', follow: 'follow me', locked: 'legs locked', tilt: 'tilt stop', held: 'picked up',
-               shutdown: 'shutting down', starting: 'the 5 s before he walks off', body: 'BODY mode' };
+               shutdown: 'shutting down', starting: 'the 5 s before he walks off', body: 'BODY mode',
+               tripod: 'legs, in tripod', ripple: 'legs, in ripple', wave: 'legs, in wave', quad: 'legs, in quad',
+               amble: 'legs, in amble', metachronal: 'legs, in metachronal' };
   function call(q) {
     return fetch('/leds' + q).then(function (r) {
       if (r.status == 403) { document.getElementById('msg').textContent = 'unlock with his PIN first'; return null; }

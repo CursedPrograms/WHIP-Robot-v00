@@ -759,6 +759,7 @@ void outputsTick(bool force) {
   else                                st.look = leds::OBSTACLE;
   st.walking = gaitNow.running;
   st.gait    = &gaitNow;
+  st.gaitId  = ik::gait;
   st.wall    = wall || obstacleCount > 0;
   st.tiltOff = !tiltGuard;
   st.resting = resting;

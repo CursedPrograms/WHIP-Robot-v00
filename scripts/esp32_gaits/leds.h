@@ -16,6 +16,8 @@
   Tilt stop: the whole grid flashes orange. Legs locked: everything dim red. Lying down:
   his mode colour, very dim and slow. Picked up: violet flicker. Dancing: colours.
   Starting (the 5 s after power-on before he walks off): red, filling row by row. BODY mode: amber.
+  Legs: in his gait's colour (tripod red, ripple orange, wave yellow, quad green, amble cyan,
+  metachronal magenta), dim on the ground, bright while that foot is in the air.
 
   Every look's colour and effect (solid / breathe / blink / rainbow / off) and the brightness are
   his to change: the /lights page (colour pickers), /leds?look=web&rgb=ff0000&fx=1 or ?bright=40,
@@ -39,9 +41,11 @@ const uint8_t GRID_ROTATE     = 0;      // quarter turns clockwise, 0-3: where L
 const bool    GRID_MIRROR     = false;  // left and right swapped
 const bool    GRID_SERPENTINE = false;  // rows wired zig-zag (every other row runs backwards)
 
-enum Look : uint8_t { OBSTACLE, IR, WEB, MIND, FOLLOW, LOCKED, TILT_STOP, HELD, SHUTDOWN, STARTING, BODY, LOOKS };
+enum Look : uint8_t { OBSTACLE, IR, WEB, MIND, FOLLOW, LOCKED, TILT_STOP, HELD, SHUTDOWN, STARTING, BODY,
+                      GAIT_LOOK, LOOKS = GAIT_LOOK + 6 };   // GAIT_LOOK + n: the legs' colour in gait n
 const char* const LOOK_NAMES[LOOKS] = { "obstacle", "ir", "web", "mind", "follow", "locked", "tilt", "held",
-                                        "shutdown", "starting", "body" };
+                                        "shutdown", "starting", "body",
+                                        "tripod", "ripple", "wave", "quad", "amble", "metachronal" };
 enum Fx : uint8_t { FX_SOLID, FX_BREATHE, FX_BLINK, FX_RAINBOW, FX_OFF, FXS };
 const char* const FX_NAMES[FXS] = { "solid", "breathe", "blink", "rainbow", "off" };
 
@@ -58,6 +62,12 @@ const LookCfg DEFAULT_CFG[LOOKS] = {
   { 0, 0, 0, FX_OFF },            // shutdown
   { 255, 0, 0, FX_SOLID },        // starting: red, filling up as the 5 s run out
   { 255, 170, 0, FX_BREATHE },    // body mode: amber
+  { 255, 40, 50, FX_SOLID },      // gaits (the legs): tripod red
+  { 255, 120, 0, FX_SOLID },      //   ripple orange
+  { 255, 220, 0, FX_SOLID },      //   wave yellow
+  { 40, 230, 60, FX_SOLID },      //   quad green
+  { 0, 200, 255, FX_SOLID },      //   amble cyan
+  { 230, 40, 255, FX_SOLID },     //   metachronal magenta
 };
 LookCfg cfg[LOOKS];
 uint8_t brightness = 40;
@@ -87,6 +97,7 @@ struct State {
   bool resting;          // lying down
   bool dancing;
   float startFrac = 0;   // STARTING: how much of the 5 s has gone (0..1)
+  uint8_t gaitId = 0;    // the chosen gait: the legs' colour
 };
 
 // Which leg each cell shows (row 0 = his head), or -1 for the middle
@@ -192,13 +203,14 @@ inline void update(const State& s, bool force = false) {
       const int8_t leg = CELL_LEG[row][col];
       uint32_t c = scaled(r, g, b, breathe);
 
-      if (leg >= 0) {
-        c = scaled(r, g, b, s.walking ? 0.12f : breathe * 0.6f);
+      if (leg >= 0) {   // the legs: his gait's colour
+        const LookCfg& gc = cfg[GAIT_LOOK + (s.gaitId < 6 ? s.gaitId : 0)];
+        c = scaled(gc.r, gc.g, gc.b, s.walking ? 0.12f : breathe * 0.6f);
         if (s.walking && s.gait && s.gait->air[leg]) {   // that foot is up: brighter, whiter the higher
           const float lift = constrain((s.gait->foot[leg].z - ik::homeZ()) / ik::LIFT, 0.0f, 1.0f);
-          const float k = 0.3f + 0.6f * lift;
-          c = Adafruit_NeoPixel::Color(r + (uint8_t)((255 - r) * k), g + (uint8_t)((255 - g) * k),
-                                       b + (uint8_t)((255 - b) * k));
+          const float k = 0.15f + 0.45f * lift;
+          c = Adafruit_NeoPixel::Color(gc.r + (uint8_t)((255 - gc.r) * k), gc.g + (uint8_t)((255 - gc.g) * k),
+                                       gc.b + (uint8_t)((255 - gc.b) * k));
         }
       } else if (row == 0 && s.wall) {
         c = scaled(255, 0, 0, (now / 150) % 2 ? 1.0f : 0.4f);
