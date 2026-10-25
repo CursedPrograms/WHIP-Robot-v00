@@ -9,75 +9,6 @@
       "servos": [
         {
           "joint": "hip",
-          "ch": 1,
-          "rev": 0,
-          "trim": 0
-        },
-        {
-          "joint": "knee",
-          "ch": 2,
-          "rev": 0,
-          "trim": 0
-        },
-        {
-          "joint": "foot",
-          "ch": 3,
-          "rev": 0,
-          "trim": 0
-        }
-      ]
-    },
-    {
-      "name": "LM",
-      "servos": [
-        {
-          "joint": "hip",
-          "ch": 4,
-          "rev": 0,
-          "trim": 0
-        },
-        {
-          "joint": "knee",
-          "ch": 5,
-          "rev": 0,
-          "trim": 0
-        },
-        {
-          "joint": "foot",
-          "ch": 6,
-          "rev": 0,
-          "trim": 0
-        }
-      ]
-    },
-    {
-      "name": "LB",
-      "servos": [
-        {
-          "joint": "hip",
-          "ch": 7,
-          "rev": 0,
-          "trim": 0
-        },
-        {
-          "joint": "knee",
-          "ch": 8,
-          "rev": 0,
-          "trim": 0
-        },
-        {
-          "joint": "foot",
-          "ch": 9,
-          "rev": 0,
-          "trim": 0
-        }
-      ]
-    },
-    {
-      "name": "RF",
-      "servos": [
-        {
-          "joint": "hip",
           "ch": 24,
           "rev": 0,
           "trim": 0
@@ -97,7 +28,7 @@
       ]
     },
     {
-      "name": "RM",
+      "name": "LM",
       "servos": [
         {
           "joint": "hip",
@@ -120,7 +51,7 @@
       ]
     },
     {
-      "name": "RB",
+      "name": "LB",
       "servos": [
         {
           "joint": "hip",
@@ -138,6 +69,75 @@
           "joint": "foot",
           "ch": 32,
           "rev": 1,
+          "trim": 0
+        }
+      ]
+    },
+    {
+      "name": "RF",
+      "servos": [
+        {
+          "joint": "hip",
+          "ch": 7,
+          "rev": 0,
+          "trim": 0
+        },
+        {
+          "joint": "knee",
+          "ch": 8,
+          "rev": 0,
+          "trim": 0
+        },
+        {
+          "joint": "foot",
+          "ch": 9,
+          "rev": 0,
+          "trim": 0
+        }
+      ]
+    },
+    {
+      "name": "RM",
+      "servos": [
+        {
+          "joint": "hip",
+          "ch": 4,
+          "rev": 0,
+          "trim": 0
+        },
+        {
+          "joint": "knee",
+          "ch": 5,
+          "rev": 0,
+          "trim": 0
+        },
+        {
+          "joint": "foot",
+          "ch": 6,
+          "rev": 0,
+          "trim": 0
+        }
+      ]
+    },
+    {
+      "name": "RB",
+      "servos": [
+        {
+          "joint": "hip",
+          "ch": 1,
+          "rev": 0,
+          "trim": 0
+        },
+        {
+          "joint": "knee",
+          "ch": 2,
+          "rev": 0,
+          "trim": 0
+        },
+        {
+          "joint": "foot",
+          "ch": 3,
+          "rev": 0,
           "trim": 0
         }
       ]
