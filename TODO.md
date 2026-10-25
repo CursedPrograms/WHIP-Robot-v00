@@ -7,6 +7,9 @@ WHIP now walks only by inverse kinematics: `scripts/esp32/ik_gait.h`, ported fro
 in the firmware (the file stays in the repo). Everything online is unchanged: web page, fleet, IR,
 obstacle avoidance, tilt safety, PIN.
 
+- [ ] **Back legs slipping since the 2026-10-24 flash** (the user, 2026-10-25): the old map's reversed hips
+      push the four corner feet ~90 deg off the body line (sideways, scrubbing), while the middle legs only
+      run backwards. Flashed the fix 2026-10-26: check the corner feet push straight back now.
 - [ ] **First flash of the U channel map (3a90afb): check forward.** If he walks backwards when you press
       forward, the hip reversal was wrong: flip all six hips' `rev` back (`ik_gait.h` DEFAULT_CAL,
       `whip_body.py`, `fake_whip.py`, `whip_calibration.json`, regenerate `gait_emulated.xml`), and bump
