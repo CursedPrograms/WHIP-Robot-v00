@@ -184,6 +184,18 @@ The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per
 
 How WHIP is wired: each leg on the servo board's pins nearest it (left and right as he sees it, the sonar at the front).
 
+The board counts its pins right to left, so channel 1 is its furthest right. Each leg is on the pins nearest it, which makes the channels run round the body in a U: from 1 at the back right, up the right side to the front, across the gap (10-23 unused) to 24 at the front left, and down the left side to 32 at the back left. It starts at the back and ends at the back: the shortest wire for every leg, none crossing over.
+
+```
+        front (sonar)
+  24-26 ┌─────┐ 7-9
+  27-29 │     │ 4-6
+  30-32 └─────┘ 1-3
+        back
+```
+
+Don't assume both sides run front to back (the old default did, and he turned the wrong way). The map lives in `DEFAULT_CAL` in `scripts/esp32_gaits/ik_gait.h`, `scripts/whip_body.py`, `scripts/fake_whip.py` and `whip_calibration.json`: keep them the same.
+
 | Channels (hip, knee, foot) | Leg | Old default (wrong, before Oct 2026) |
 |---|---|---|
 | 1-3 | right back | left front |
