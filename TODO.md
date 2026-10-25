@@ -7,6 +7,10 @@ WHIP now walks only by inverse kinematics: `scripts/esp32/ik_gait.h`, ported fro
 in the firmware (the file stays in the repo). Everything online is unchanged: web page, fleet, IR,
 obstacle avoidance, tilt safety, PIN.
 
+- [ ] **First flash of the U channel map (3a90afb): check forward.** If he walks backwards when you press
+      forward, the hip reversal was wrong: flip all six hips' `rev` back (`ik_gait.h` DEFAULT_CAL,
+      `whip_body.py`, `fake_whip.py`, `whip_calibration.json`, regenerate `gait_emulated.xml`), and bump
+      `MAP_VERSION` to 3 with a `version < 3` hip flip in `remap()` for the saved calibration.
 - [ ] Flash it with the big partition, like NORA: `esp32:esp32:esp32:PartitionScheme=huge_app`
       (scripts/flash.ps1 is set). It compiles (esp32 core 3.3.12): 1.9 MB = 60% of 3 MB; the default
       1.3 MB partition is too small, and was before the IK too (142%). Written and tested on a PC
