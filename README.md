@@ -180,7 +180,7 @@ The servo controller shares UART0 with the USB-serial bridge, exactly like NORA'
 <details>
 <summary><b>Servo channels</b></summary>
 
-The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per leg). Which channel is which leg and joint, and each servo's trim and direction, are set on `/calib` (defaults in `ik_gait.h`: channels 1-9 the left legs front to back, 24-32 the right).
+The gaits drive RTrobot channels **1–9** and **24–32** (18 servos, three per leg). Which channel is which leg and joint, and each servo's trim and direction, are set on `/calib` (defaults in `ik_gait.h`, as he is wired, each leg on the pins nearest it: 1-9 the right legs back to front, 24-32 the left legs front to back).
 
 `scripts/servo_setup/servo_setup.ino` sends every channel to 1500 µs (centre) for fitting the servo horns. It runs on an Arduino with the controller on SoftwareSerial pins 11 (RX) and 10 (TX) at 9600 baud.
 

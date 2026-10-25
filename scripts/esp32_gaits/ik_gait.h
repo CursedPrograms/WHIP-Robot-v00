@@ -99,19 +99,22 @@ struct Pos   { float x, y, z; };
 struct Frame { Pos leg[LEGS]; };
 struct ServoCal { uint8_t ch; bool rev; int16_t trim; };
 
-// Defaults from WHIP's own gait data: side A (channels 1-9) is the left side,
-// legs 1 / 4 / 7 front to back, hip / knee / foot = coxa / femur / tibia; side B
-// (24-32) is the right, mirrored (femur and tibia turn the other way). The XML
-// lifts legs 1, 7 and 27 together, which is the reference's first tripod (LF, LB,
-// RM): a good sign. Check each with WIGGLE on /calib before trusting it.
+// How WHIP is wired: each leg on the servo board's pins nearest it. Channels 1-3 sit by his
+// right back leg, so side A (1-9) is the right side, back to front; side B (24-32) is the
+// left, front to back (30-32 by his left back leg). hip / knee / foot = coxa / femur / tibia;
+// side B's femur and tibia turn the other way (WHIP's own gait data). A direction and a trim
+// belong to the servo, so they go with its channel (MAP_VERSION moves old saved ones over).
 const ServoCal DEFAULT_CAL[LEGS][JOINTS] = {
-  { {1, false, 0},  {2, false, 0},  {3, false, 0}  },   // LF
-  { {4, false, 0},  {5, false, 0},  {6, false, 0}  },   // LM
-  { {7, false, 0},  {8, false, 0},  {9, false, 0}  },   // LB
-  { {24, false, 0}, {25, true, 0},  {26, true, 0}  },   // RF
-  { {27, false, 0}, {28, true, 0},  {29, true, 0}  },   // RM
-  { {30, false, 0}, {31, true, 0},  {32, true, 0}  },   // RB
+  { {24, false, 0}, {25, true, 0},  {26, true, 0}  },   // LF
+  { {27, false, 0}, {28, true, 0},  {29, true, 0}  },   // LM
+  { {30, false, 0}, {31, true, 0},  {32, true, 0}  },   // LB
+  { {7, false, 0},  {8, false, 0},  {9, false, 0}  },   // RF
+  { {4, false, 0},  {5, false, 0},  {6, false, 0}  },   // RM
+  { {1, false, 0},  {2, false, 0},  {3, false, 0}  },   // RB
 };
+// 1: channels 1-9 were taken for the left legs front to back, 24-32 the right (wrong: he turned
+// the wrong way, waved a back leg). 2: as wired.
+const uint8_t MAP_VERSION = 2;
 
 ServoCal cal[LEGS][JOINTS];
 bool     calibrated = false;   // saved from /calib at least once (until then: DEFAULT_CAL, all trims 0)
@@ -123,20 +126,41 @@ Preferences prefs;
 
 inline void loadDefaults() { memcpy(cal, DEFAULT_CAL, sizeof(cal)); }
 
+inline void save();
+
+// A calibration saved under an older leg map: each channel's direction and trim go to the leg
+// that channel really drives now (a channel moved by hand on /calib keeps its place)
+inline bool remap(uint8_t version) {
+  if (version >= MAP_VERSION) return false;
+  ServoCal old[LEGS][JOINTS];
+  memcpy(old, cal, sizeof(old));
+  loadDefaults();
+  for (uint8_t l = 0; l < LEGS; l++)
+    for (uint8_t j = 0; j < JOINTS; j++)
+      for (uint8_t ol = 0; ol < LEGS; ol++)
+        for (uint8_t oj = 0; oj < JOINTS; oj++)
+          if (old[ol][oj].ch == DEFAULT_CAL[l][j].ch && oj == j) cal[l][j] = old[ol][oj];
+  return true;
+}
+
 inline void load() {
   loadDefaults();
   prefs.begin("whip_ik", true);
-  if (prefs.getBytesLength("cal") == sizeof(cal)) prefs.getBytes("cal", cal, sizeof(cal));
+  const bool saved = prefs.getBytesLength("cal") == sizeof(cal);
+  if (saved) prefs.getBytes("cal", cal, sizeof(cal));
+  const uint8_t mapVersion = prefs.getUChar("map", 1);
   calibrated = prefs.getBool("calibrated", false);
   height     = prefs.getUChar("height", 5);
   speed      = prefs.getUChar("speed", 5);
   gait       = prefs.getUChar("gait", 0);
   prefs.end();
+  if (saved && remap(mapVersion)) save();   // once: the trims follow their servos to the right legs
 }
 
 inline void save() {
   prefs.begin("whip_ik", false);
   prefs.putBytes("cal", cal, sizeof(cal));
+  prefs.putUChar("map", MAP_VERSION);
   prefs.putBool("calibrated", calibrated);
   prefs.putUChar("height", height);
   prefs.putUChar("speed", speed);

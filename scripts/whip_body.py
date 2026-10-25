@@ -22,9 +22,9 @@ JOINTS = ("hip", "knee", "foot")
 ANCHOR = ((74, 39), (0, 64), (-74, 39), (74, -39), (0, -64), (-74, -39))
 BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))   # the outline, round the body
 # His channels, directions and trims until he's calibrated (ik_gait.h's DEFAULT_CAL): (ch, rev, trim)
-DEFAULT_CAL = (((1, False, 0), (2, False, 0), (3, False, 0)), ((4, False, 0), (5, False, 0), (6, False, 0)),
-               ((7, False, 0), (8, False, 0), (9, False, 0)), ((24, False, 0), (25, True, 0), (26, True, 0)),
-               ((27, False, 0), (28, True, 0), (29, True, 0)), ((30, False, 0), (31, True, 0), (32, True, 0)))
+DEFAULT_CAL = (((24, False, 0), (25, True, 0), (26, True, 0)), ((27, False, 0), (28, True, 0), (29, True, 0)),
+               ((30, False, 0), (31, True, 0), (32, True, 0)), ((7, False, 0), (8, False, 0), (9, False, 0)),
+               ((4, False, 0), (5, False, 0), (6, False, 0)), ((1, False, 0), (2, False, 0), (3, False, 0)))
 HOME_Z = -134.0            # height 5 of WHIP's stance (WHIP_HOME_Z_MIN / MAX)
 HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # feet, mm (FB_X, WIDTH_*)
 
