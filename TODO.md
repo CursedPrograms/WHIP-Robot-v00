@@ -104,3 +104,9 @@ To do:
 (D:\cc\DREAM Robotics Ecosystem). Check `git log` / `git status` before working. If this file or
 `scripts/esp32/ik_gait.h` is missing, the work hasn't been pushed yet: ask the user, don't rewrite it.
 Robot problems the user types to TINA are tests of TINA, not faults to fix.
+
+## Later (the user, 2026-10-25)
+
+- [ ] **Talk the fleet's Brainfuck on his buzzer**: `talk_bf.h` from RIFT/Fleet/brainfuck_talk.py, one tone per
+      symbol (as IDA / ARM / DREAM), in a lower voice than the girls. **The LED grid lights along with each
+      symbol.** Not now: after the build.
