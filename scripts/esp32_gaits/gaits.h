@@ -54,6 +54,10 @@ const float STRIDE_X = WALK_X * 0.9f;
 const float STRIDE_Y = WALK_X * 0.5f;   // sideways: the middle legs reach in and out, and run out first
 const float TURN_RAD = 10.0f / RAD2DEG * 0.9f;
 const float HOME_MM  = 1.0f;   // a foot this close to home doesn't need a step to get there
+// ANTI-SLIP (/gait?antislip=1, saved): a foot that lands carries his weight for PLANT_TICKS moves
+// before the next one lifts (in tripod: all six down), so he never shifts his weight onto feet
+// still settling. Same stride, a longer cycle: he walks slower.
+const uint16_t PLANT_TICKS = 2;
 
 inline float dist2(Pos a, Pos b) { return sqrtf((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y)); }
 
@@ -66,6 +70,7 @@ inline float maxOffset(const Frame& a, const Frame& b) {
 struct Gait {
   bool     running = false;
   uint8_t  id = GAIT_TRIPOD;
+  bool     plant = false;      // started with antiSlip on
   uint16_t airTicks = 10;      // ticks a foot is in the air
   uint16_t cycleTicks = 20;    // ticks for every leg to step once
   uint16_t t = 0;              // tick in the cycle
@@ -85,7 +90,9 @@ struct Gait {
   void start(const Frame& now, uint8_t gait, uint16_t airT) {
     id = gait < GAITS ? gait : GAIT_TRIPOD;
     airTicks = airT;
-    cycleTicks = airT * 6 / GAIT_DEFS[id].air;
+    plant = antiSlip;
+    // the lifts are a sixth of the cycle apart: 6 / air of them per swing, each PLANT_TICKS longer
+    cycleTicks = (airT + (plant ? PLANT_TICKS : 0)) * 6 / GAIT_DEFS[id].air;
     t = 0; vx = vy = w = tx = ty = tw = 0; homing = false;
     const float z = homeZ();
     for (uint8_t i = 0; i < LEGS; i++) { foot[i] = { now.leg[i].x, now.leg[i].y, z }; air[i] = false; }

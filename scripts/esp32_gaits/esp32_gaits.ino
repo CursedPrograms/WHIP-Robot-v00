@@ -823,7 +823,8 @@ bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scan
   if (resting && !wakeUp()) return false;
   if (testGait) return testCycle(fwd, turn, scanSafe);
   // a new gait picked mid-walk: step to a stop in the old one, start off in the new one
-  if (gaitNow.running && gaitNow.id != ik::gait && !gaitSettle()) return false;
+  // (ANTI-SLIP switched mid-walk too: the cycle is a different length)
+  if (gaitNow.running && (gaitNow.id != ik::gait || gaitNow.plant != ik::antiSlip) && !gaitSettle()) return false;
   if (!gaitNow.running || ik::maxOffset(gaitNow.last, ikNow) > 0.01f) {
     // crouched, just put down, after a hello: up to the stand pose first, smoothly
     if (ik::maxOffset(ikNow, ik::home()) > 5 && !ikMoveTo(ik::home(), false, true)) return false;
@@ -1978,7 +1979,7 @@ uint32_t settingsRev() {
     while (n--) { h ^= *b++; h *= 16777619u; }
   };
   mix(leds::cfg, sizeof leds::cfg); mix(&leds::brightness, sizeof leds::brightness);
-  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1); mix(&ik::weave, 1);
+  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1); mix(&ik::weave, 1); mix(&ik::antiSlip, 1);
   mix(&tiltGuard, sizeof tiltGuard); mix(&buzzer::muted, sizeof buzzer::muted);
   mix(&bodyK, sizeof bodyK); mix(&ik::calibrated, sizeof ik::calibrated);
   for (uint8_t l = 0; l < ik::LEGS; l++)
@@ -2122,6 +2123,7 @@ void handleStatus() {
   json += "\"centred\":"     + String(centred ? 1 : 0) + ",";
   json += "\"testGait\":"    + String(testGait ? 1 : 0) + ",";
   json += "\"weave\":"       + String(ik::weave ? 1 : 0) + ",";
+  json += "\"antiSlip\":"    + String(ik::antiSlip ? 1 : 0) + ",";
   json += "\"studio\":"      + String(studioHolds() ? 1 : 0) + ",";
   json += "\"rev\":"         + String(settingsRev()) + ",";
   json += "\"bodyMode\":"    + String(bodyMode ? 1 : 0) + ",";
@@ -2437,6 +2439,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <div class="mode-btn active" id="tiltBtn" title="T: tilt safety on / off (on again at every boot)">TILT ON</div>
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
       <div class="mode-btn" id="weaveBtn" title="WEAVE: in obstacle mode he weaves left and right as he walks, so the sonar sees past his legs, and stops at 48 cm (saved)">WEAVE</div>
+      <div class="mode-btn" id="antiSlipBtn" title="ANTI-SLIP: a foot that lands takes his weight a moment before the next ones lift (tripod: all six down), same stride, slower (saved)">ANTI-SLIP</div>
       <div class="mode-btn" id="testBtn" title="TEST-GAIT: walk on hips and thighs only, every joint at 1500 us on the ground (off again at every boot)">TEST-GAIT</div>
     </div>
     <canvas id="gaitAnim" width="300" height="120"></canvas>
@@ -2588,6 +2591,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         if (j.sound !== undefined && !!j.sound !== soundOn) showSound(!!j.sound);
         if (j.testGait !== undefined && !!j.testGait !== testOn) showTest(!!j.testGait);
         if (j.weave !== undefined && !!j.weave !== weaveOn) showWeave(!!j.weave);
+        if (j.antiSlip !== undefined && !!j.antiSlip !== antiSlipOn) showAntiSlip(!!j.antiSlip);
         document.getElementById('status').textContent =
           'mode: ' + MODE_NAMES[j.controlMode] +
           ' | move: ' + MOVE_NAMES[j.move] +
@@ -2666,6 +2670,16 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     document.getElementById('weaveBtn').addEventListener('click', function () {
       showWeave(!weaveOn);
       driveFetch('/gait?weave=' + (weaveOn ? 1 : 0));
+    });
+
+    let antiSlipOn = false;
+    function showAntiSlip(on) {
+      antiSlipOn = on;
+      document.getElementById('antiSlipBtn').classList.toggle('active', on);
+    }
+    document.getElementById('antiSlipBtn').addEventListener('click', function () {
+      showAntiSlip(!antiSlipOn);
+      driveFetch('/gait?antislip=' + (antiSlipOn ? 1 : 0));
     });
 
     let testOn = false;
@@ -2983,11 +2997,16 @@ void setupCalibRoutes() {
     if (calibrating && !studioHolds()) calibShow(calibPose);
     calibState();
   });
-  server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9 &weave=0|1, saved
+  server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9 &weave=0|1 &antislip=0|1, saved
     if (!calibAllowed()) return;
     if (server.hasArg("weave")) {   // obstacle mode weaving: no re-stand for that
       ik::weave = server.arg("weave") != "0";
       Serial2.println(ik::weave ? F("WEAVE ON") : F("WEAVE OFF"));
+      if (!server.hasArg("gait") && !server.hasArg("height") && !server.hasArg("speed")) { ik::save(); calibState(); return; }
+    }
+    if (server.hasArg("antislip")) {   // feet planted before the next lift: walking, he steps to a stop and on again
+      ik::antiSlip = server.arg("antislip") != "0";
+      Serial2.println(ik::antiSlip ? F("ANTI-SLIP ON") : F("ANTI-SLIP OFF"));
       if (!server.hasArg("gait") && !server.hasArg("height") && !server.hasArg("speed")) { ik::save(); calibState(); return; }
     }
     if (server.hasArg("gait")) {

@@ -27,12 +27,12 @@ bool reach(const Frame& f) { float a[JOINTS]; for (int i = 0; i < LEGS; i++) if 
   for (int i = 0; i < LEGS; i++) { solve(i, f.leg[i], a); for (int j = 0; j < 3; j++) if (fabsf(a[j]) > 90) return false; } return true; }
 int main() {
   loadDefaults();
-  for (int g = 0; g < GAITS; g++) for (int hgt = 0; hgt <= 9; hgt++) {
-    height = hgt;
+  for (int slip = 0; slip <= 1; slip++) for (int g = 0; g < GAITS; g++) for (int hgt = 0; hgt <= 9; hgt++) {
+    height = hgt; antiSlip = slip;
     struct Cmd { float f, l, t; int cycles; } plan[] = { {1,0,0,4}, {-1,0,0,4}, {0,0,1,4}, {0,0,-1,4}, {0,1,0,3}, {0.7f,0,0.3f,3} };
     for (auto& c : plan) {
       Gait G; G.start(home(), g, 10);
-      Frame prev = home(); float maxJump = 0, maxReach = 0, minBal = 1e9; int ticks = 0;
+      Frame prev = home(); float maxJump = 0, maxReach = 0, minBal = 1e9; int ticks = 0, allDown = 0;
       char buf[96];
       auto step = [&](float f, float l, float t, bool settle) {
         Frame now = G.tick(f, l, t, settle); ticks++;
@@ -55,6 +55,7 @@ int main() {
         int down = 0; for (int i = 0; i < LEGS; i++) down += !G.air[i];
         snprintf(buf, sizeof buf, "%s feet down %d", GAIT_NAMES[g], down);
         check(buf, down >= 3);
+        if (!settle) allDown += down == LEGS;
         prev = now;
       };
       for (int k = 0; k < c.cycles * G.cycleTicks; k++) step(c.f, c.l, c.t, false);
@@ -62,8 +63,13 @@ int main() {
       while (!G.settled() && settleTicks < 1000) { step(0, 0, 0, true); settleTicks++; }
       snprintf(buf, sizeof buf, "%s h%d settled", GAIT_NAMES[g], hgt); check(buf, G.settled());
       check("home exact", maxOffset(G.last, home()) <= HOME_MM * 2);
-      if (hgt == 5) printf("%-11s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  balance %3.0f mm  stop %d ticks\n",
-                           GAIT_NAMES[g], c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, minBal, settleTicks);
+      // ANTI-SLIP tripod: all six down twice a cycle, PLANT_TICKS each time (the first cycle starts from standing)
+      if (slip && g == GAIT_TRIPOD) {
+        snprintf(buf, sizeof buf, "tripod h%d anti-slip all down %d", hgt, allDown);
+        check(buf, allDown >= (c.cycles - 1) * 2 * (int)PLANT_TICKS);
+      }
+      if (hgt == 5) printf("%-11s%s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  balance %3.0f mm  stop %d ticks  all down %d\n",
+                           GAIT_NAMES[g], slip ? " AS" : "   ", c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, minBal, settleTicks, allDown);
     }
   }
   // Body moves (as esp32_gaits.ino): lying down, the hello wave, the dance, at every height
