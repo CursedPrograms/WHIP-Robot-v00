@@ -123,6 +123,7 @@ bool     calibrated = false;   // saved from /calib at least once (until then: D
 uint8_t  height     = 5;       // 0-9 (body low to high)
 uint8_t  speed      = 5;       // 0-9 (slow to fast)
 uint8_t  gait       = 0;       // 0 tripod, 1 ripple, 2 wave (gaits.h)
+bool     weave      = false;   // obstacle mode: weave left / right as he walks, so the sonar sweeps wider
 
 Preferences prefs;
 
@@ -156,6 +157,7 @@ inline void load() {
   height     = prefs.getUChar("height", 5);
   speed      = prefs.getUChar("speed", 5);
   gait       = prefs.getUChar("gait", 0);
+  weave      = prefs.getBool("weave", false);
   prefs.end();
   if (saved && remap(mapVersion)) save();   // once: the trims follow their servos to the right legs
 }
@@ -168,6 +170,7 @@ inline void save() {
   prefs.putUChar("height", height);
   prefs.putUChar("speed", speed);
   prefs.putUChar("gait", gait);
+  prefs.putBool("weave", weave);
   prefs.end();
 }
 

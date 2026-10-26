@@ -302,6 +302,12 @@ unsigned long readyAt = 0;   // when setup finished (standing, gyro calibrated):
 // ---------------------------------------------------------------------------
 const long MIN_DISTANCE_CM   = 35;   // was 20: he walked into the closet door
 const long CLEAR_DISTANCE_CM = 50;
+// WEAVE (/gait?weave=1, saved): his feet stick out past the sonar's cone (about +-15 degrees) until
+// about 46 cm ahead, so a chair leg off to one side wasn't seen. Weaving, he swings his heading
+// left and right as he walks (the beam sweeps), and stops further back, where the cone is wider.
+const long WEAVE_DISTANCE_CM = 48;
+const float   WEAVE_TURN   = 0.5;   // how hard he steers each way (-1..1, shared with walking forward)
+const uint8_t WEAVE_CYCLES = 8;     // gait cycles for one left-right swing (about +-8 degrees)
 const uint8_t OBSTACLE_DEBOUNCE = 3;
 const uint8_t AVOID_LOOK_TURNS  = 1;    // at a wall he looks this many turn cycles left, then right
 const uint8_t AVOID_MAX_TURNS   = 12;   // turning the clearer way, still blocked after this many: start over
@@ -359,6 +365,9 @@ bool centred = false;     // the build switch is on: every servo at 1500 us, not
 bool testGait = false;    // TEST-GAIT on (/testgait, not saved): hips and thighs only, see testCycle()
 bool testPosed = false;   // his legs are in TEST-GAIT's joint angles (ikNow just says home meanwhile)
 uint16_t testK = 0;       // TEST-GAIT: ticks of the half-cycle under way sent (0: none)
+// where he stops for a wall / walks on again (further with WEAVE on)
+long stopCm()  { return ik::weave ? WEAVE_DISTANCE_CM : MIN_DISTANCE_CM; }
+long clearCm() { return ik::weave ? WEAVE_DISTANCE_CM + 15 : CLEAR_DISTANCE_CM; }
 float restAngles[ik::LEGS][ik::JOINTS];   // the joint angles while he lies down / folds
 unsigned long stoodSince = 0;             // standing still since (he lies down after REST_AFTER_MS)
 bool dancing = false;
@@ -396,7 +405,7 @@ bool wallInWay() {
     lastPing = millis();
     d = readDistanceCM();
   }
-  manualBlocked = d > 0 && d < MIN_DISTANCE_CM;
+  manualBlocked = d > 0 && d < stopCm();
   return manualBlocked;
 }
 
@@ -926,6 +935,13 @@ bool centreSwitchLoop() {
 }
 
 bool MoveForward()   { return gaitCycle(1, 0, 0, true); }
+// Forward, steering a little left and right in turn (WEAVE): one swing every WEAVE_CYCLES cycles
+bool WeaveForward() {
+  static uint8_t n = 0;
+  const float turn = WEAVE_TURN * sinf(2 * M_PI * n / WEAVE_CYCLES);
+  n = (n + 1) % WEAVE_CYCLES;
+  return gaitCycle(1, 0, turn, true);
+}
 bool StrafeLeft()    { return gaitCycle(0, 1, 0, false); }
 bool StrafeRight()   { return gaitCycle(0, -1, 0, false); }
 
@@ -1238,7 +1254,7 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
     if (watchClear && millis() - lastPing >= 100) {
       lastPing = millis();
       long d = readDistanceCM();
-      clearPings = (d < 0 || d >= CLEAR_DISTANCE_CM) ? min(clearPings + 1, 255) : 0;
+      clearPings = (d < 0 || d >= clearCm()) ? min(clearPings + 1, 255) : 0;
       seenFar = max(seenFar, d < 0 ? 400L : d);   // no echo: nothing in range
     }
 
@@ -1255,9 +1271,9 @@ bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe) {
       lastPing = millis();
       long distance = readDistanceCM();
 
-      if (distance > 0 && distance < MIN_DISTANCE_CM) {
+      if (distance > 0 && distance < stopCm()) {
         obstacleCount++;
-      } else if (distance < 0 || distance >= CLEAR_DISTANCE_CM) {
+      } else if (distance < 0 || distance >= clearCm()) {
         obstacleCount = 0;
       }
 
@@ -1516,7 +1532,7 @@ bool wallAhead() {
   uint8_t hits = 0;
   for (uint8_t i = 0; i < OBSTACLE_DEBOUNCE; i++) {
     long d = readDistanceCM();
-    if (d > 0 && d < MIN_DISTANCE_CM) hits++;
+    if (d > 0 && d < stopCm()) hits++;
     delay(60);   // HC-SR04 needs ~60ms between pings
   }
   return (hits >= OBSTACLE_DEBOUNCE);
@@ -1543,8 +1559,8 @@ void runObstacleMode() {
   }
 
   if (!obstacleDetected) {
-    // --- WALK ---
-    if (requestMove(MOVE_WALK)) MoveForward();
+    // --- WALK --- (weaving, if it's on)
+    if (requestMove(MOVE_WALK)) ik::weave ? WeaveForward() : MoveForward();
     return;
   }
 
@@ -1962,7 +1978,7 @@ uint32_t settingsRev() {
     while (n--) { h ^= *b++; h *= 16777619u; }
   };
   mix(leds::cfg, sizeof leds::cfg); mix(&leds::brightness, sizeof leds::brightness);
-  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1);
+  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1); mix(&ik::weave, 1);
   mix(&tiltGuard, sizeof tiltGuard); mix(&buzzer::muted, sizeof buzzer::muted);
   mix(&bodyK, sizeof bodyK); mix(&ik::calibrated, sizeof ik::calibrated);
   for (uint8_t l = 0; l < ik::LEGS; l++)
@@ -2020,7 +2036,7 @@ void handleMindCmd() {
   mindBlocked = false;
   if (a == WEB_FORWARD) {
     long d = readDistanceCM();
-    if (d > 0 && d < MIN_DISTANCE_CM) {
+    if (d > 0 && d < stopCm()) {
       mindBlocked = true;
       server.send(200, "application/json", "{\"ok\":false,\"blocked\":true,\"distance\":" + String(d) + "}");
       return;
@@ -2105,6 +2121,7 @@ void handleStatus() {
   json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0) + ",";
   json += "\"centred\":"     + String(centred ? 1 : 0) + ",";
   json += "\"testGait\":"    + String(testGait ? 1 : 0) + ",";
+  json += "\"weave\":"       + String(ik::weave ? 1 : 0) + ",";
   json += "\"studio\":"      + String(studioHolds() ? 1 : 0) + ",";
   json += "\"rev\":"         + String(settingsRev()) + ",";
   json += "\"bodyMode\":"    + String(bodyMode ? 1 : 0) + ",";
@@ -2419,6 +2436,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <label>Gait <select id="gaitSel" title="G: next gait, 1-6: tripod / ripple / wave / quad / amble / metachronal"></select></label>
       <div class="mode-btn active" id="tiltBtn" title="T: tilt safety on / off (on again at every boot)">TILT ON</div>
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
+      <div class="mode-btn" id="weaveBtn" title="WEAVE: in obstacle mode he weaves left and right as he walks, so the sonar sees past his legs, and stops at 48 cm (saved)">WEAVE</div>
       <div class="mode-btn" id="testBtn" title="TEST-GAIT: walk on hips and thighs only, every joint at 1500 us on the ground (off again at every boot)">TEST-GAIT</div>
     </div>
     <canvas id="gaitAnim" width="300" height="120"></canvas>
@@ -2569,6 +2587,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         if (j.tiltGuard !== undefined && !!j.tiltGuard !== tiltOn) showTilt(!!j.tiltGuard);
         if (j.sound !== undefined && !!j.sound !== soundOn) showSound(!!j.sound);
         if (j.testGait !== undefined && !!j.testGait !== testOn) showTest(!!j.testGait);
+        if (j.weave !== undefined && !!j.weave !== weaveOn) showWeave(!!j.weave);
         document.getElementById('status').textContent =
           'mode: ' + MODE_NAMES[j.controlMode] +
           ' | move: ' + MOVE_NAMES[j.move] +
@@ -2638,6 +2657,16 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       driveFetch('/buzzer?on=' + (soundOn ? 1 : 0));
     }
     document.getElementById('soundBtn').addEventListener('click', toggleSound);
+
+    let weaveOn = false;
+    function showWeave(on) {
+      weaveOn = on;
+      document.getElementById('weaveBtn').classList.toggle('active', on);
+    }
+    document.getElementById('weaveBtn').addEventListener('click', function () {
+      showWeave(!weaveOn);
+      driveFetch('/gait?weave=' + (weaveOn ? 1 : 0));
+    });
 
     let testOn = false;
     function showTest(on) {
@@ -2954,8 +2983,13 @@ void setupCalibRoutes() {
     if (calibrating && !studioHolds()) calibShow(calibPose);
     calibState();
   });
-  server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9, saved
+  server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9 &weave=0|1, saved
     if (!calibAllowed()) return;
+    if (server.hasArg("weave")) {   // obstacle mode weaving: no re-stand for that
+      ik::weave = server.arg("weave") != "0";
+      Serial2.println(ik::weave ? F("WEAVE ON") : F("WEAVE OFF"));
+      if (!server.hasArg("gait") && !server.hasArg("height") && !server.hasArg("speed")) { ik::save(); calibState(); return; }
+    }
     if (server.hasArg("gait")) {
       // he changes over while walking (gaitCycle steps to a stop in the old gait first)
       ik::gait = constrain(server.arg("gait").toInt(), 0, ik::GAITS - 1);

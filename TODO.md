@@ -110,3 +110,10 @@ Robot problems the user types to TINA are tests of TINA, not faults to fix.
 - [ ] **Talk the fleet's Brainfuck on his buzzer**: `talk_bf.h` from RIFT/Fleet/brainfuck_talk.py, one tone per
       symbol (as IDA / ARM / DREAM), in a lower voice than the girls. **The LED grid lights along with each
       symbol.** Not now: after the build.
+
+## Obstacle avoidance: his legs are wider than the sonar's cone (the user, 2026-10-26)
+
+- [x] WEAVE (button on his page, `/gait?weave=1`, saved): in obstacle mode he steers a little left and right
+      as he walks, so the beam sweeps, and stops at 48 cm instead of 35. Try it; tune WEAVE_TURN / WEAVE_CYCLES.
+- [ ] Maybe: the sonar on a pan servo (SG90 / MG90S on a free board channel, 10-23), sweeping about +-45
+      degrees while he walks. Two more sonars at the corners won't do: they'd see his own legs.
