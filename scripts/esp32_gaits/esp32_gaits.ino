@@ -356,6 +356,9 @@ bool calibrating = false; // /calib is open: WHIP stands still and takes no driv
 // up first (wakeUp()).
 bool resting = false;
 bool centred = false;     // the build switch is on: every servo at 1500 us, nothing moves him
+bool testGait = false;    // TEST-GAIT on (/testgait, not saved): hips and thighs only, see testCycle()
+bool testPosed = false;   // his legs are in TEST-GAIT's joint angles (ikNow just says home meanwhile)
+uint16_t testK = 0;       // TEST-GAIT: ticks of the half-cycle under way sent (0: none)
 float restAngles[ik::LEGS][ik::JOINTS];   // the joint angles while he lies down / folds
 unsigned long stoodSince = 0;             // standing still since (he lies down after REST_AFTER_MS)
 bool dancing = false;
@@ -428,6 +431,9 @@ unsigned long tiltClearSince = 0;
 
 bool gaitWaitUntil(unsigned long start, unsigned long ms, bool scanSafe);
 bool gaitWait(unsigned long ms, bool scanSafe);
+bool testCycle(const float& fwd, const float& turn, bool scanSafe);
+bool testSettle();
+void leaveTestPose();
 long readDistanceCM();
 void pollTilt();
 void pollIR();
@@ -590,6 +596,7 @@ void loop() {
 
   if (centreSwitchLoop()) return;   // the build switch holds every servo at 1500 us
   if (studioLoop()) return;         // Servo Studio holds him: it moves the servos, nothing else
+  if (testPosed && !testGait && currentMove == MOVE_STAND) leaveTestPose();   // TEST-GAIT switched off
   pollTilt();
   if (sysState == SYS_TILT_SAFE || sysState == SYS_HELD) return;
 
@@ -692,6 +699,7 @@ void clampCommand(const char* in, char* out, size_t outSize) {
 // One frame to the controller, moving over `ms`. False if a foot is out of reach.
 bool ikSend(const ik::Frame& f, uint16_t ms) {
   if (centred) return false;   // the build switch holds every servo at 1500 us
+  if (testPosed) leaveTestPose();   // out of TEST-GAIT's pose into the stand first, smoothly
   if (!ik::line(f, cmdBuf, sizeof(cmdBuf))) {
     Serial2.println(F("IK: foot out of reach, frame skipped"));
     return false;
@@ -804,6 +812,7 @@ uint16_t airTicks() { return 2 * (LINE_MS > ik::stepMs() ? ik::walkSteps() : ik:
 // it mid-cycle.
 bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scanSafe) {
   if (resting && !wakeUp()) return false;
+  if (testGait) return testCycle(fwd, turn, scanSafe);
   // a new gait picked mid-walk: step to a stop in the old one, start off in the new one
   if (gaitNow.running && gaitNow.id != ik::gait && !gaitSettle()) return false;
   if (!gaitNow.running || ik::maxOffset(gaitNow.last, ikNow) > 0.01f) {
@@ -825,6 +834,7 @@ bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scan
 // Bring the gait to a stop by stepping: he slows down over one swing, then the feet
 // walk home in two tripods. Only tilt safety cuts it short. False if it didn't finish.
 bool gaitSettle() {
+  if (testPosed) return testSettle();
   if (!gaitNow.running || ik::maxOffset(gaitNow.last, ikNow) > 0.01f) { gaitNow.running = false; return true; }
   const uint16_t ms = max(ik::stepMs(), LINE_MS);
   for (uint16_t i = 0; i < 4 * gaitNow.cycleTicks && !gaitNow.settled(); i++) {
@@ -900,7 +910,7 @@ bool centreSwitchLoop() {
   if (on && !centred) {
     centred = true;
     abortMovement = true; webActiveCmd = 0; gaitNow.running = false;
-    resting = false; currentMove = MOVE_STAND;
+    resting = false; currentMove = MOVE_STAND; testPosed = false; testK = 0;
     centreAll();
     buzzer::play(buzzer::LOCK);
     Serial2.println(F("BUILD SWITCH ON: every servo at 1500 us"));
@@ -1005,6 +1015,115 @@ bool wakeUp() {
   gaitNow.running = false;
   currentMove = MOVE_STAND;
   return ikGlide(ik::home(), 20, 100);
+}
+
+// ---------------------------------------------------------------------------
+// TEST-GAIT: a tripod walk on the hips and thighs alone, no IK. On the ground every thigh and
+// lower leg is at 0 degrees (1500 us + trim, his build pose) and only the hips sweep; a stepping
+// leg lifts on its thigh, the lower leg stays at 1500 throughout. Turns too; no crabbing (the
+// hips can't). /testgait?on=1 swaps it in for whatever gait is picked, until on=0 or a reboot.
+// ---------------------------------------------------------------------------
+const float TEST_HIP_DEG  = 15;   // each hip sweeps this far either side of straight out (~75 mm a step)
+const float TEST_LIFT_DEG = 30;   // a stepping thigh lifts this far at the top of the step
+float   testHip[ik::LEGS];        // where each hip is now (degrees, the IK's direction)
+float   testFrom[ik::LEGS], testTo[ik::LEGS];
+uint8_t testSwing = TRIPOD_B;     // the tripod stepping in this half (the first half steps A)
+
+void testSendTick(uint16_t k, uint16_t n, uint16_t ms) {
+  float a[ik::LEGS][ik::JOINTS];
+  const float t = ik::ease((float)k / n);
+  for (uint8_t l = 0; l < ik::LEGS; l++) {
+    testHip[l] = testFrom[l] + (testTo[l] - testFrom[l]) * t;
+    a[l][ik::HIP]  = testHip[l];
+    a[l][ik::KNEE] = (testSwing >> l & 1) ? TEST_LIFT_DEG * sinf(M_PI * k / n) : 0;
+    a[l][ik::FOOT] = 0;
+  }
+  anglesSend(a, ms);
+}
+
+// The next half: the other tripod steps to where it will push from, the feet down slide back.
+// fwd / turn -1..1 (turn anticlockwise); stop: everything to straight out.
+void testHalfStart(float fwd, float turn, bool stop) {
+  const float n = fabsf(fwd) + fabsf(turn);
+  if (n > 1) { fwd /= n; turn /= n; }
+  testSwing = testSwing == TRIPOD_A ? TRIPOD_B : TRIPOD_A;
+  for (uint8_t l = 0; l < ik::LEGS; l++) {
+    // a left foot forward is a clockwise hip (minus), a right one anticlockwise
+    const float side = l <= ik::LB ? -1 : 1;
+    const float reach = stop ? 0 : TEST_HIP_DEG * (fwd * side + turn);
+    testFrom[l] = testHip[l];
+    testTo[l] = (testSwing >> l & 1) ? reach : -reach;
+  }
+  testK = 0;
+}
+
+// From the stand (or wherever the IK left him) into the build pose: every joint at 0 degrees
+void enterTestPose() {
+  float from[ik::LEGS][ik::JOINTS], a[ik::LEGS][ik::JOINTS];
+  if (!ik::anglesOf(ikNow, from)) memset(from, 0, sizeof(from));
+  for (uint8_t i = 1; i <= CENTRE_GLIDE_MOVES; i++) {
+    const unsigned long start = millis();
+    const float t = 1 - ik::ease((float)i / CENTRE_GLIDE_MOVES);
+    for (uint8_t l = 0; l < ik::LEGS; l++)
+      for (uint8_t j = 0; j < ik::JOINTS; j++) a[l][j] = from[l][j] * t;
+    anglesSend(a, CENTRE_GLIDE_MS);
+    finishWaitUntil(start, CENTRE_GLIDE_MS);
+  }
+  for (uint8_t l = 0; l < ik::LEGS; l++) testHip[l] = 0;
+  testSwing = TRIPOD_B; testK = 0;
+  gaitNow.running = false;
+  bodyNow = ik::BodyPose();
+  ikNow = ik::home();
+  testPosed = true;
+  Serial2.println(F("TEST-GAIT: in the build pose"));
+}
+
+// One cycle: both tripods step once. A new command doesn't lose the step: the half under way
+// carries on from where it was on the next call.
+bool testCycle(const float& fwd, const float& turn, bool scanSafe) {
+  if (!testPosed) enterTestPose();
+  const uint16_t n = airTicks(), ms = max(ik::stepMs(), LINE_MS);
+  for (uint8_t half = 0; half < 2; half++) {
+    if (testK == 0) testHalfStart(fwd, turn, false);
+    while (testK < n) {
+      const unsigned long frameStart = millis();
+      testSendTick(++testK, n, ms);
+      if (!gaitWaitUntil(frameStart, ms, scanSafe)) return false;
+    }
+    testK = 0;
+  }
+  return true;
+}
+
+// Stop: finish the step under way, then one more half with every hip going straight out.
+// He stays in the build pose (every joint at 1500).
+bool testSettle() {
+  if (!testPosed) return true;
+  const uint16_t n = airTicks(), ms = max(ik::stepMs(), LINE_MS);
+  auto finishHalf = [&]() {
+    while (testK < n) {
+      const unsigned long frameStart = millis();
+      testSendTick(++testK, n, ms);
+      if (!finishWaitUntil(frameStart, ms)) return false;
+    }
+    testK = 0;
+    return true;
+  };
+  if (testK > 0 && !finishHalf()) return false;
+  bool still = true;
+  for (uint8_t l = 0; l < ik::LEGS; l++) still &= fabsf(testHip[l]) < 0.5f;
+  if (still) return true;
+  testHalfStart(0, 0, true);
+  return finishHalf();
+}
+
+// Back to the IK: stop, then glide from the build pose into the stand
+void leaveTestPose() {
+  if (!testPosed) return;
+  testSettle();
+  testPosed = false;   // before standFromCentre: it sends angles, never ikSend
+  standFromCentre();
+  Serial2.println(F("TEST-GAIT: back in the stand"));
 }
 
 // Wave hello: weight back and off the front left leg, lift it high and wave, put it down.
@@ -1985,6 +2104,7 @@ void handleStatus() {
   json += "\"resting\":"     + String(resting ? 1 : 0) + ",";
   json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0) + ",";
   json += "\"centred\":"     + String(centred ? 1 : 0) + ",";
+  json += "\"testGait\":"    + String(testGait ? 1 : 0) + ",";
   json += "\"studio\":"      + String(studioHolds() ? 1 : 0) + ",";
   json += "\"rev\":"         + String(settingsRev()) + ",";
   json += "\"bodyMode\":"    + String(bodyMode ? 1 : 0) + ",";
@@ -2043,6 +2163,7 @@ void setupWebServer() {
       Serial2.print(F("STUDIO: ")); Serial2.print(ip); Serial2.println(F(" has him"));
       abortMovement = true; webActiveCmd = 0; irActiveCmd = 0; gaitNow.running = false;
       currentMove = MOVE_STAND; calibrating = true;
+      testPosed = false; testK = 0;   // the studio moves them now: no gliding back from a stale pose
       wakeUp();
     }
     studioSid = sid; studioIP = ip; studioSeen = millis(); studioActive = true;
@@ -2142,6 +2263,12 @@ void setupWebServer() {
     if (server.hasArg("on")) tiltGuard = server.arg("on") != "0";
     Serial2.println(tiltGuard ? F("TILT SAFETY ON") : F("TILT SAFETY OFF"));
     server.send(200, "application/json", String("{\"tiltGuard\":") + (tiltGuard ? 1 : 0) + "}");
+  });
+  server.on("/testgait", []() {                 // ?on=0|1: TEST-GAIT (hips and thighs only) off / on (off at boot)
+    if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
+    if (server.hasArg("on")) testGait = server.arg("on") != "0";
+    Serial2.println(testGait ? F("TEST-GAIT ON") : F("TEST-GAIT OFF"));
+    server.send(200, "application/json", String("{\"testGait\":") + (testGait ? 1 : 0) + "}");
   });
   setupCalibRoutes();
   server.on("/avatar.jpg",  handleAvatar);
@@ -2292,6 +2419,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <label>Gait <select id="gaitSel" title="G: next gait, 1-6: tripod / ripple / wave / quad / amble / metachronal"></select></label>
       <div class="mode-btn active" id="tiltBtn" title="T: tilt safety on / off (on again at every boot)">TILT ON</div>
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
+      <div class="mode-btn" id="testBtn" title="TEST-GAIT: walk on hips and thighs only, every joint at 1500 us on the ground (off again at every boot)">TEST-GAIT</div>
     </div>
     <canvas id="gaitAnim" width="300" height="120"></canvas>
     <div id="gaitNote"></div>
@@ -2440,6 +2568,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         if (j.speed !== undefined) speedNow = j.speed;
         if (j.tiltGuard !== undefined && !!j.tiltGuard !== tiltOn) showTilt(!!j.tiltGuard);
         if (j.sound !== undefined && !!j.sound !== soundOn) showSound(!!j.sound);
+        if (j.testGait !== undefined && !!j.testGait !== testOn) showTest(!!j.testGait);
         document.getElementById('status').textContent =
           'mode: ' + MODE_NAMES[j.controlMode] +
           ' | move: ' + MOVE_NAMES[j.move] +
@@ -2509,6 +2638,18 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       driveFetch('/buzzer?on=' + (soundOn ? 1 : 0));
     }
     document.getElementById('soundBtn').addEventListener('click', toggleSound);
+
+    let testOn = false;
+    function showTest(on) {
+      testOn = on;
+      document.getElementById('testBtn').classList.toggle('active', on);
+      if (on) document.getElementById('gaitNote').textContent = 'TEST-GAIT: hips and thighs only, every joint at 1500 us on the ground';
+      else showGait(gaitNow);
+    }
+    document.getElementById('testBtn').addEventListener('click', function () {
+      showTest(!testOn);
+      driveFetch('/testgait?on=' + (testOn ? 1 : 0));
+    });
 
     function act(a) { driveFetch('/act?do=' + a); }
     document.getElementById('actHello').addEventListener('click', function () { act('hello'); });
