@@ -84,10 +84,11 @@ const float HOME_Z_MIN = WHIP_HOME_Z_MIN;   // in use: swap to JAKOB_* to try hi
 const float HOME_Z_MAX = WHIP_HOME_Z_MAX;
 const float SLEEP_Z    = HOME_Z_MIN;   // resting: lowest stance, not on the floor (the battery's there)
 const float LIFT       = 50;      // how high a foot lifts when stepping (60 still in reach, joints ~75 deg)
-const float FB_X       = 150;     // front / back feet ahead / behind the centre
+const float FB_X       = 160;     // front / back feet ahead / behind the centre (150 until 2026-10-26: legs bumped)
 const float WIDTH_FB   = 123;     // front / back feet out to the side
 const float WIDTH_M    = 177;     // middle feet out to the side
-const float WALK_X     = 50;      // how far a foot moves back and forth per step (55 is out of reach at height 9)
+const float WALK_X     = 40;      // how far a foot moves back and forth per step (50 until 2026-10-26: with FB_X 150 the
+                                  // neighbouring legs came ~68 mm apart and touched; now ~82, same furthest reach)
 
 // Servo: its middle (us_center, 1500 on an MG995) + trim at 0 degrees, us_per_deg a degree (MG995 / MG996R:
 // 10.49, the reference's Maestro range, 576-2464 us for 180 degrees). Per joint, from servo_config.h:

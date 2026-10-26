@@ -26,7 +26,7 @@ DEFAULT_CAL = (((24, True, 0), (25, True, 0), (26, True, 0)), ((27, True, 0), (2
                ((30, True, 0), (31, True, 0), (32, True, 0)), ((7, True, 0), (8, False, 0), (9, False, 0)),
                ((4, True, 0), (5, False, 0), (6, False, 0)), ((1, True, 0), (2, False, 0), (3, False, 0)))
 HOME_Z = -134.0            # height 5 of WHIP's stance (WHIP_HOME_Z_MIN / MAX)
-HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # feet, mm (FB_X, WIDTH_*)
+HOME = ((160, 123), (0, 177), (-160, 123), (160, -123), (0, -177), (-160, -123))   # feet, mm (FB_X, WIDTH_*)
 
 
 MG995 = {"us_per_deg": US_PER_DEG, "us_center": US_CENTER, "us_min": 500, "us_max": 2500, "deg_max": 90}

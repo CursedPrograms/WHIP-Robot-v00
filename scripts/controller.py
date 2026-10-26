@@ -165,7 +165,7 @@ GAITS = [
     ("METACHRONAL", 1, (2, 1, 0, 3, 4, 5), "5 feet down, one leg at a time round the body: a Mexican wave"),
 ]
 LEG_NAMES = ("LF", "LM", "LB", "RF", "RM", "RB")
-LEG_HOME = ((150, 123), (0, 177), (-150, 123), (150, -123), (0, -177), (-150, -123))   # mm, x forward, y left
+LEG_HOME = ((160, 123), (0, 177), (-160, 123), (160, -123), (0, -177), (-160, -123))   # mm, x forward, y left
 LEG_HIP = ((74, 39), (0, 64), (-74, 39), (74, -39), (0, -64), (-74, -39))
 BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))
 STRIDE = 45
