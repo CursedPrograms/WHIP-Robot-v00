@@ -539,7 +539,7 @@ void setup() {
     centreAll();
     Serial2.println(F("Sent: every servo at 1500 us (build switch)"));
   } else {
-    standNow();
+    standFromCentre();   // the servo board holds them all at 1500 us when it powers up
     Serial2.println(F("Sent: stand pose"));
   }
   currentMove = MOVE_STAND;
@@ -873,6 +873,27 @@ void centreAll() {
   Serial.print(safeBuf); Serial.print("T800\r\n");
 }
 
+// From every servo at its middle (the build switch, the servo board's own pulse at power-up) up
+// into the stand pose, slowly and eased in joint angles. One move there in 300-800 ms had all 18
+// servos pull at full speed at once: he sagged, then stood up, then walked off.
+const uint8_t  CENTRE_GLIDE_MOVES = 12;        // 12 x 160 ms: about 2 s
+const uint16_t CENTRE_GLIDE_MS    = LINE_MS + 4;
+void standFromCentre() {
+  float to[ik::LEGS][ik::JOINTS], a[ik::LEGS][ik::JOINTS];
+  if (!ik::anglesOf(ik::home(), to)) { standNow(); return; }
+  gaitNow.running = false; resting = false;
+  for (uint8_t i = 1; i <= CENTRE_GLIDE_MOVES; i++) {
+    const unsigned long start = millis();
+    const float t = ik::ease((float)i / CENTRE_GLIDE_MOVES);
+    for (uint8_t l = 0; l < ik::LEGS; l++)
+      for (uint8_t j = 0; j < ik::JOINTS; j++) a[l][j] = to[l][j] * t;   // from 0 degrees
+    anglesSend(a, CENTRE_GLIDE_MS);
+    while (millis() - start < CENTRE_GLIDE_MS) { server.handleClient(); buzzer::update(); }
+    if (digitalRead(CENTRE_PIN) == LOW) return;   // the switch went back on: centre again
+  }
+  ikNow = ik::home();
+}
+
 // true while the switch holds him at the middle (loop() does nothing else then)
 bool centreSwitchLoop() {
   const bool on = centreSwitchOn();
@@ -886,9 +907,9 @@ bool centreSwitchLoop() {
   } else if (!on && centred) {
     centred = false;
     controlMode = CTRL_WEB; webActiveCmd = 0;
-    ikSend(ik::home(), 800);
-    stoodSince = millis();
     buzzer::play(buzzer::WAKE);
+    standFromCentre();
+    stoodSince = millis();
     Serial2.println(F("BUILD SWITCH OFF: standing (web mode)"));
   }
   return centred;
