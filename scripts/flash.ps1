@@ -135,7 +135,11 @@ while ($true) {
     Say "Flashing."
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = $esptool.FullName
-    $psi.Arguments = "--chip esp32 --port $Port --baud $baud --connect-attempts 0 --before default-reset --after hard-reset write-flash -z 0x0 `"$bin`""
+    # The parts at their own offsets (flash_args), not the merged image: that one fills all 4 MB from 0x0,
+    # blanking NVS (0x9000) and with it his calibration, height, speed and gait settings on every flash.
+    $parts = (Get-Content (Join-Path $Build "flash_args") | Select-Object -Skip 1 | Where-Object { $_.Trim() } |
+        ForEach-Object { $o, $f = $_.Trim() -split '\s+', 2; "$o `"$(Join-Path $Build $f)`"" }) -join " "
+    $psi.Arguments = "--chip esp32 --port $Port --baud $baud --connect-attempts 0 --before default-reset --after hard-reset write-flash -z --flash-mode dio --flash-freq 80m --flash-size 4MB $parts"
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
