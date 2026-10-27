@@ -67,6 +67,8 @@ class Whip:
         self.blocked = False
         self.gait, self.height, self.speed = 0, 5, 5
         self.tilt_guard, self.sound, self.resting = True, True, False
+        # the saved toggles on his web page's gait row (/gait?weave=1 ...), as he reports them in /status
+        self.toggles = {"weave": 0, "antiSlip": 0, "autoStart": 0, "footLead": 0, "jakobMount": 0, "wallGait": 0}
         self.calibrating = False
         self.calibrated = False
         self.body, self.body_k = (0.0,) * 6, 1.0
@@ -123,7 +125,7 @@ class Whip:
     def rev(self):
         """Every saved setting in one number, as his settingsRev(): it moves when anything changes."""
         return zlib.crc32(repr((self.gait, self.height, self.speed, self.tilt_guard, self.sound, self.body_k,
-                                self.calibrated, self.cal)).encode())
+                                self.calibrated, self.cal, sorted(self.toggles.items()))).encode())
 
     def status(self):
         t = time.monotonic()
@@ -138,7 +140,7 @@ class Whip:
             "mindSteps": int(self.mode == MODES["mind"] and t < self.mind_until),
             "blocked": int(self.blocked), "height": self.height, "speed": self.speed, "gait": self.gait,
             "tiltGuard": int(self.tilt_guard), "sound": int(self.sound), "resting": int(self.resting),
-            "studio": int(self.studio_holds()), "rev": self.rev(),
+            "studio": int(self.studio_holds()), "rev": self.rev(), **self.toggles,
         }
 
 
@@ -204,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/calib/state":
             return self.reply(200, {
                 "calibrating": int(w.calibrating), "calibrated": int(w.calibrated), "height": w.height,
-                "speed": w.speed, "gait": w.gait, "pose": "h",
+                "speed": w.speed, "gait": w.gait, "pose": "h", "jakobMount": w.toggles["jakobMount"],
                 "legs": [{"name": LEG_NAMES[l], "servos": [
                     {"joint": JOINT_NAMES[k], "ch": c[0], "rev": c[1], "trim": c[2]} for k, c in enumerate(leg)]}
                     for l, leg in enumerate(w.cal)]})
@@ -296,6 +298,10 @@ class Handler(BaseHTTPRequestHandler):
                 if k in q:
                     setattr(w, k, max(0, min(9, int(q[k]))))
                     log(f"{k} -> {getattr(w, k)}")
+            for k in w.toggles:
+                if k.lower() in q:
+                    w.toggles[k] = max(0, min(9, int(q[k.lower()]))) if k == "footLead" else int(q[k.lower()] != "0")
+                    log(f"{k} -> {w.toggles[k]}")
             return self.reply(200, w.status())
         if path == "/tilt":
             w.tilt_guard = q.get("on", "1") != "0"

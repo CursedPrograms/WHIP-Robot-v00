@@ -2971,7 +2971,7 @@ bool calibAllowed() {
 
 void calibState() {
   String j = "{\"calibrating\":" + String(calibrating ? 1 : 0) + ",\"calibrated\":" + String(ik::calibrated ? 1 : 0) +
-             ",\"height\":" + String(ik::height) + ",\"speed\":" + String(ik::speed) + ",\"gait\":" + String(ik::gait) +
+             ",\"height\":" + String(ik::height) + ",\"speed\":" + String(ik::speed) + ",\"gait\":" + String(ik::gait) + ",\"jakobMount\":" + String(ik::jakobMount ? 1 : 0) +
              ",\"pose\":\"" + String(calibPose) + "\",\"legs\":[";
   for (uint8_t l = 0; l < ik::LEGS; l++) {
     j += String(l ? "," : "") + "{\"name\":\"" + ik::LEG_NAMES[l] + "\",\"servos\":[";
