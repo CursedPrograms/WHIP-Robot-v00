@@ -20,6 +20,7 @@ US_CENTER = 1500
 LEGS = ("LF", "LM", "LB", "RF", "RM", "RB")
 JOINTS = ("hip", "knee", "foot")
 ANCHOR = ((74, 39), (0, 64), (-74, 39), (74, -39), (0, -64), (-74, -39))
+MOUNT_DEG = (45, 90, 135, -45, -90, -135)   # each leg's direction at 1500 us (ik_gait.h MOUNT_DEG): corners diagonal
 BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))   # the outline, round the body
 # His channels, directions and trims until he's calibrated (ik_gait.h's DEFAULT_CAL): (ch, rev, trim)
 DEFAULT_CAL = (((24, True, 0), (25, True, 0), (26, True, 0)), ((27, True, 0), (28, True, 0), (29, True, 0)),
@@ -49,7 +50,7 @@ def to_deg(us, trim=0, rev=False, servo=None):
 def angles(leg, foot):
     """ik_gait.h's solve(): foot (x, y, z) -> (hip, knee, foot) degrees, or None if out of reach."""
     ax, ay = ANCHOR[leg]
-    anchor_deg = math.degrees(math.atan2(ay, ax))
+    anchor_deg = MOUNT_DEG[leg]
     x, y, z = foot[0] - ax, foot[1] - ay, foot[2]
     hip = math.degrees(math.atan2(y, x)) - anchor_deg
     while hip > 180: hip -= 360
@@ -76,7 +77,7 @@ def joints(leg, hip, knee, foot):
     [hip anchor, knee, ankle, foot tip]. In the leg's own upright plane the thigh rises at `knee`
     degrees from the knee joint, and the foot's angle at the ankle is foot + 90 + FOOT_TIP_DEG."""
     ax, ay = ANCHOR[leg]
-    yaw = math.atan2(ay, ax) + math.radians(hip)
+    yaw = math.radians(MOUNT_DEG[leg] + hip)
     c, s = math.cos(yaw), math.sin(yaw)
     kx, ky = ax + HIP_TO_KNEE_LENGTH * c, ay + HIP_TO_KNEE_LENGTH * s
     k = math.radians(knee)

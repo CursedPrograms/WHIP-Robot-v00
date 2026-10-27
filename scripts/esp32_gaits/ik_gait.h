@@ -69,6 +69,12 @@ const char* const JOINT_NAMES[JOINTS] = { "hip", "knee", "foot" };
 
 // Hip joints, mm from the body centre
 const float ANCHOR[LEGS][2] = { {74, 39}, {0, 64}, {-74, 39}, {74, -39}, {0, -64}, {-74, -39} };
+// Which way each leg points with its hip servo at 0 degrees (1500 us), anticlockwise from straight
+// ahead: WHIP's corner legs are mounted diagonally. Until 2026-10-27 this came from the hip's
+// position (atan2 of ANCHOR, Jakob's way: 27.8 degrees for the corners), 17 degrees off WHIP's
+// real 45, so standing his corner hips sat ~173 us from 1500 and his corner feet stood 17 degrees
+// round towards the middle legs (where they bumped).
+const float MOUNT_DEG[LEGS] = { 45, 90, 135, -45, -90, -135 };
 
 // Poses (mm)
 // Height: how far the feet are below the hip joints (height 0-9 on /calib maps between these).
@@ -182,7 +188,7 @@ inline void save() {
 // Foot position (body frame) -> hip / knee / foot angles. False if out of reach.
 inline bool solve(uint8_t leg, Pos p, float out[JOINTS]) {
   const float ax = ANCHOR[leg][0], ay = ANCHOR[leg][1];
-  const float anchorDeg = atan2f(ay, ax) * RAD2DEG;
+  const float anchorDeg = MOUNT_DEG[leg];          // the leg's direction at 1500 us
   float x = p.x - ax, y = p.y - ay, z = p.z;     // anchor z = 0 (knee height)
 
   float hipDeg = atan2f(y, x) * RAD2DEG - anchorDeg;

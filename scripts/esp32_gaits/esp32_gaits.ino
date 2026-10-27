@@ -2781,12 +2781,13 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     // polygon under the feet that are down, and his centre over it. Plain canvas, no libraries.
     var B3 = { HK: 28, TH: 84, FT: 127, TIP: 14,
                ANCHOR: [[74, 39], [0, 64], [-74, 39], [74, -39], [0, -64], [-74, -39]],
+               MOUNT: [45, 90, 135, -45, -90, -135],   // ik_gait.h MOUNT_DEG: each leg at 1500 us
                BODY: [[74, 39], [0, 64], [-74, 39], [-74, -39], [0, -64], [74, -39]],
                az: -0.65, el: 0.55, pose: null };
     var c3 = document.getElementById('body3d'), g3 = c3.getContext('2d');
     function legPoints(l, hip, knee, foot) {
       var ax = B3.ANCHOR[l][0], ay = B3.ANCHOR[l][1], R = Math.PI / 180;
-      var yaw = Math.atan2(ay, ax) + hip * R, c = Math.cos(yaw), s = Math.sin(yaw);
+      var yaw = (B3.MOUNT[l] + hip) * R, c = Math.cos(yaw), s = Math.sin(yaw);
       var kx = ax + B3.HK * c, ky = ay + B3.HK * s, k = knee * R;
       var ah = B3.TH * Math.cos(k), az = B3.TH * Math.sin(k);
       var f = k + Math.PI + (foot + 90 + B3.TIP) * R;
