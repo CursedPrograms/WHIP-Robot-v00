@@ -318,12 +318,11 @@ const long FOLLOW_DEADBAND_CM = 4;    // close enough: stand
 const long FOLLOW_LOST_CM     = 80;   // nothing nearer than this: nobody to follow, stand
 
 // Rest: standing still this long (IR, web, MIND, follow) he lies down; any move gets him up.
-// gait.xml's "Reset - Shut Down": every hip in the middle, knees and feet right up. He lowers
-// his belly to the floor first and folds one tripod at a time, so nothing drops.
+// He lowers his belly to the floor with his feet where they stand, legs spread out. No folding
+// them up under him (gait.xml's "Reset - Shut Down", knees and feet right up, until 2026-10-27):
+// the user didn't want the tarantula death curl.
 const unsigned long REST_AFTER_MS = 60000;
 const float REST_Z        = ik::HOME_Z_MIN + 15;   // belly on the floor (-75 mm): raise if the feet still carry him
-const float FOLD_KNEE_DEG = 90;
-const float FOLD_FOOT_DEG = 90;
 const uint8_t TRIPOD_A = (1 << ik::LF) | (1 << ik::LB) | (1 << ik::RM);
 const uint8_t TRIPOD_B = (1 << ik::LM) | (1 << ik::RF) | (1 << ik::RB);
 
@@ -358,7 +357,7 @@ bool abortMovement = false;   // cleared at the top of every loop()
 ik::Frame ikNow;          // where the feet are (the last frame sent)
 bool calibrating = false; // /calib is open: WHIP stands still and takes no drive commands
 
-// Lying down (REST, idle, shutdown): belly on the floor, legs folded up. Every move gets him
+// Lying down (REST, idle, shutdown): belly on the floor, legs spread out. Every move gets him
 // up first (wakeUp()).
 bool resting = false;
 bool centred = false;     // the build switch is on: every servo at 1500 us, nothing moves him
@@ -368,7 +367,6 @@ uint16_t testK = 0;       // TEST-GAIT: ticks of the half-cycle under way sent (
 // where he stops for a wall / walks on again (further with WEAVE on)
 long stopCm()  { return ik::weave ? WEAVE_DISTANCE_CM : MIN_DISTANCE_CM; }
 long clearCm() { return ik::weave ? WEAVE_DISTANCE_CM + 15 : CLEAR_DISTANCE_CM; }
-float restAngles[ik::LEGS][ik::JOINTS];   // the joint angles while he lies down / folds
 unsigned long stoodSince = 0;             // standing still since (he lies down after REST_AFTER_MS)
 bool dancing = false;
 // One thing to do between moves (web, keys, IR): h(ello) d(ance) r(est) w(ake) s(tand)
@@ -860,7 +858,7 @@ bool gaitSettle() {
 void ikSnapHome() { gaitNow.running = false; ikSend(ik::home(), 300); }
 
 // The stand pose right now (tilt safety, boot): no interpolation. Not while he lies
-// down: the snap would slam his folded legs out.
+// down: the snap would slam his body up off the floor.
 void standNow() { if (!resting) ikSnapHome(); }
 
 // Every change of gait passes through here, so all six feet are down before the
@@ -986,47 +984,23 @@ void anglesSend(const float a[ik::LEGS][ik::JOINTS], uint16_t ms) {
   Serial.print("\r\n");
 }
 
-// The legs in `legs` (a bit per leg) from where they are (restAngles) to `to`, in
-// joint angles, eased over n moves of ms.
-bool anglesMove(const float to[ik::LEGS][ik::JOINTS], uint8_t legs, uint8_t n, uint16_t ms) {
-  float from[ik::LEGS][ik::JOINTS];
-  memcpy(from, restAngles, sizeof(from));
-  for (uint8_t i = 1; i <= n; i++) {
-    unsigned long start = millis();
-    const float t = ik::ease((float)i / n);
-    for (uint8_t l = 0; l < ik::LEGS; l++)
-      for (uint8_t j = 0; j < ik::JOINTS; j++)
-        restAngles[l][j] = (legs >> l & 1) ? from[l][j] + (to[l][j] - from[l][j]) * t : from[l][j];
-    anglesSend(restAngles, ms);
-    if (!finishWaitUntil(start, ms)) return false;
-  }
-  return true;
-}
-
-// Lie down: step to a stop, lower the belly to the floor on all six legs, then fold
-// one tripod up and then the other. The body is on the floor before a leg lets go,
-// so nothing drops.
+// Lie down: step to a stop, then lower the belly to the floor on all six legs, feet
+// where they stand, so nothing drops and no leg curls up.
 bool restDown() {
   if (resting) return true;
   Serial2.println(F("REST: lying down"));
   buzzer::play(buzzer::REST);
   Stand();
   if (!ikGlide(restLow(), 20, 100)) return false;
-  if (!ik::anglesOf(ikNow, restAngles)) return false;
   resting = true;   // from here every move gets him up first
-  float fold[ik::LEGS][ik::JOINTS];
-  for (uint8_t l = 0; l < ik::LEGS; l++) { fold[l][ik::HIP] = 0; fold[l][ik::KNEE] = FOLD_KNEE_DEG; fold[l][ik::FOOT] = FOLD_FOOT_DEG; }
-  return anglesMove(fold, TRIPOD_A, 12, 100) && anglesMove(fold, TRIPOD_B, 12, 100);
+  return true;
 }
 
-// Get up: unfold the tripods the other way round onto the floor, then lift the body.
+// Get up: lift the body off the floor back into the stand.
 bool wakeUp() {
   if (!resting) return true;
   Serial2.println(F("REST: getting up"));
   buzzer::play(buzzer::WAKE);
-  float low[ik::LEGS][ik::JOINTS];
-  if (!ik::anglesOf(restLow(), low)) return false;
-  if (!anglesMove(low, TRIPOD_B, 12, 100) || !anglesMove(low, TRIPOD_A, 12, 100)) return false;
   resting = false;
   ikNow = restLow();
   gaitNow.running = false;
@@ -3247,7 +3221,7 @@ void pollTilt() {
 // ---------------------------------------------------------------------------
 // Shutdown
 // ---------------------------------------------------------------------------
-void ShutdownSequence() {        // lie down as gait.xml's "Reset - Shut Down", gently (restDown())
+void ShutdownSequence() {        // lie down, belly on the floor, legs spread (restDown())
   restDown();
   Serial2.println(F("Shutdown complete."));
 }
