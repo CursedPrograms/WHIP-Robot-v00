@@ -75,6 +75,9 @@ const float ANCHOR[LEGS][2] = { {74, 39}, {0, 64}, {-74, 39}, {74, -39}, {0, -64
 // real 45, so standing his corner hips sat ~173 us from 1500 and his corner feet stood 17 degrees
 // round towards the middle legs (where they bumped).
 const float MOUNT_DEG[LEGS] = { 45, 90, 135, -45, -90, -135 };
+// Jakob's: along the hip's position (atan2 of ANCHOR). The JAKOB MOUNT setting (saved) picks it,
+// to compare on the robot which one his horns really are.
+const float JAKOB_CORNER_DEG = 27.8f;
 
 // Poses (mm)
 // Height: how far the feet are below the hip joints (height 0-9 on /calib maps between these).
@@ -132,6 +135,10 @@ uint8_t  speed      = 5;       // 0-9 (slow to fast)
 uint8_t  gait       = 0;       // 0 tripod, 1 ripple, 2 wave (gaits.h)
 bool     weave      = false;   // obstacle mode: weave left / right as he walks, so the sonar sweeps wider
 bool     antiSlip   = false;   // feet planted a moment before the next ones lift (gaits.h PLANT_TICKS)
+uint8_t  footLead   = 0;       // 0-9: a stepping leg's foot servo runs ahead of its thigh (0: pure IK, gaits.h)
+bool     jakobMount = false;   // corner legs at 1500 us along the hip's position (27.8 deg), not diagonal (45)
+bool     wallGait   = false;   // obstacle mode: the next gait after every wall (not saved per wall: the saved gait stays)
+bool     autoStart  = false;   // at boot: stand up and walk off in obstacle mode; off: every servo at 1500 us until you give input
 
 Preferences prefs;
 
@@ -167,6 +174,10 @@ inline void load() {
   gait       = prefs.getUChar("gait", 0);
   weave      = prefs.getBool("weave", false);
   antiSlip   = prefs.getBool("antislip", false);
+  autoStart  = prefs.getBool("autostart", false);
+  wallGait   = prefs.getBool("wallgait", false);
+  jakobMount = prefs.getBool("jakobmount", false);
+  footLead   = min<uint8_t>(prefs.getUChar("footlead", 0), 9);
   prefs.end();
   if (saved && remap(mapVersion)) save();   // once: the trims follow their servos to the right legs
 }
@@ -181,14 +192,25 @@ inline void save() {
   prefs.putUChar("gait", gait);
   prefs.putBool("weave", weave);
   prefs.putBool("antislip", antiSlip);
+  prefs.putBool("autostart", autoStart);
+  prefs.putBool("wallgait", wallGait);
+  prefs.putBool("jakobmount", jakobMount);
+  prefs.putUChar("footlead", footLead);
   prefs.end();
+}
+
+// The direction leg `leg` points with its hip at 1500 us, as set (MOUNT_DEG or Jakob's)
+inline float mountDeg(uint8_t leg) {
+  const float d = MOUNT_DEG[leg];
+  if (!jakobMount || leg == LM || leg == RM) return d;
+  return d > 0 ? (d < 90 ? JAKOB_CORNER_DEG : 180 - JAKOB_CORNER_DEG) : (d > -90 ? -JAKOB_CORNER_DEG : -180 + JAKOB_CORNER_DEG);
 }
 
 // ---- inverse kinematics (Leg::setFootPosition of the reference) -----------
 // Foot position (body frame) -> hip / knee / foot angles. False if out of reach.
 inline bool solve(uint8_t leg, Pos p, float out[JOINTS]) {
   const float ax = ANCHOR[leg][0], ay = ANCHOR[leg][1];
-  const float anchorDeg = MOUNT_DEG[leg];          // the leg's direction at 1500 us
+  const float anchorDeg = mountDeg(leg);           // the leg's direction at 1500 us
   float x = p.x - ax, y = p.y - ay, z = p.z;     // anchor z = 0 (knee height)
 
   float hipDeg = atan2f(y, x) * RAD2DEG - anchorDeg;
@@ -222,12 +244,18 @@ inline int toUs(uint8_t leg, uint8_t joint, float deg) {
 }
 
 // "#<ch>P<us>" for all 18 servos (no T: the caller adds it). False if any foot is out of reach.
-inline bool line(const Frame& f, char* out, size_t n) {
+// FOOT LEAD: for the legs in leadMask, the foot servo's angle comes from lead (where that foot
+// will be further along its step) instead of f, so the foot gets there before the thigh does.
+inline bool line(const Frame& f, char* out, size_t n, const Frame* lead = nullptr, uint8_t leadMask = 0) {
   size_t used = 0;
   out[0] = '\0';
   for (uint8_t leg = 0; leg < LEGS; leg++) {
     float a[JOINTS];
     if (!solve(leg, f.leg[leg], a)) return false;
+    if (lead && (leadMask >> leg & 1)) {
+      float b[JOINTS];
+      if (solve(leg, lead->leg[leg], b)) a[FOOT] = b[FOOT];
+    }
     for (uint8_t j = 0; j < JOINTS; j++) {
       int w = snprintf(out + used, n - used, "#%uP%d", cal[leg][j].ch, toUs(leg, j, a[j]));
       if (w < 0 || used + w >= n) return false;

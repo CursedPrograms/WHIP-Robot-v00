@@ -361,6 +361,7 @@ bool calibrating = false; // /calib is open: WHIP stands still and takes no driv
 // up first (wakeUp()).
 bool resting = false;
 bool centred = false;     // the build switch is on: every servo at 1500 us, nothing moves him
+bool awaiting = false;    // AUTO-START off: booted with every servo at 1500 us, standing up at the first input
 bool testGait = false;    // TEST-GAIT on (/testgait, not saved): hips and thighs only, see testCycle()
 bool testPosed = false;   // his legs are in TEST-GAIT's joint angles (ikNow just says home meanwhile)
 uint16_t testK = 0;       // TEST-GAIT: ticks of the half-cycle under way sent (0: none)
@@ -551,6 +552,10 @@ void setup() {
     centred = true;
     centreAll();
     Serial2.println(F("Sent: every servo at 1500 us (build switch)"));
+  } else if (!ik::autoStart) {   // AUTO-START off: stay at the middle until someone gives him input
+    awaiting = true;
+    centreAll();         // the board holds 1500 us from power-up anyway; this covers a reset without one
+    Serial2.println(F("Sent: every servo at 1500 us (AUTO-START off: waiting for input)"));
   } else {
     standFromCentre();   // the servo board holds them all at 1500 us when it powers up
     Serial2.println(F("Sent: stand pose"));
@@ -562,10 +567,15 @@ void setup() {
   calibrateGyro();
   if (mpuFound) calibrateTiltOffset();
 
-  controlMode = CTRL_OBSTACLE;
-  Serial2.print(F("CONTROL -> OBSTACLE AVOIDANCE, walking at "));
-  Serial2.print(WALK_AFTER_BOOT_MS / 1000);
-  Serial2.println(F(" s"));
+  if (ik::autoStart) {
+    controlMode = CTRL_OBSTACLE;
+    Serial2.print(F("CONTROL -> OBSTACLE AVOIDANCE, walking at "));
+    Serial2.print(WALK_AFTER_BOOT_MS / 1000);
+    Serial2.println(F(" s"));
+  } else {
+    controlMode = CTRL_WEB;
+    Serial2.println(F("CONTROL -> WEB, every servo at 1500 us until the first input"));
+  }
   buzzer::play(buzzer::BOOT);
   readyAt = millis();
 }
@@ -610,6 +620,7 @@ void loop() {
   pollIR();
   pollWeb();
   pollPS2();
+  if (awaiting && !awaitLoop()) return;   // AUTO-START off: at 1500 us until the first input
 
   if (calibrating) return;   // /calib moves the servos itself; WHIP doesn't walk meanwhile
   if (linkLocked) {          // NORA locked his legs: he crouches, sulking
@@ -704,10 +715,13 @@ void clampCommand(const char* in, char* out, size_t outSize) {
 // ---------------------------------------------------------------------------
 
 // One frame to the controller, moving over `ms`. False if a foot is out of reach.
-bool ikSend(const ik::Frame& f, uint16_t ms) {
+bool ikSend(const ik::Frame& f, uint16_t ms) { return ikSendLead(f, ms, nullptr, 0); }
+
+bool ikSendLead(const ik::Frame& f, uint16_t ms, const ik::Frame* lead, uint8_t leadMask) {
   if (centred) return false;   // the build switch holds every servo at 1500 us
+  if (awaiting) wakeFromCentre();   // AUTO-START off and this is the first move: up from 1500 us first, gently
   if (testPosed) leaveTestPose();   // out of TEST-GAIT's pose into the stand first, smoothly
-  if (!ik::line(f, cmdBuf, sizeof(cmdBuf))) {
+  if (!ik::line(f, cmdBuf, sizeof(cmdBuf), lead, leadMask)) {
     Serial2.println(F("IK: foot out of reach, frame skipped"));
     return false;
   }
@@ -756,6 +770,8 @@ bool ikMoveTo(const ik::Frame& target, bool scanSafe, bool finish) {
 }
 
 ik::Gait gaitNow;          // the gait engine: where every foot is in its cycle
+// The next walking frame: with FOOT LEAD, the stepping feet's servos run ahead (gaits.h)
+bool ikSendGait(const ik::Frame& f, uint16_t ms) { return ikSendLead(f, ms, &gaitNow.lead, gaitNow.leadMask); }
 bool gaitSettle();
 bool watchClear = false;  // turning away from a wall: count clear pings while he turns
 uint8_t clearPings = 0;
@@ -832,7 +848,7 @@ bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scan
   const uint16_t ms = max(ik::stepMs(), LINE_MS);
   for (uint16_t i = 0; i < gaitNow.cycleTicks; i++) {
     unsigned long frameStart = millis();
-    if (!ikSend(gaitNow.tick(fwd, left, turn, false), ms)) { gaitNow.running = false; return false; }
+    if (!ikSendGait(gaitNow.tick(fwd, left, turn, false), ms)) { gaitNow.running = false; return false; }
     // range-find on every move (gaitWaitUntil pings every 100 ms)
     if (!gaitWaitUntil(frameStart, ms, scanSafe)) return false;
   }
@@ -847,7 +863,7 @@ bool gaitSettle() {
   const uint16_t ms = max(ik::stepMs(), LINE_MS);
   for (uint16_t i = 0; i < 4 * gaitNow.cycleTicks && !gaitNow.settled(); i++) {
     unsigned long frameStart = millis();
-    if (!ikSend(gaitNow.tick(0, 0, 0, true), ms)) break;
+    if (!ikSendGait(gaitNow.tick(0, 0, 0, true), ms)) break;
     if (!finishWaitUntil(frameStart, ms)) { gaitNow.running = false; return false; }
   }
   gaitNow.running = false;
@@ -859,7 +875,7 @@ void ikSnapHome() { gaitNow.running = false; ikSend(ik::home(), 300); }
 
 // The stand pose right now (tilt safety, boot): no interpolation. Not while he lies
 // down: the snap would slam his body up off the floor.
-void standNow() { if (!resting) ikSnapHome(); }
+void standNow() { if (!resting && !awaiting) ikSnapHome(); }
 
 // Every change of gait passes through here, so all six feet are down before the
 // next one starts. Walking: the feet step home; anything else: a smooth move.
@@ -924,6 +940,7 @@ bool centreSwitchLoop() {
     Serial2.println(F("BUILD SWITCH ON: every servo at 1500 us"));
   } else if (!on && centred) {
     centred = false;
+    awaiting = false;
     controlMode = CTRL_WEB; webActiveCmd = 0;
     buzzer::play(buzzer::WAKE);
     standFromCentre();
@@ -931,6 +948,28 @@ bool centreSwitchLoop() {
     Serial2.println(F("BUILD SWITCH OFF: standing (web mode)"));
   }
   return centred;
+}
+
+// AUTO-START off: he booted at 1500 us. The first input (a drive key, a mode, IR, the pad, a body
+// move...) stands him up from there, then does what it asked.
+void wakeFromCentre() {
+  if (!awaiting) return;
+  awaiting = false;
+  Serial2.println(F("INPUT: standing up from 1500 us"));
+  buzzer::play(buzzer::WAKE);
+  standFromCentre();
+  currentMove = MOVE_STAND;
+  stoodSince = millis();
+  readyAt = millis() - WALK_AFTER_BOOT_MS;   // no boot wait on top: he's been ready all along
+}
+
+// While he waits: true once there's input (and he has stood up), false to keep waiting.
+bool awaitLoop() {
+  const bool input = controlMode != CTRL_WEB || webActiveCmd != 0 || irActiveCmd != 0 || pendingAct != 0 ||
+                     driveFwd != 0 || driveLeft != 0 || driveTurn != 0 || testGait;
+  if (!input) { stoodSince = millis(); return false; }
+  wakeFromCentre();
+  return true;
 }
 
 bool MoveForward()   { return gaitCycle(1, 0, 0, true); }
@@ -1575,6 +1614,10 @@ void runObstacleMode() {
 
   if (clear) {
     Serial2.println(F("CLEAR -> forward"));
+    if (ik::wallGait) {   // GAIT PER WALL: walks on in the next gait (all six feet are down now)
+      ik::gait = (ik::gait + 1) % ik::GAITS;
+      Serial2.print(F("GAIT PER WALL -> ")); Serial2.println(ik::GAIT_NAMES[ik::gait]);
+    }
   } else {
     Serial2.println(F("STILL BLOCKED -> start over"));
     obstacleDetected = true;   // next loop pass turns again (the other way)
@@ -1953,7 +1996,7 @@ uint32_t settingsRev() {
     while (n--) { h ^= *b++; h *= 16777619u; }
   };
   mix(leds::cfg, sizeof leds::cfg); mix(&leds::brightness, sizeof leds::brightness);
-  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1); mix(&ik::weave, 1); mix(&ik::antiSlip, 1);
+  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1); mix(&ik::weave, 1); mix(&ik::antiSlip, 1); mix(&ik::autoStart, 1); mix(&ik::footLead, 1); mix(&ik::jakobMount, 1); mix(&ik::wallGait, 1);
   mix(&tiltGuard, sizeof tiltGuard); mix(&buzzer::muted, sizeof buzzer::muted);
   mix(&bodyK, sizeof bodyK); mix(&ik::calibrated, sizeof ik::calibrated);
   for (uint8_t l = 0; l < ik::LEGS; l++)
@@ -2098,6 +2141,11 @@ void handleStatus() {
   json += "\"testGait\":"    + String(testGait ? 1 : 0) + ",";
   json += "\"weave\":"       + String(ik::weave ? 1 : 0) + ",";
   json += "\"antiSlip\":"    + String(ik::antiSlip ? 1 : 0) + ",";
+  json += "\"autoStart\":"   + String(ik::autoStart ? 1 : 0) + ",";
+  json += "\"footLead\":"    + String(ik::footLead) + ",";
+  json += "\"jakobMount\":"  + String(ik::jakobMount ? 1 : 0) + ",";
+  json += "\"wallGait\":"    + String(ik::wallGait ? 1 : 0) + ",";
+  json += "\"awaiting\":"    + String(awaiting ? 1 : 0) + ",";
   json += "\"studio\":"      + String(studioHolds() ? 1 : 0) + ",";
   json += "\"rev\":"         + String(settingsRev()) + ",";
   json += "\"bodyMode\":"    + String(bodyMode ? 1 : 0) + ",";
@@ -2414,6 +2462,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
       <div class="mode-btn" id="weaveBtn" title="WEAVE: in obstacle mode he weaves left and right as he walks, so the sonar sees past his legs, and stops at 48 cm (saved)">WEAVE</div>
       <div class="mode-btn" id="antiSlipBtn" title="ANTI-SLIP: a foot that lands takes his weight a moment before the next ones lift (tripod: all six down), same stride, slower (saved)">ANTI-SLIP</div>
+      <label title="FOOT LEAD: while a leg steps, its foot servo runs ahead of the thigh and gets there first. 0 = pure IK, 9 = the foot there at about half the step (saved)">Foot lead <select id="footLeadSel"></select></label>
+      <div class="mode-btn" id="wallGaitBtn" title="GAIT PER WALL: in obstacle mode he walks on in the next gait after every wall (saved)">GAIT PER WALL</div>
+      <div class="mode-btn" id="jakobMountBtn" title="JAKOB MOUNT: the corner legs point along the hip's position at 1500 us (27.8 degrees, Jakob's chassis) instead of diagonally (45). Try both: the right one walks straight and stands with the corner feet clear of the middle ones (saved)">JAKOB MOUNT</div>
+      <div class="mode-btn" id="autoStartBtn" title="AUTO-START: at boot he stands up and walks off in obstacle avoidance. Off: every servo stays at 1500 us until you give him input (saved, from the next boot)">AUTO-START</div>
       <div class="mode-btn" id="testBtn" title="TEST-GAIT: walk on hips and thighs only, every joint at 1500 us on the ground (off again at every boot)">TEST-GAIT</div>
     </div>
     <canvas id="gaitAnim" width="300" height="120"></canvas>
@@ -2566,6 +2618,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         if (j.testGait !== undefined && !!j.testGait !== testOn) showTest(!!j.testGait);
         if (j.weave !== undefined && !!j.weave !== weaveOn) showWeave(!!j.weave);
         if (j.antiSlip !== undefined && !!j.antiSlip !== antiSlipOn) showAntiSlip(!!j.antiSlip);
+        if (j.autoStart !== undefined && !!j.autoStart !== autoStartOn) showAutoStart(!!j.autoStart);
+        if (j.footLead !== undefined && document.activeElement !== footLeadSel) footLeadSel.value = j.footLead;
+        if (j.jakobMount !== undefined && !!j.jakobMount !== jakobMountOn) showJakobMount(!!j.jakobMount);
+        if (j.wallGait !== undefined && !!j.wallGait !== wallGaitOn) showWallGait(!!j.wallGait);
         document.getElementById('status').textContent =
           'mode: ' + MODE_NAMES[j.controlMode] +
           ' | move: ' + MOVE_NAMES[j.move] +
@@ -2654,6 +2710,41 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     document.getElementById('antiSlipBtn').addEventListener('click', function () {
       showAntiSlip(!antiSlipOn);
       driveFetch('/gait?antislip=' + (antiSlipOn ? 1 : 0));
+    });
+
+    const footLeadSel = document.getElementById('footLeadSel');
+    for (let i = 0; i <= 9; i++) footLeadSel.add(new Option(i === 0 ? '0 (IK)' : String(i), i));
+    footLeadSel.addEventListener('change', function () { driveFetch('/gait?footlead=' + footLeadSel.value); });
+
+    let wallGaitOn = false;
+    function showWallGait(on) {
+      wallGaitOn = on;
+      document.getElementById('wallGaitBtn').classList.toggle('active', on);
+    }
+    document.getElementById('wallGaitBtn').addEventListener('click', function () {
+      showWallGait(!wallGaitOn);
+      driveFetch('/gait?wallgait=' + (wallGaitOn ? 1 : 0));
+    });
+
+    let jakobMountOn = false;
+    function showJakobMount(on) {
+      jakobMountOn = on;
+      document.getElementById('jakobMountBtn').classList.toggle('active', on);
+      B3.MOUNT = on ? [27.8, 90, 152.2, -27.8, -90, -152.2] : [45, 90, 135, -45, -90, -135];
+    }
+    document.getElementById('jakobMountBtn').addEventListener('click', function () {
+      showJakobMount(!jakobMountOn);
+      driveFetch('/gait?jakobmount=' + (jakobMountOn ? 1 : 0));
+    });
+
+    let autoStartOn = false;
+    function showAutoStart(on) {
+      autoStartOn = on;
+      document.getElementById('autoStartBtn').classList.toggle('active', on);
+    }
+    document.getElementById('autoStartBtn').addEventListener('click', function () {
+      showAutoStart(!autoStartOn);
+      driveFetch('/gait?autostart=' + (autoStartOn ? 1 : 0));
     });
 
     let testOn = false;
@@ -2972,7 +3063,7 @@ void setupCalibRoutes() {
     if (calibrating && !studioHolds()) calibShow(calibPose);
     calibState();
   });
-  server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9 &weave=0|1 &antislip=0|1, saved
+  server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9 &weave=0|1 &antislip=0|1 &autostart=0|1 &footlead=0-9 &jakobmount=0|1 &wallgait=0|1, saved
     if (!calibAllowed()) return;
     if (server.hasArg("weave")) {   // obstacle mode weaving: no re-stand for that
       ik::weave = server.arg("weave") != "0";
@@ -2982,6 +3073,28 @@ void setupCalibRoutes() {
     if (server.hasArg("antislip")) {   // feet planted before the next lift: walking, he steps to a stop and on again
       ik::antiSlip = server.arg("antislip") != "0";
       Serial2.println(ik::antiSlip ? F("ANTI-SLIP ON") : F("ANTI-SLIP OFF"));
+      if (!server.hasArg("gait") && !server.hasArg("height") && !server.hasArg("speed")) { ik::save(); calibState(); return; }
+    }
+    if (server.hasArg("wallgait")) {   // obstacle mode: the next gait after every wall
+      ik::wallGait = server.arg("wallgait") != "0";
+      Serial2.println(ik::wallGait ? F("GAIT PER WALL ON") : F("GAIT PER WALL OFF"));
+      ik::save(); calibState(); return;
+    }
+    if (server.hasArg("jakobmount")) {   // which way the corner legs point at 1500 us: he re-stands on it
+      ik::jakobMount = server.arg("jakobmount") != "0";
+      Serial2.println(ik::jakobMount ? F("MOUNT: Jakob's (corners 27.8 deg)") : F("MOUNT: diagonal (corners 45 deg)"));
+      ik::save();
+      if (!gaitNow.running && !resting && !awaiting && !centred && !calibrating) ikGlide(standFrame(), 10, 80);
+      calibState(); return;
+    }
+    if (server.hasArg("footlead")) {   // a stepping foot's servo ahead of its thigh: from the next step
+      ik::footLead = constrain(server.arg("footlead").toInt(), 0, 9);
+      Serial2.print(F("FOOT LEAD -> ")); Serial2.println(ik::footLead);
+      if (!server.hasArg("gait") && !server.hasArg("height") && !server.hasArg("speed") && !server.hasArg("autostart")) { ik::save(); calibState(); return; }
+    }
+    if (server.hasArg("autostart")) {   // takes effect at the next boot
+      ik::autoStart = server.arg("autostart") != "0";
+      Serial2.println(ik::autoStart ? F("AUTO-START ON (next boot)") : F("AUTO-START OFF (next boot)"));
       if (!server.hasArg("gait") && !server.hasArg("height") && !server.hasArg("speed")) { ik::save(); calibState(); return; }
     }
     if (server.hasArg("gait")) {

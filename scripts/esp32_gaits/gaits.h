@@ -77,6 +77,8 @@ struct Gait {
   Frame    last;               // the frame tick() returned last
   Pos      foot[LEGS];
   Pos      liftOff[LEGS];      // where a swinging foot left the ground
+  Frame    lead;               // FOOT LEAD (ik::footLead): each swinging foot further along its step...
+  uint8_t  leadMask = 0;       // ... for these legs (a bit each): its foot servo goes by that, ahead of the thigh
   bool     air[LEGS];
   float    vx = 0, vy = 0, w = 0;   // body velocity now: mm, mm, rad per tick
   float    tx = 0, ty = 0, tw = 0;   // ... and where it's heading
@@ -157,6 +159,7 @@ struct Gait {
 
     t = (t + 1) % cycleTicks;
     if (homing) homeT++;
+    leadMask = 0;
     const float z = homeZ(), c = cosf(w), s = sinf(w);
     const Frame h = home();
 
@@ -188,6 +191,16 @@ struct Gait {
         const float up = 10 * u2 * (1 - u) * (1 - u) * 1.6f * LIFT;   // peaks at LIFT, as swing()
         foot[i] = { h00 * L.x + h01 * T.x + h10 * vL.x + h11 * vT.x,
                     h00 * L.y + h01 * T.y + h10 * vL.y + h11 * vT.y, z + up };
+        if (footLead && k < airTicks && swingNow) {
+          // the same path, further along: footLead 9 = the foot's servo there at ~half the swing
+          const float v = min(1.0f, u * (1 + footLead * 0.1f)), v2 = v * v, v3 = v2 * v;
+          const float g00 = 2 * v3 - 3 * v2 + 1, g01 = 3 * v2 - 2 * v3;
+          const float g10 = (v3 - 2 * v2 + v) * airTicks, g11 = (v3 - v2) * airTicks;
+          lead.leg[i] = { g00 * L.x + g01 * T.x + g10 * vL.x + g11 * vT.x,
+                          g00 * L.y + g01 * T.y + g10 * vL.y + g11 * vT.y,
+                          z + 10 * v2 * (1 - v) * (1 - v) * 1.6f * LIFT };
+          leadMask |= 1 << i;
+        }
         if (k >= airTicks || !swingNow) { foot[i] = T; air[i] = false; }   // landed
       } else {
         const Pos p = foot[i];   // on the ground: the body turns and moves over it
