@@ -204,7 +204,7 @@ inline void update(const State& s, bool force = false) {
       uint32_t c = scaled(r, g, b, breathe);
 
       if (leg >= 0) {   // the legs: his gait's colour
-        const LookCfg& gc = cfg[GAIT_LOOK + (s.gaitId < 6 ? s.gaitId : 0)];   // jakob: tripod's (a new look would reset saved colours)
+        const LookCfg& gc = cfg[GAIT_LOOK + (s.gaitId < 6 ? s.gaitId : 0)];
         c = scaled(gc.r, gc.g, gc.b, s.walking ? 0.12f : breathe * 0.6f);
         if (s.walking && s.gait && s.gait->air[leg]) {   // that foot is up: brighter, whiter the higher
           const float lift = constrain((s.gait->foot[leg].z - ik::homeZ()) / ik::LIFT, 0.0f, 1.0f);
