@@ -70,14 +70,12 @@ const char* const JOINT_NAMES[JOINTS] = { "hip", "knee", "foot" };
 // Hip joints, mm from the body centre
 const float ANCHOR[LEGS][2] = { {74, 39}, {0, 64}, {-74, 39}, {74, -39}, {0, -64}, {-74, -39} };
 // Which way each leg points with its hip servo at 0 degrees (1500 us), anticlockwise from straight
-// ahead: WHIP's corner legs are mounted diagonally. Until 2026-10-27 this came from the hip's
-// position (atan2 of ANCHOR, Jakob's way: 27.8 degrees for the corners), 17 degrees off WHIP's
-// real 45, so standing his corner hips sat ~173 us from 1500 and his corner feet stood 17 degrees
-// round towards the middle legs (where they bumped).
-const float MOUNT_DEG[LEGS] = { 45, 90, 135, -45, -90, -135 };
-// Jakob's: along the hip's position (atan2 of ANCHOR). The JAKOB MOUNT setting (saved) picks it,
-// to compare on the robot which one his horns really are.
-const float JAKOB_CORNER_DEG = 27.8f;
+// ahead: Jakob's, along the line from the body centre through the hip (atan2 of ANCHOR: 27.8
+// degrees for the corners), as the old sketch (scripts/esp32) has it and walks forward with.
+// 2026-10-27 to 28 the corners were set diagonal (45) and he "swam": every corner foot pushed
+// 17 degrees off straight back, front and back ones against each other. Kept for reference:
+// const float MOUNT_DEG[LEGS] = { 45, 90, 135, -45, -90, -135 };   // diagonal corners: not his
+const float MOUNT_DEG[LEGS] = { 27.8f, 90, 152.2f, -27.8f, -90, -152.2f };
 
 // Poses (mm)
 // Height: how far the feet are below the hip joints (height 0-9 on /calib maps between these).
@@ -136,7 +134,6 @@ uint8_t  gait       = 0;       // 0 tripod, 1 ripple, 2 wave (gaits.h)
 bool     weave      = false;   // obstacle mode: weave left / right as he walks, so the sonar sweeps wider
 bool     antiSlip   = false;   // feet planted a moment before the next ones lift (gaits.h PLANT_TICKS)
 uint8_t  footLead   = 0;       // 0-9: a stepping leg's foot servo runs ahead of its thigh (0: pure IK, gaits.h)
-bool     jakobMount = true;    // corner legs at 1500 us along the hip's position (27.8 deg), not diagonal (45): the default since 2026-10-28
 bool     wallGait   = false;   // obstacle mode: the next gait after every wall (not saved per wall: the saved gait stays)
 bool     autoStart  = false;   // at boot: stand up and walk off in obstacle mode; off: every servo at 1500 us until you give input
 
@@ -176,8 +173,6 @@ inline void load() {
   antiSlip   = prefs.getBool("antislip", false);
   autoStart  = prefs.getBool("autostart", false);
   wallGait   = prefs.getBool("wallgait", false);
-  // on by default; once (mountv < 1), on again even if it was saved off while being tried
-  jakobMount = prefs.getUChar("mountv", 0) < 1 ? true : prefs.getBool("jakobmount", true);
   footLead   = min<uint8_t>(prefs.getUChar("footlead", 0), 9);
   prefs.end();
   if (saved && remap(mapVersion)) save();   // once: the trims follow their servos to the right legs
@@ -194,24 +189,15 @@ inline void save() {
   prefs.putBool("antislip", antiSlip);
   prefs.putBool("autostart", autoStart);
   prefs.putBool("wallgait", wallGait);
-  prefs.putBool("jakobmount", jakobMount);
-  prefs.putUChar("mountv", 1);
   prefs.putUChar("footlead", footLead);
   prefs.end();
-}
-
-// The direction leg `leg` points with its hip at 1500 us, as set (MOUNT_DEG or Jakob's)
-inline float mountDeg(uint8_t leg) {
-  const float d = MOUNT_DEG[leg];
-  if (!jakobMount || leg == LM || leg == RM) return d;
-  return d > 0 ? (d < 90 ? JAKOB_CORNER_DEG : 180 - JAKOB_CORNER_DEG) : (d > -90 ? -JAKOB_CORNER_DEG : -180 + JAKOB_CORNER_DEG);
 }
 
 // ---- inverse kinematics (Leg::setFootPosition of the reference) -----------
 // Foot position (body frame) -> hip / knee / foot angles. False if out of reach.
 inline bool solve(uint8_t leg, Pos p, float out[JOINTS]) {
   const float ax = ANCHOR[leg][0], ay = ANCHOR[leg][1];
-  const float anchorDeg = mountDeg(leg);           // the leg's direction at 1500 us
+  const float anchorDeg = MOUNT_DEG[leg];          // the leg's direction at 1500 us
   float x = p.x - ax, y = p.y - ay, z = p.z;     // anchor z = 0 (knee height)
 
   float hipDeg = atan2f(y, x) * RAD2DEG - anchorDeg;

@@ -2028,7 +2028,7 @@ uint32_t settingsRev() {
     while (n--) { h ^= *b++; h *= 16777619u; }
   };
   mix(leds::cfg, sizeof leds::cfg); mix(&leds::brightness, sizeof leds::brightness);
-  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1); mix(&ik::weave, 1); mix(&ik::antiSlip, 1); mix(&ik::autoStart, 1); mix(&ik::footLead, 1); mix(&ik::jakobMount, 1); mix(&ik::wallGait, 1);
+  mix(&ik::gait, 1); mix(&ik::height, 1); mix(&ik::speed, 1); mix(&ik::weave, 1); mix(&ik::antiSlip, 1); mix(&ik::autoStart, 1); mix(&ik::footLead, 1); mix(&ik::wallGait, 1);
   mix(&tiltGuard, sizeof tiltGuard); mix(&buzzer::muted, sizeof buzzer::muted);
   mix(&bodyK, sizeof bodyK); mix(&ik::calibrated, sizeof ik::calibrated);
   for (uint8_t l = 0; l < ik::LEGS; l++)
@@ -2175,7 +2175,6 @@ void handleStatus() {
   json += "\"antiSlip\":"    + String(ik::antiSlip ? 1 : 0) + ",";
   json += "\"autoStart\":"   + String(ik::autoStart ? 1 : 0) + ",";
   json += "\"footLead\":"    + String(ik::footLead) + ",";
-  json += "\"jakobMount\":"  + String(ik::jakobMount ? 1 : 0) + ",";
   json += "\"wallGait\":"    + String(ik::wallGait ? 1 : 0) + ",";
   json += "\"awaiting\":"    + String(awaiting ? 1 : 0) + ",";
   json += "\"studio\":"      + String(studioHolds() ? 1 : 0) + ",";
@@ -2496,7 +2495,6 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <div class="mode-btn" id="antiSlipBtn" title="ANTI-SLIP: a foot that lands takes his weight a moment before the next ones lift (tripod: all six down), same stride, slower (saved)">ANTI-SLIP</div>
       <label title="FOOT LEAD: while a leg steps, its foot servo runs ahead of the thigh and gets there first. 0 = pure IK, 9 = the foot there at about half the step (saved)">Foot lead <select id="footLeadSel"></select></label>
       <div class="mode-btn" id="wallGaitBtn" title="GAIT PER WALL: in obstacle mode he walks on in the next gait after every wall (saved)">GAIT PER WALL</div>
-      <div class="mode-btn active" id="jakobMountBtn" title="JAKOB MOUNT: the corner legs point along the hip's position at 1500 us (27.8 degrees, Jakob's chassis) instead of diagonally (45). Try both: the right one walks straight and stands with the corner feet clear of the middle ones (saved)">JAKOB MOUNT</div>
       <div class="mode-btn" id="autoStartBtn" title="AUTO-START: at boot he stands up and walks off in obstacle avoidance. Off: every servo stays at 1500 us until you give him input (saved, from the next boot)">AUTO-START</div>
       <div class="mode-btn" id="testBtn" title="TEST-GAIT: walk on hips and thighs only, every joint at 1500 us on the ground (off again at every boot)">TEST-GAIT</div>
     </div>
@@ -2652,7 +2650,6 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         if (j.antiSlip !== undefined && !!j.antiSlip !== antiSlipOn) showAntiSlip(!!j.antiSlip);
         if (j.autoStart !== undefined && !!j.autoStart !== autoStartOn) showAutoStart(!!j.autoStart);
         if (j.footLead !== undefined && document.activeElement !== footLeadSel) footLeadSel.value = j.footLead;
-        if (j.jakobMount !== undefined && !!j.jakobMount !== jakobMountOn) showJakobMount(!!j.jakobMount);
         if (j.wallGait !== undefined && !!j.wallGait !== wallGaitOn) showWallGait(!!j.wallGait);
         document.getElementById('status').textContent =
           'mode: ' + MODE_NAMES[j.controlMode] +
@@ -2757,17 +2754,6 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     document.getElementById('wallGaitBtn').addEventListener('click', function () {
       showWallGait(!wallGaitOn);
       driveFetch('/gait?wallgait=' + (wallGaitOn ? 1 : 0));
-    });
-
-    let jakobMountOn = true;
-    function showJakobMount(on) {
-      jakobMountOn = on;
-      document.getElementById('jakobMountBtn').classList.toggle('active', on);
-      B3.MOUNT = on ? [27.8, 90, 152.2, -27.8, -90, -152.2] : [45, 90, 135, -45, -90, -135];
-    }
-    document.getElementById('jakobMountBtn').addEventListener('click', function () {
-      showJakobMount(!jakobMountOn);
-      driveFetch('/gait?jakobmount=' + (jakobMountOn ? 1 : 0));
     });
 
     let autoStartOn = false;
@@ -2879,7 +2865,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     // polygon under the feet that are down, and his centre over it. Plain canvas, no libraries.
     var B3 = { HK: 28, TH: 84, FT: 127, TIP: 14,
                ANCHOR: [[74, 39], [0, 64], [-74, 39], [74, -39], [0, -64], [-74, -39]],
-               MOUNT: [27.8, 90, 152.2, -27.8, -90, -152.2],   // each leg at 1500 us: JAKOB MOUNT (the default; showJakobMount() switches)
+               MOUNT: [27.8, 90, 152.2, -27.8, -90, -152.2],   // each leg at 1500 us (ik_gait.h MOUNT_DEG, Jakob's)
                BODY: [[74, 39], [0, 64], [-74, 39], [-74, -39], [0, -64], [74, -39]],
                az: -0.65, el: 0.55, pose: null };
     var c3 = document.getElementById('body3d'), g3 = c3.getContext('2d');
@@ -3004,7 +2990,7 @@ bool calibAllowed() {
 
 void calibState() {
   String j = "{\"calibrating\":" + String(calibrating ? 1 : 0) + ",\"calibrated\":" + String(ik::calibrated ? 1 : 0) +
-             ",\"height\":" + String(ik::height) + ",\"speed\":" + String(ik::speed) + ",\"gait\":" + String(ik::gait) + ",\"jakobMount\":" + String(ik::jakobMount ? 1 : 0) +
+             ",\"height\":" + String(ik::height) + ",\"speed\":" + String(ik::speed) + ",\"gait\":" + String(ik::gait) +
              ",\"pose\":\"" + String(calibPose) + "\",\"legs\":[";
   for (uint8_t l = 0; l < ik::LEGS; l++) {
     j += String(l ? "," : "") + "{\"name\":\"" + ik::LEG_NAMES[l] + "\",\"servos\":[";
@@ -3096,7 +3082,7 @@ void setupCalibRoutes() {
     if (calibrating && !studioHolds()) calibShow(calibPose);
     calibState();
   });
-  server.on("/gait", []() {                    // ?gait=0-6 (tripod / ripple / wave / quad / amble / metachronal / jakob) &height=0-9 &speed=0-9 &weave=0|1 &antislip=0|1 &autostart=0|1 &footlead=0-9 &jakobmount=0|1 &wallgait=0|1, saved
+  server.on("/gait", []() {                    // ?gait=0-6 (tripod / ripple / wave / quad / amble / metachronal / jakob) &height=0-9 &speed=0-9 &weave=0|1 &antislip=0|1 &autostart=0|1 &footlead=0-9 &wallgait=0|1, saved
     if (!calibAllowed()) return;
     if (server.hasArg("weave")) {   // obstacle mode weaving: no re-stand for that
       ik::weave = server.arg("weave") != "0";
@@ -3112,13 +3098,6 @@ void setupCalibRoutes() {
       ik::wallGait = server.arg("wallgait") != "0";
       Serial2.println(ik::wallGait ? F("GAIT PER WALL ON") : F("GAIT PER WALL OFF"));
       ik::save(); calibState(); return;
-    }
-    if (server.hasArg("jakobmount")) {   // which way the corner legs point at 1500 us: he re-stands on it
-      ik::jakobMount = server.arg("jakobmount") != "0";
-      Serial2.println(ik::jakobMount ? F("MOUNT: Jakob's (corners 27.8 deg)") : F("MOUNT: diagonal (corners 45 deg)"));
-      ik::save();
-      if (!gaitNow.running && !resting && !awaiting && !centred && !calibrating) ikGlide(standFrame(), 10, 80);
-      calibState(); return;
     }
     if (server.hasArg("footlead")) {   // a stepping foot's servo ahead of its thigh: from the next step
       ik::footLead = constrain(server.arg("footlead").toInt(), 0, 9);

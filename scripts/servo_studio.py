@@ -697,7 +697,6 @@ class Studio:
         st, hold.cal_state = hold.cal_state, None
         if not st or "legs" not in st:
             return
-        wb.set_mount(bool(st.get("jakobMount")))   # which way his corner legs point at 1500 us, as he has it
         try:
             his = [[(s["ch"], bool(s["rev"]), int(s["trim"])) for s in leg["servos"]] for leg in st["legs"]]
         except (KeyError, TypeError, ValueError):
