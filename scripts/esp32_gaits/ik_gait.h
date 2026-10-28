@@ -172,7 +172,7 @@ inline void load() {
   height     = prefs.getUChar("height", 5);
   speed      = prefs.getUChar("speed", 5);
   gait       = prefs.getUChar("gait", 0);
-  weave      = prefs.getBool("weave", false);
+  weave      = false;   // WEAVE is off at every boot (the user didn't like it on by itself, 2026-10-28): not read back
   antiSlip   = prefs.getBool("antislip", false);
   autoStart  = prefs.getBool("autostart", false);
   wallGait   = prefs.getBool("wallgait", false);
@@ -190,7 +190,6 @@ inline void save() {
   prefs.putUChar("height", height);
   prefs.putUChar("speed", speed);
   prefs.putUChar("gait", gait);
-  prefs.putBool("weave", weave);
   prefs.putBool("antislip", antiSlip);
   prefs.putBool("autostart", autoStart);
   prefs.putBool("wallgait", wallGait);

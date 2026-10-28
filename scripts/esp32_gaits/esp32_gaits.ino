@@ -302,7 +302,7 @@ unsigned long readyAt = 0;   // when setup finished (standing, gyro calibrated):
 // ---------------------------------------------------------------------------
 const long MIN_DISTANCE_CM   = 35;   // was 20: he walked into the closet door
 const long CLEAR_DISTANCE_CM = 50;
-// WEAVE (/gait?weave=1, saved): his feet stick out past the sonar's cone (about +-15 degrees) until
+// WEAVE (/gait?weave=1, off again at every boot): his feet stick out past the sonar's cone (about +-15 degrees) until
 // about 46 cm ahead, so a chair leg off to one side wasn't seen. Weaving, he swings his heading
 // left and right as he walks (the beam sweeps), and stops further back, where the cone is wider.
 const long WEAVE_DISTANCE_CM = 48;
@@ -2460,7 +2460,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <label>Gait <select id="gaitSel" title="G: next gait, 1-6: tripod / ripple / wave / quad / amble / metachronal"></select></label>
       <div class="mode-btn active" id="tiltBtn" title="T: tilt safety on / off (on again at every boot)">TILT ON</div>
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
-      <div class="mode-btn" id="weaveBtn" title="WEAVE: in obstacle mode he weaves left and right as he walks, so the sonar sees past his legs, and stops at 48 cm (saved)">WEAVE</div>
+      <div class="mode-btn" id="weaveBtn" title="WEAVE: in obstacle mode he weaves left and right as he walks, so the sonar sees past his legs, and stops at 48 cm (off again at every boot)">WEAVE</div>
       <div class="mode-btn" id="antiSlipBtn" title="ANTI-SLIP: a foot that lands takes his weight a moment before the next ones lift (tripod: all six down), same stride, slower (saved)">ANTI-SLIP</div>
       <label title="FOOT LEAD: while a leg steps, its foot servo runs ahead of the thigh and gets there first. 0 = pure IK, 9 = the foot there at about half the step (saved)">Foot lead <select id="footLeadSel"></select></label>
       <div class="mode-btn" id="wallGaitBtn" title="GAIT PER WALL: in obstacle mode he walks on in the next gait after every wall (saved)">GAIT PER WALL</div>
