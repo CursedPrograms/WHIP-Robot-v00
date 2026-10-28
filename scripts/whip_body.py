@@ -34,7 +34,7 @@ BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))   # the o
 DEFAULT_CAL = (((24, True, 0), (25, True, 0), (26, True, 0)), ((27, True, 0), (28, True, 0), (29, True, 0)),
                ((30, True, 0), (31, True, 0), (32, True, 0)), ((7, True, 0), (8, False, 0), (9, False, 0)),
                ((4, True, 0), (5, False, 0), (6, False, 0)), ((1, True, 0), (2, False, 0), (3, False, 0)))
-HOME_Z = -134.0            # height 5 of WHIP's stance (WHIP_HOME_Z_MIN / MAX)
+HOME_Z = -124.0            # height 5 of WHIP's stance (WHIP_HOME_Z_MIN / MAX)
 HOME = ((160, 123), (0, 177), (-160, 123), (160, -123), (0, -177), (-160, -123))   # feet, mm (FB_X, WIDTH_*)
 
 

@@ -322,7 +322,7 @@ const long FOLLOW_LOST_CM     = 80;   // nothing nearer than this: nobody to fol
 // them up under him (gait.xml's "Reset - Shut Down", knees and feet right up, until 2026-10-27):
 // the user didn't want the tarantula death curl.
 const unsigned long REST_AFTER_MS = 60000;
-const float REST_Z        = ik::HOME_Z_MIN + 15;   // belly on the floor (-75 mm): raise if the feet still carry him
+const float REST_Z        = -75;   // belly on the floor (mm): raise if the feet still carry him
 const uint8_t TRIPOD_A = (1 << ik::LF) | (1 << ik::LB) | (1 << ik::RM);
 const uint8_t TRIPOD_B = (1 << ik::LM) | (1 << ik::RF) | (1 << ik::RB);
 

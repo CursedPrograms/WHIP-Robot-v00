@@ -87,8 +87,8 @@ const float JAKOB_CORNER_DEG = 27.8f;
 // in reach down to -170 mm; past about -130 the thighs slope down instead of up.
 const float JAKOB_HOME_Z_MIN = -60;    // his original: height 0
 const float JAKOB_HOME_Z_MAX = -140;   // his original: height 9 (height 5 = -104, knees ~16 deg up)
-const float WHIP_HOME_Z_MIN  = -90;    // WHIP's, for the battery: height 0 (check its clearance)
-const float WHIP_HOME_Z_MAX  = -170;   // WHIP's: height 9 (height 5 = -134, thighs about level)
+const float WHIP_HOME_Z_MIN  = -80;    // WHIP's, for the battery: height 0 (check its clearance; -90 until 2026-10-28)
+const float WHIP_HOME_Z_MAX  = -160;   // WHIP's: height 9 (height 5 = -124; -170 / -134 until 2026-10-28: the user asked lower)
 const float HOME_Z_MIN = WHIP_HOME_Z_MIN;   // in use: swap to JAKOB_* to try his stance
 const float HOME_Z_MAX = WHIP_HOME_Z_MAX;
 const float SLEEP_Z    = HOME_Z_MIN;   // resting: lowest stance, not on the floor (the battery's there)

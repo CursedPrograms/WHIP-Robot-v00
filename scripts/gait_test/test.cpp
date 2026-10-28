@@ -77,7 +77,7 @@ int main() {
     height = hgt;
     char buf[64];
     Frame low = home();
-    for (int l = 0; l < LEGS; l++) low.leg[l].z = HOME_Z_MIN + 15;   // restLow()
+    for (int l = 0; l < LEGS; l++) low.leg[l].z = -75;   // restLow() (REST_Z)
     snprintf(buf, sizeof buf, "rest low h%d", hgt);
     check(buf, reach(low));
     Frame base = home();
