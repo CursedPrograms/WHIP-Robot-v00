@@ -136,7 +136,7 @@ uint8_t  gait       = 0;       // 0 tripod, 1 ripple, 2 wave (gaits.h)
 bool     weave      = false;   // obstacle mode: weave left / right as he walks, so the sonar sweeps wider
 bool     antiSlip   = false;   // feet planted a moment before the next ones lift (gaits.h PLANT_TICKS)
 uint8_t  footLead   = 0;       // 0-9: a stepping leg's foot servo runs ahead of its thigh (0: pure IK, gaits.h)
-bool     jakobMount = false;   // corner legs at 1500 us along the hip's position (27.8 deg), not diagonal (45)
+bool     jakobMount = true;    // corner legs at 1500 us along the hip's position (27.8 deg), not diagonal (45): the default since 2026-10-28
 bool     wallGait   = false;   // obstacle mode: the next gait after every wall (not saved per wall: the saved gait stays)
 bool     autoStart  = false;   // at boot: stand up and walk off in obstacle mode; off: every servo at 1500 us until you give input
 
@@ -176,7 +176,8 @@ inline void load() {
   antiSlip   = prefs.getBool("antislip", false);
   autoStart  = prefs.getBool("autostart", false);
   wallGait   = prefs.getBool("wallgait", false);
-  jakobMount = prefs.getBool("jakobmount", false);
+  // on by default; once (mountv < 1), on again even if it was saved off while being tried
+  jakobMount = prefs.getUChar("mountv", 0) < 1 ? true : prefs.getBool("jakobmount", true);
   footLead   = min<uint8_t>(prefs.getUChar("footlead", 0), 9);
   prefs.end();
   if (saved && remap(mapVersion)) save();   // once: the trims follow their servos to the right legs
@@ -194,6 +195,7 @@ inline void save() {
   prefs.putBool("autostart", autoStart);
   prefs.putBool("wallgait", wallGait);
   prefs.putBool("jakobmount", jakobMount);
+  prefs.putUChar("mountv", 1);
   prefs.putUChar("footlead", footLead);
   prefs.end();
 }

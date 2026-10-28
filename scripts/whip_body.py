@@ -22,7 +22,7 @@ JOINTS = ("hip", "knee", "foot")
 ANCHOR = ((74, 39), (0, 64), (-74, 39), (74, -39), (0, -64), (-74, -39))
 MOUNT_DEG = (45, 90, 135, -45, -90, -135)   # each leg's direction at 1500 us (ik_gait.h MOUNT_DEG): corners diagonal
 JAKOB_MOUNT_DEG = (27.8, 90, 152.2, -27.8, -90, -152.2)   # his JAKOB MOUNT setting: corners along the hip's position
-mount = MOUNT_DEG          # the one in use: set_mount() follows his setting (/calib/state jakobMount)
+mount = JAKOB_MOUNT_DEG    # the one in use (JAKOB MOUNT is his default): set_mount() follows his setting (/calib/state jakobMount)
 
 
 def set_mount(jakob):

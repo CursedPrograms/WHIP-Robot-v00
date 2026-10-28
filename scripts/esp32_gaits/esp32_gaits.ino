@@ -2464,7 +2464,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <div class="mode-btn" id="antiSlipBtn" title="ANTI-SLIP: a foot that lands takes his weight a moment before the next ones lift (tripod: all six down), same stride, slower (saved)">ANTI-SLIP</div>
       <label title="FOOT LEAD: while a leg steps, its foot servo runs ahead of the thigh and gets there first. 0 = pure IK, 9 = the foot there at about half the step (saved)">Foot lead <select id="footLeadSel"></select></label>
       <div class="mode-btn" id="wallGaitBtn" title="GAIT PER WALL: in obstacle mode he walks on in the next gait after every wall (saved)">GAIT PER WALL</div>
-      <div class="mode-btn" id="jakobMountBtn" title="JAKOB MOUNT: the corner legs point along the hip's position at 1500 us (27.8 degrees, Jakob's chassis) instead of diagonally (45). Try both: the right one walks straight and stands with the corner feet clear of the middle ones (saved)">JAKOB MOUNT</div>
+      <div class="mode-btn active" id="jakobMountBtn" title="JAKOB MOUNT: the corner legs point along the hip's position at 1500 us (27.8 degrees, Jakob's chassis) instead of diagonally (45). Try both: the right one walks straight and stands with the corner feet clear of the middle ones (saved)">JAKOB MOUNT</div>
       <div class="mode-btn" id="autoStartBtn" title="AUTO-START: at boot he stands up and walks off in obstacle avoidance. Off: every servo stays at 1500 us until you give him input (saved, from the next boot)">AUTO-START</div>
       <div class="mode-btn" id="testBtn" title="TEST-GAIT: walk on hips and thighs only, every joint at 1500 us on the ground (off again at every boot)">TEST-GAIT</div>
     </div>
@@ -2726,7 +2726,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       driveFetch('/gait?wallgait=' + (wallGaitOn ? 1 : 0));
     });
 
-    let jakobMountOn = false;
+    let jakobMountOn = true;
     function showJakobMount(on) {
       jakobMountOn = on;
       document.getElementById('jakobMountBtn').classList.toggle('active', on);
@@ -2846,7 +2846,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     // polygon under the feet that are down, and his centre over it. Plain canvas, no libraries.
     var B3 = { HK: 28, TH: 84, FT: 127, TIP: 14,
                ANCHOR: [[74, 39], [0, 64], [-74, 39], [74, -39], [0, -64], [-74, -39]],
-               MOUNT: [45, 90, 135, -45, -90, -135],   // ik_gait.h MOUNT_DEG: each leg at 1500 us
+               MOUNT: [27.8, 90, 152.2, -27.8, -90, -152.2],   // each leg at 1500 us: JAKOB MOUNT (the default; showJakobMount() switches)
                BODY: [[74, 39], [0, 64], [-74, 39], [-74, -39], [0, -64], [74, -39]],
                az: -0.65, el: 0.55, pose: null };
     var c3 = document.getElementById('body3d'), g3 = c3.getContext('2d');
