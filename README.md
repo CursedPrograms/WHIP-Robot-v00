@@ -70,6 +70,7 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 
 ### Core Features
 - [x] 18-DOF walking by inverse kinematics: six gaits (tripod, ripple, wave, quad, amble, metachronal), each checked to keep his centre inside his feet; forward, back, turning, crabbing sideways and analog stick driving, plus stand, rest and shut-down poses.
+- [x] **Play WHIP** in your browser ([play.html](https://cursedprograms.github.io/WHIP-Robot-v00/play.html)): his own gait engine and IK ported to JavaScript, drawn in CSS 3D. Walk, turn and crab him round an arena collecting orbs, all six gaits, hello, dance and rest, with the keyboard, a touch pad or a gamepad; it shows the joint pulses his servos would get.
 - [x] Body IK: his body slides (x / y / z) and tilts (roll / pitch / yaw) over planted feet, fitted so every foot reaches: `/body`, the controller's BODY mode, the PS2 pad's BODY mode (R3), Servo Studio's 3D BODY.
 - [x] A PS2 pad on WHIP himself: its 9-pin receiver straight on four pins (`ps2.h`), the sticks steering his gaits.
 - [x] WHIP in 3D on his own web page (plain JavaScript, live from `/pose`), and in Servo Studio.

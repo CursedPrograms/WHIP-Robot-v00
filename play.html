@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Play WHIP — drive the hexapod in your browser</title>
+<meta name="description" content="Drive WHIP, the DREAM Robotics hexapod, in your browser: his own gait engine and inverse kinematics, six gaits, crab walking, hello and dance, in CSS 3D. Keyboard, touch or gamepad.">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="Play WHIP — drive the hexapod in your browser">
+<meta property="og:description" content="WHIP's real gait engine in CSS 3D: six gaits, crab, hello and dance. Keyboard, touch or gamepad.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="images/whip_avatar.jpg">
+<link rel="icon" href="site/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="site/apple-touch-icon.png">
+<link rel="stylesheet" href="site/style.css">
+<link rel="stylesheet" href="site/play.css">
+<script src="site/play.js" defer></script>
+</head>
+<body>
+
+<nav aria-label="Primary">
+  <div class="wrap">
+    <a class="brand" href="index.html">WHIP</a>
+    <ul>
+      <li><a href="index.html#overview">Overview</a></li>
+      <li><a href="index.html#controls">Controls</a></li>
+      <li><a href="play.html" aria-current="page">Play</a></li>
+      <li><a href="https://github.com/CursedPrograms/WHIP-Robot-v00">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="play-main">
+  <div class="wrap">
+    <div class="play-head">
+      <h1>PLAY WHIP</h1>
+      <p>His own gait engine and inverse kinematics, the moves his ESP32 sends his 18 servos. Collect the orbs.</p>
+    </div>
+
+    <div class="game">
+      <div class="stage" id="stage" aria-label="WHIP in the arena. Drag to look around him, scroll to zoom.">
+        <div class="world" id="world">
+          <div class="floor" id="floor">
+            <div class="body-shadow" id="bodyShadow"></div>
+          </div>
+          <div class="bot" id="bot">
+            <div class="plate lower"></div>
+            <div class="plate upper"></div>
+            <div class="eyes"></div>
+          </div>
+        </div>
+        <div class="hud" aria-live="polite">
+          <span>gait</span><b id="hudGait">TRIPOD</b>
+          <span>doing</span><b id="hudState">standing</b>
+          <span>speed</span><b id="hudSpeed">7</b>
+          <span>height</span><b id="hudHeight">5</b>
+          <span>orbs</span><b class="score" id="hudScore">0</b>
+        </div>
+        <pre class="servos" id="servos" aria-hidden="true"></pre>
+        <div class="toast" id="toast" role="status"></div>
+      </div>
+
+      <div class="pad-panel">
+        <div class="box">
+          <h2>Drive (hold)</h2>
+          <div class="dpad">
+            <button class="pbtn" data-drive="1,0,0.5" aria-label="forward, curving left">W+A</button>
+            <button class="pbtn" data-drive="1,0,0" aria-label="forward">W</button>
+            <button class="pbtn" data-drive="1,0,-0.5" aria-label="forward, curving right">W+D</button>
+            <button class="pbtn" data-drive="0,0,1" aria-label="turn left">A</button>
+            <button class="pbtn" data-drive="-1,0,0" aria-label="back">S</button>
+            <button class="pbtn" data-drive="0,0,-1" aria-label="turn right">D</button>
+          </div>
+          <div class="row">
+            <button class="pbtn half" data-drive="0,1,0" aria-label="crab left">&laquo; CRAB Q</button>
+            <button class="pbtn half" data-drive="0,-1,0" aria-label="crab right">E CRAB &raquo;</button>
+          </div>
+        </div>
+
+        <div class="box">
+          <h2>Do</h2>
+          <div class="row3">
+            <button class="pbtn half" data-act="hello">HELLO</button>
+            <button class="pbtn half" data-act="dance">DANCE</button>
+            <button class="pbtn half" data-act="rest">REST</button>
+          </div>
+        </div>
+
+        <div class="box">
+          <h2>Gait</h2>
+          <div class="gaits">
+            <button class="pbtn on" data-gait="0">TRIPOD</button>
+            <button class="pbtn" data-gait="1">RIPPLE</button>
+            <button class="pbtn" data-gait="2">WAVE</button>
+            <button class="pbtn" data-gait="3">QUAD</button>
+            <button class="pbtn" data-gait="4">AMBLE</button>
+            <button class="pbtn" data-gait="5">METACHRONAL</button>
+          </div>
+          <div class="stepper"><button class="pbtn" id="speedDown" aria-label="slower">&minus;</button>speed<button class="pbtn" id="speedUp" aria-label="faster">+</button></div>
+          <div class="stepper"><button class="pbtn" id="heightDown" aria-label="lower">&minus;</button>height<button class="pbtn" id="heightUp" aria-label="higher">+</button></div>
+        </div>
+
+        <div class="box">
+          <h2>Keys</h2>
+          <ul class="keys">
+            <li><kbd>W</kbd><kbd>S</kbd> walk &middot; <kbd>A</kbd><kbd>D</kbd> turn</li>
+            <li><kbd>Q</kbd><kbd>E</kbd> crab &middot; <kbd>G</kbd> / <kbd>1</kbd>-<kbd>6</kbd> gait</li>
+            <li><kbd>H</kbd> hello &middot; <kbd>N</kbd> dance &middot; <kbd>R</kbd> rest</li>
+            <li><kbd>+</kbd><kbd>-</kbd> speed &middot; <kbd>[</kbd><kbd>]</kbd> height</li>
+            <li>Gamepad: left stick walks, right stick crabs, A / B / X hello / dance / rest, LB / RB gait</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <p class="note">The same stance, stride, foot lift, gaits and timing as the real WHIP (<a href="https://github.com/CursedPrograms/WHIP-Robot-v00/tree/main/scripts/esp32_gaits">scripts/esp32_gaits</a>): speed 0-9 is 120-30 ms a move, and the numbers in the corner are the pulses his servos would get. Drag the arena to look around him.</p>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/CursedPrograms/WHIP-Robot-v00">GitHub</a>
+      <a href="https://x.com/NorowaretaGemu">X: @NorowaretaGemu</a>
+      <a href="https://cursed-entertainment.itch.io/">itch.io</a>
+      <a href="https://ko-fi.com/cursedentertainment">Ko-fi</a>
+      <a href="https://github.com/CursedPrograms/WHIP-Robot-v00/blob/main/LICENSE">MIT License</a>
+    </div>
+
+    <div class="logos">
+      <a href="https://ko-fi.com/cursedentertainment">
+        <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support Cursed Entertainment on Ko-fi" width="180" loading="lazy">
+      </a>
+      <a href="https://cursed-entertainment.itch.io/">
+        <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png" alt="Cursed Entertainment" width="250" loading="lazy">
+      </a>
+      <a href="https://github.com/SynthWomb">
+        <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png?raw=true" alt="SynthWomb" width="200" loading="lazy">
+      </a>
+    </div>
+
+    <div>&copy; Cursed Entertainment 2026</div>
+  </div>
+</footer>
+
+<!-- DREAM-ECOSYSTEM:START -->
+<section class="eco">
+  <div class="eco-title">The DREAM Robotics ecosystem</div>
+  <div><strong>Minds</strong> — <a href="https://github.com/CursedPrograms/DREAM">DREAM</a> companion · <a href="https://github.com/CursedPrograms/TINA">TINA</a> engineer · <a href="https://github.com/CursedPrograms/NINA">NINA</a> caretaker · <a href="https://github.com/CursedPrograms/RIFT">RIFT</a> fleet hub · <a href="https://github.com/CursedPrograms/LYCEA">LYCEA</a> training school</div>
+  <div><strong>Robots</strong> — <a href="https://github.com/CursedPrograms/NORA-Robot-v00">NORA</a> · <a href="https://github.com/CursedPrograms/MILA-Robot-v00">MILA</a> · <a href="https://github.com/CursedPrograms/WHIP-Robot-v00">WHIP</a> · <a href="https://github.com/CursedPrograms/KIDA-Robot-v00">KIDA-00</a> · <a href="https://github.com/CursedPrograms/KIDA-Robot-v01">KIDA-01</a> · <a href="https://github.com/CursedPrograms/IDA-Robot-v00">IDA</a> · <a href="https://github.com/CursedPrograms/ARM-Robot-v01">ARM</a> · <a href="https://github.com/CursedPrograms/NIKA-Robot-v00">NIKA</a></div>
+  <div><strong>Remotes</strong> — <a href="https://github.com/CursedPrograms/RITA">RITA</a> handheld remote</div>
+</section>
+<!-- DREAM-ECOSYSTEM:END -->
+</body>
+</html>
