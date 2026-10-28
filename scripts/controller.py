@@ -163,6 +163,7 @@ GAITS = [
     ("QUAD", 2, (4, 2, 0, 2, 0, 4), "4 feet down, 3 pairs step by turns: between tripod and ripple"),
     ("AMBLE", 2, (4, 0, 2, 2, 4, 0), "4 feet down, diagonal pairs (none straight across): spreads the load"),
     ("METACHRONAL", 1, (2, 1, 0, 3, 4, 5), "5 feet down, one leg at a time round the body: a Mexican wave"),
+    ("JAKOB", 3, (0, 3, 0, 3, 0, 3), "Jakob Leander's own walk (the old sketch's): his 4 key frames, tripod"),
 ]
 LEG_NAMES = ("LF", "LM", "LB", "RF", "RM", "RB")
 LEG_HOME = ((160, 123), (0, 177), (-160, 123), (160, -123), (0, -177), (-160, -123))   # mm, x forward, y left

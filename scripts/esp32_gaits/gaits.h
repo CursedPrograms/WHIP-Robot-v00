@@ -14,6 +14,9 @@
     quad    4 feet down, 3 pairs step by turns, back to front a tetrapod: between tripod and ripple
     amble   4 feet down, 3 diagonal pairs (none straight across)  spreads the load differently
     metachronal  5 feet down, one leg at a time round the body   a "Mexican wave": tight corridors
+    jakob   Jakob Leander's own walk, as the old sketch (scripts/esp32) walks it: his four key
+            frames, not this engine (the sketch's jakobCycle()); crabbing has none, so the engine
+            crabs it as tripod
   Every one keeps his centre at least 79 mm inside the feet that are down (gait_test checks it
   while he walks); lifting two legs straight across, or two neighbours in a row, puts it on the edge.
 
@@ -32,8 +35,8 @@
 
 namespace ik {
 
-enum GaitId : uint8_t { GAIT_TRIPOD, GAIT_RIPPLE, GAIT_WAVE, GAIT_QUAD, GAIT_AMBLE, GAIT_METACHRONAL, GAITS };   // new ones go last: the number is saved
-const char* const GAIT_NAMES[GAITS] = { "tripod", "ripple", "wave", "quad", "amble", "metachronal" };
+enum GaitId : uint8_t { GAIT_TRIPOD, GAIT_RIPPLE, GAIT_WAVE, GAIT_QUAD, GAIT_AMBLE, GAIT_METACHRONAL, GAIT_JAKOB, GAITS };   // new ones go last: the number is saved
+const char* const GAIT_NAMES[GAITS] = { "tripod", "ripple", "wave", "quad", "amble", "metachronal", "jakob" };
 
 // How many sixths of the cycle a foot is in the air, and where in the cycle (in
 // sixths) each leg lifts: LF, LM, LB, RF, RM, RB.
@@ -45,6 +48,7 @@ const GaitDef GAIT_DEFS[GAITS] = {
   { 2, { 4, 2, 0, 2, 0, 4 } },   // quad (tetrapod): LB+RM, then LM+RF, then LF+RB; always 2 up, 4 down
   { 2, { 4, 0, 2, 2, 4, 0 } },   // amble: LM+RB, then LB+RF, then LF+RM (diagonals, none straight across)
   { 1, { 2, 1, 0, 3, 4, 5 } },   // metachronal: LB LM LF RF RM RB, round the body
+  { 3, { 0, 3, 0, 3, 0, 3 } },   // jakob: his key frames walk it; the engine only crabs it, as tripod
 };
 
 // A step reaches STRIDE_X ahead of / behind home (WALK_X less room for the swing

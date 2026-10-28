@@ -792,7 +792,7 @@ void outputsTick(bool force) {
     else if (sysState == SYS_HELD && !wasHeld) buzzer::play(buzzer::HELD);
     else if (linkLocked != wasLocked)          buzzer::play(linkLocked ? buzzer::LOCK : buzzer::ON);
     else if (tiltGuard != wasTiltGuard)        buzzer::play(tiltGuard ? buzzer::ON : buzzer::OFF);
-    else if (ik::gait != wasGait)              buzzer::play(buzzer::GAIT_BEEPS[ik::gait % 6]);
+    else if (ik::gait != wasGait)              buzzer::play(buzzer::GAIT_BEEPS[ik::gait % ik::GAITS]);
     else if ((uint8_t)controlMode != wasMode)  buzzer::play(buzzer::MODE);
     else if (wall && !wasWall)                 buzzer::play(buzzer::WALL);
   }
@@ -833,9 +833,12 @@ uint16_t airTicks() { return 2 * (LINE_MS > ik::stepMs() ? ik::walkSteps() : ik:
 // starts from wherever the feet are if something else moved them meanwhile.
 // The steering is read on every move (references), so analog driving and follow-me change
 // it mid-cycle.
+bool jakobCycle(const float& fwd, const float& turn, bool scanSafe);
 bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scanSafe) {
   if (resting && !wakeUp()) return false;
   if (testGait) return testCycle(fwd, turn, scanSafe);
+  // JAKOB: his own key frames walk and turn; crabbing has none, so the engine crabs (as tripod)
+  if (ik::gait == ik::GAIT_JAKOB && fabsf(left) <= max(fabsf(fwd), fabsf(turn))) return jakobCycle(fwd, turn, scanSafe);
   // a new gait picked mid-walk: step to a stop in the old one, start off in the new one
   // (ANTI-SLIP switched mid-walk too: the cycle is a different length)
   if (gaitNow.running && (gaitNow.id != ik::gait || gaitNow.plant != ik::antiSlip) && !gaitSettle()) return false;
@@ -853,6 +856,35 @@ bool gaitCycle(const float& fwd, const float& left, const float& turn, bool scan
     if (!gaitWaitUntil(frameStart, ms, scanSafe)) return false;
   }
   return true;
+}
+
+// The JAKOB gait: Jakob Leander's own walk, the way the old sketch (scripts/esp32) walks him,
+// which went forward when the engine's tripod stepped on the spot (2026-10-28). Four key frames,
+// W0-W3 (R0-R3 to turn): a tripod lifts, lands ahead while the other pushes back, then the
+// other. Forward / back or turning, whichever is asked most, at full stride (no stick speed);
+// nothing asked (a wall ahead): he stands.
+bool jakobStep(const ik::Frame& lift, const ik::Frame& land, bool scanSafe) {
+  const ik::Frame from = ikNow;
+  const uint16_t ms = max(ik::stepMs(), LINE_MS), n = airTicks();
+  for (uint16_t i = 1; i <= n; i++) {
+    const unsigned long frameStart = millis();
+    if (!ikSend(ik::step(from, lift, land, (float)i / n), ms)) return false;
+    const bool last = scanSafe && i == n;   // all six feet down: range-find
+    if (!gaitWaitUntil(frameStart, last ? ms + TIMING_MARGIN_MS : ms, scanSafe)) return false;
+  }
+  return true;
+}
+
+bool jakobCycle(const float& fwd, const float& turn, bool scanSafe) {
+  static ik::Frame (*const FWD[4])()   = { ik::W0, ik::W1, ik::W2, ik::W3 };
+  static ik::Frame (*const BACK[4])()  = { ik::W0, ik::W3, ik::W2, ik::W1 };
+  static ik::Frame (*const LEFT[4])()  = { ik::R0, ik::R1, ik::R2, ik::R3 };
+  static ik::Frame (*const RIGHT[4])() = { ik::R0, ik::R3, ik::R2, ik::R1 };
+  if (gaitNow.running && !gaitSettle()) return false;   // from crabbing: the engine walks its feet home first
+  bodyNow = ik::BodyPose();
+  if (fabsf(fwd) < 0.05f && fabsf(turn) < 0.05f) return ikMoveTo(ik::home(), false, true);
+  ik::Frame (*const* f)() = fabsf(turn) > fabsf(fwd) ? (turn > 0 ? LEFT : RIGHT) : (fwd > 0 ? FWD : BACK);
+  return jakobStep(f[0](), f[1](), scanSafe) && jakobStep(f[2](), f[3](), scanSafe);
 }
 
 // Bring the gait to a stop by stepping: he slows down over one swing, then the feet
@@ -2457,7 +2489,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   <div id="gaitBox" class="sensor-box">
     <div class="gait-row">
-      <label>Gait <select id="gaitSel" title="G: next gait, 1-6: tripod / ripple / wave / quad / amble / metachronal"></select></label>
+      <label>Gait <select id="gaitSel" title="G: next gait, 1-7: tripod / ripple / wave / quad / amble / metachronal / jakob"></select></label>
       <div class="mode-btn active" id="tiltBtn" title="T: tilt safety on / off (on again at every boot)">TILT ON</div>
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
       <div class="mode-btn" id="weaveBtn" title="WEAVE: in obstacle mode he weaves left and right as he walks, so the sonar sees past his legs, and stops at 48 cm (off again at every boot)">WEAVE</div>
@@ -2640,7 +2672,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       { name: 'WAVE',   air: 1, lift: [2, 1, 0, 5, 4, 3], note: '5 feet down, one leg at a time: slowest, easiest on the servos' },
       { name: 'QUAD',   air: 2, lift: [4, 2, 0, 2, 0, 4], note: '4 feet down, 3 pairs step by turns: between tripod and ripple' },
       { name: 'AMBLE',  air: 2, lift: [4, 0, 2, 2, 4, 0], note: '4 feet down, diagonal pairs (none straight across): spreads the load' },
-      { name: 'METACHRONAL', air: 1, lift: [2, 1, 0, 3, 4, 5], note: '5 feet down, one leg at a time round the body: a Mexican wave' }
+      { name: 'METACHRONAL', air: 1, lift: [2, 1, 0, 3, 4, 5], note: '5 feet down, one leg at a time round the body: a Mexican wave' },
+      { name: 'JAKOB',  air: 3, lift: [0, 3, 0, 3, 0, 3], note: "Jakob Leander's own walk (the old sketch's): his 4 key frames, tripod" }
     ];
     const LEG_NAMES = ['LF', 'LM', 'LB', 'RF', 'RM', 'RB'];
     const LEG_HOME  = [[150, 123], [0, 177], [-150, 123], [150, -123], [0, -177], [-150, -123]];   // mm, x forward, y left
@@ -2768,7 +2801,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       if (e.repeat || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
       const k = e.key.toLowerCase();
       if (k === 'g') setGait(gaitNow + 1);
-      else if (k >= '1' && k <= '6') setGait(+k - 1);
+      else if (k >= '1' && k <= '7') setGait(+k - 1);
       else if (k === 't') toggleTilt();
       else if (k === 'b') toggleSound();
       else if (k === 'h') act('hello');
@@ -3063,7 +3096,7 @@ void setupCalibRoutes() {
     if (calibrating && !studioHolds()) calibShow(calibPose);
     calibState();
   });
-  server.on("/gait", []() {                    // ?gait=0-5 (tripod / ripple / wave / quad / amble / metachronal) &height=0-9 &speed=0-9 &weave=0|1 &antislip=0|1 &autostart=0|1 &footlead=0-9 &jakobmount=0|1 &wallgait=0|1, saved
+  server.on("/gait", []() {                    // ?gait=0-6 (tripod / ripple / wave / quad / amble / metachronal / jakob) &height=0-9 &speed=0-9 &weave=0|1 &antislip=0|1 &autostart=0|1 &footlead=0-9 &jakobmount=0|1 &wallgait=0|1, saved
     if (!calibAllowed()) return;
     if (server.hasArg("weave")) {   // obstacle mode weaving: no re-stand for that
       ik::weave = server.arg("weave") != "0";
