@@ -55,7 +55,7 @@ const GaitDef GAIT_DEFS[GAITS] = {
 // to dip back before it goes forward), STRIDE_Y to the side, or turns TURN_RAD either way (the reference
 // turns 20 degrees a step: +-10).
 const float STRIDE_X = WALK_X * 0.9f;
-const float STRIDE_Y = WALK_X * 0.5f;   // sideways: the middle legs reach in and out, and run out first
+const float STRIDE_Y = STRIDE_X;       // sideways as far as forward (WALK_X * 0.5 until 2026-10-28: he crabbed on the spot; gait_test passes to WALK_X)
 const float TURN_RAD = 10.0f / RAD2DEG * 0.9f;
 const float HOME_MM  = 1.0f;   // a foot this close to home doesn't need a step to get there
 // ANTI-SLIP (/gait?antislip=1, saved): a foot that lands carries his weight for PLANT_TICKS moves
