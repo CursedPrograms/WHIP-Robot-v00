@@ -68,7 +68,7 @@ class Whip:
         self.gait, self.height, self.speed = 0, 5, 5
         self.tilt_guard, self.sound, self.resting = True, True, False
         # the saved toggles on his web page's gait row (/gait?weave=1 ...), as he reports them in /status
-        self.toggles = {"weave": 0, "antiSlip": 0, "autoStart": 0, "footLead": 0, "wallGait": 0, "crabBack": 5}
+        self.toggles = {"weave": 0, "antiSlip": 0, "autoStart": 0, "footLead": 0, "wallGait": 0, "crabBack": 5, "level": 0}
         self.calibrating = False
         self.calibrated = False
         self.body, self.body_k = (0.0,) * 6, 1.0

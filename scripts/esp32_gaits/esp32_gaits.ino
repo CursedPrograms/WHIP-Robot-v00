@@ -624,6 +624,7 @@ void loop() {
   if (studioLoop()) return;         // Servo Studio holds him: it moves the servos, nothing else
   if (testPosed && !testGait && currentMove == MOVE_STAND) leaveTestPose();   // TEST-GAIT switched off
   pollTilt();
+  levelTick();
   if (sysState == SYS_TILT_SAFE || sysState == SYS_HELD) return;
 
   pollIR();
@@ -1413,6 +1414,44 @@ void applyBody() {
   if (ik::maxOffset(ikNow, f) > 0.5f) ikMoveTo(f, false, true);
 }
 
+// LEVEL (/gait?level=1, off at every boot): standing on a slope he tilts his body against it, a little
+// at a time, feet planted, as far as BODY_TILT_MAX. The signs are worked out from the maths, not tried
+// on him yet: if the slope reading gets worse instead of better he gives up, goes neutral and says so.
+const unsigned long LEVEL_EVERY_MS = 100;
+const float LEVEL_GAIN        = 0.08f;   // of the error, each time: slow, so it can't oscillate
+const float LEVEL_DEADBAND    = 1.5f;    // degrees: near enough
+const float LEVEL_WORSE_DEG   = 4.0f;    // this much worse than where he started: wrong way round
+bool  levelOn = false;
+float levelStart = -1;
+
+void stopLevel() {
+  levelOn = false;
+  levelStart = -1;
+  setBody(ik::BodyPose());
+  applyBody();
+}
+
+void levelTick() {
+  static unsigned long last = 0;
+  if (!levelOn || millis() - last < LEVEL_EVERY_MS) return;
+  last = millis();
+  if (resting || bodyMode || sysState != SYS_ACTIVE || currentMove != MOVE_STAND || gaitNow.running) return;
+  const float err = max(fabsf(pitchDeg), fabsf(rollDeg));
+  if (levelStart < 0) levelStart = err;
+  if (err > levelStart + LEVEL_WORSE_DEG) {
+    Serial2.println(F("LEVEL: getting worse, off"));
+    buzzer::play(buzzer::OFF);
+    stopLevel();
+    return;
+  }
+  if (err < LEVEL_DEADBAND) return;
+  ik::BodyPose b = bodyNow;
+  if (fabsf(pitchDeg) >= LEVEL_DEADBAND) b.pitch -= LEVEL_GAIN * pitchDeg;
+  if (fabsf(rollDeg) >= LEVEL_DEADBAND)  b.roll  -= LEVEL_GAIN * rollDeg;
+  setBody(b);
+  applyBody();
+}
+
 // ---------------------------------------------------------------------------
 // MIND MODE -- the steps the last /mind command asked for, then stand
 // ---------------------------------------------------------------------------
@@ -2164,6 +2203,7 @@ void handleStatus() {
   json += "\"autoStart\":"   + String(ik::autoStart ? 1 : 0) + ",";
   json += "\"footLead\":"    + String(ik::footLead) + ",";
   json += "\"crabBack\":"    + String(ik::crabBack) + ",";
+  json += "\"level\":"       + String(levelOn ? 1 : 0) + ",";
   json += "\"wallGait\":"    + String(ik::wallGait ? 1 : 0) + ",";
   json += "\"awaiting\":"    + String(awaiting ? 1 : 0) + ",";
   json += "\"studio\":"      + String(studioHolds() ? 1 : 0) + ",";
@@ -2495,6 +2535,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <label title="FOOT LEAD: while a leg steps, its foot servo runs ahead of the thigh and gets there first. 0 = pure IK, 9 = the foot there at about half the step (saved)">Foot lead <select id="footLeadSel"></select></label>
       <div class="mode-btn" id="wallGaitBtn" title="GAIT PER WALL: in obstacle mode he walks on in the next gait after every wall (saved)">GAIT PER WALL</div>
       <div class="mode-btn" id="autoStartBtn" title="AUTO-START: at boot he stands up and walks off in obstacle avoidance. Off: every servo stays at 1500 us until you give him input (saved, from the next boot)">AUTO-START</div>
+      <div class="mode-btn" id="levelBtn" title="LEVEL: standing on a slope he tilts his body against it, feet planted (off again at every boot)">LEVEL</div>
       <div class="mode-btn" id="testBtn" title="TEST-GAIT: walk on hips and thighs only, every joint at 1500 us on the ground (off again at every boot)">TEST-GAIT</div>
     </div>
     <div class="gait-row" title="CRAB OFFSET: while he crabs, his back feet land this many degrees in on their hips, towards the middle legs. Walking forward they stay where they are, further back to hold his weight (saved)">
@@ -2651,6 +2692,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         if (j.sound !== undefined && !!j.sound !== soundOn) showSound(!!j.sound);
         if (j.testGait !== undefined && !!j.testGait !== testOn) showTest(!!j.testGait);
         if (j.weave !== undefined && !!j.weave !== weaveOn) showWeave(!!j.weave);
+        if (j.level !== undefined) document.getElementById('levelBtn').classList.toggle('active', !!j.level);
         if (j.antiSlip !== undefined && !!j.antiSlip !== antiSlipOn) showAntiSlip(!!j.antiSlip);
         if (j.autoStart !== undefined && !!j.autoStart !== autoStartOn) showAutoStart(!!j.autoStart);
         if (j.footLead !== undefined && document.activeElement !== footLeadSel) footLeadSel.value = j.footLead;
@@ -2725,6 +2767,12 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       driveFetch('/buzzer?on=' + (soundOn ? 1 : 0));
     }
     document.getElementById('soundBtn').addEventListener('click', toggleSound);
+
+    document.getElementById('levelBtn').addEventListener('click', function () {
+      const on = !this.classList.contains('active');
+      this.classList.toggle('active', on);
+      driveFetch('/gait?level=' + (on ? 1 : 0));
+    });
 
     let weaveOn = false;
     function showWeave(on) {
@@ -3114,6 +3162,13 @@ void setupCalibRoutes() {
       ik::wallGait = server.arg("wallgait") != "0";
       Serial2.println(ik::wallGait ? F("GAIT PER WALL ON") : F("GAIT PER WALL OFF"));
       ik::save(); calibState(); return;
+    }
+    if (server.hasArg("level")) {   // keep his body level on a slope, standing (off at every boot)
+      if (server.arg("level") != "0") { levelOn = true; levelStart = -1; }
+      else stopLevel();
+      Serial2.println(levelOn ? F("LEVEL ON") : F("LEVEL OFF"));
+      calibState();
+      return;
     }
     if (server.hasArg("crabback") || server.hasArg("crabstep")) {   // back feet in while he crabs (a step up or down: RITA's buttons)
       const int v = server.hasArg("crabback") ? server.arg("crabback").toInt() : ik::crabBack + server.arg("crabstep").toInt();

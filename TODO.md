@@ -41,13 +41,13 @@ obstacle avoidance, tilt safety, PIN.
       lines. Checked on a PC: every swing, all gaits, heights 0-9, stays in reach and in servo range,
       peak still 30 mm (`LIFT`). Compiles at 1.89 MB. Still to watch on the robot: the feet now
       clear the ground higher near lift-off and touch-down than the old triangle did.
-- [ ] Later, easy with IK: walking sideways, "walk 10 cm", body tilt.
+- [x] (crab, body IK: esp32_gaits) Later, easy with IK: walking sideways, "walk 10 cm", body tilt.
 
 ## Beyond most hexapods (2026-10-24)
 
 What the serious hexapods (Phoenix, PhantomX, the ROS ones) do that WHIP doesn't yet:
 
-- [ ] **Body IK on the sticks** (the big one): while he stands, the left stick slides his body (x / y),
+- [x] **Body IK on the sticks** (the big one): while he stands, the left stick slides his body (x / y),
       the right stick tilts it (roll / pitch), L1 / R1 twist it (yaw); the feet stay planted. ik_gait.h
       already solves any foot position: move the feet the other way in the body frame. On the PS2 pad
       (ps2.h), the PC controller's sticks, and a mode in Servo Studio.
@@ -92,7 +92,7 @@ below are from before, kept for the history. What the code did (`setupWiFi()` in
 To do:
 - [ ] Check on the robot: Serial2 debug console (GPIO17, 115200) prints "Joined NORA. IP: ..." or
       "AP "WHIP" up". Or open `http://192.168.4.1:5000/robots` while on NORA's WiFi.
-- [ ] Same problem as MILA had: he decides **once, at boot**. If NORA starts later he hosts his own AP
+- [x] (the ladder, 2026-10-18: he checks every 60 s) Same problem as MILA had: he decides **once, at boot**. If NORA starts later he hosts his own AP
       forever, and if NORA reboots he never rejoins. Keep looking for NORA in the background and switch
       (see the MILA fix in MILA-Robot-v00/scripts/esp8266/esp8266.ino).
 - [ ] Show his IP somewhere you can see it: his own AP name? A beep pattern? NORA's page lists the fleet
@@ -107,7 +107,7 @@ Robot problems the user types to TINA are tests of TINA, not faults to fix.
 
 ## Later (the user, 2026-10-25)
 
-- [ ] **Talk the fleet's Brainfuck on his buzzer**: `talk_bf.h` from RIFT/Fleet/brainfuck_talk.py, one tone per
+- [x] (2026-10-30, /chirp, grid too) **Talk the fleet's Brainfuck on his buzzer**: `talk_bf.h` from RIFT/Fleet/brainfuck_talk.py, one tone per
       symbol (as IDA / ARM / DREAM), in a lower voice than the girls. **The LED grid lights along with each
       symbol.** Not now: after the build.
 

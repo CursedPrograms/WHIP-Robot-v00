@@ -9,7 +9,7 @@ using namespace ik;
 int fails = 0;
 void check(const char* what, bool ok) { if (!ok) { if (fails < 20) printf("FAIL %s\n", what); fails++; } }
 // How far his centre (0, 0) is inside the feet that are down (their convex hull), mm; < 0: outside.
-float margin(const Gait& G, const Frame& f) {
+float margin(const Gait& G, const Frame& f, float cx = 0, float cy = 0) {
   float px[LEGS], py[LEGS]; int n = 0;
   for (int i = 0; i < LEGS; i++) if (!G.air[i]) { px[n] = f.leg[i].x; py[n] = f.leg[i].y; n++; }
   if (n < 3) return -999;
@@ -18,7 +18,7 @@ float margin(const Gait& G, const Frame& f) {
     float ex = px[b] - px[a], ey = py[b] - py[a], len = sqrtf(ex * ex + ey * ey);   // one side: a hull edge
     bool edge = true;
     for (int c = 0; c < n; c++) if (c != a && c != b && ex * (py[c] - py[a]) - ey * (px[c] - px[a]) < -1e-3) edge = false;
-    if (edge && len > 1e-3) best = fminf(best, (ex * (0 - py[a]) - ey * (0 - px[a])) / len);
+    if (edge && len > 1e-3) best = fminf(best, (ex * (cy - py[a]) - ey * (cx - px[a])) / len);
   }
   return best;
 }
@@ -78,6 +78,28 @@ int main() {
       if (hgt == 5 && (cb == 5 || c.l != 0)) printf("in %2d %-11s%s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  balance %3.0f mm  stop %d ticks  all down %d\n",
                            cb, GAIT_NAMES[g], slip ? " AS" : "   ", c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, minBal, settleTicks, allDown);
     }
+  }
+  // A small physics check: his centre of mass isn't really at (0, 0) (the battery, the back legs). How far
+  // back and sideways can it sit before a foot lifting tips him? Slow walking, height 5: statics only.
+  crabBack = 5; antiSlip = false; height = 5;
+  printf("\ncentre of mass: how far it can move (mm) before he'd tip, walking forward / crabbing\n");
+  for (int g = 0; g < GAITS; g++) {
+    float back[2], side[2];
+    for (int crab = 0; crab <= 1; crab++) {
+      Gait G; G.start(home(), g, 10);
+      float worstBack = 1e9, worstSide = 1e9;
+      for (int k = 0; k < 4 * G.cycleTicks; k++) {
+        const Frame now = G.tick(crab ? 0 : 1, crab ? 1 : 0, 0, false);
+        float lo = 0;
+        while (lo < 150 && margin(G, now, -lo, 0) > 0) lo += 1;
+        worstBack = fminf(worstBack, lo);
+        lo = 0;
+        while (lo < 150 && margin(G, now, 0, lo) > 0) lo += 1;
+        worstSide = fminf(worstSide, lo);
+      }
+      back[crab] = worstBack; side[crab] = worstSide;
+    }
+    printf("%-11s back %3.0f / %3.0f   side %3.0f / %3.0f\n", GAIT_NAMES[g], back[0], back[1], side[0], side[1]);
   }
   // Body moves (as esp32_gaits.ino): lying down, the hello wave, the dance, at every height
   for (int hgt = 0; hgt <= 9; hgt++) {
