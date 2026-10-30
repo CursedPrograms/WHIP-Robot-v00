@@ -135,6 +135,8 @@ bool     weave      = false;   // obstacle mode: weave left / right as he walks,
 bool     antiSlip   = false;   // feet planted a moment before the next ones lift (gaits.h PLANT_TICKS)
 uint8_t  footLead   = 0;       // 0-9: a stepping leg's foot servo runs ahead of its thigh (0: pure IK, gaits.h)
 bool     wallGait   = false;   // obstacle mode: the next gait after every wall (not saved per wall: the saved gait stays)
+const uint8_t CRAB_BACK_MAX = 15;
+uint8_t  crabBack   = 5;       // degrees the back feet land in on their hips while he crabs, 0-15 (gaits.h stepHome)
 bool     autoStart  = false;   // at boot: stand up and walk off in obstacle mode; off: every servo at 1500 us until you give input
 
 Preferences prefs;
@@ -174,6 +176,7 @@ inline void load() {
   autoStart  = prefs.getBool("autostart", false);
   wallGait   = prefs.getBool("wallgait", false);
   footLead   = min<uint8_t>(prefs.getUChar("footlead", 0), 9);
+  crabBack   = min(prefs.getUChar("crabback", 5), CRAB_BACK_MAX);
   prefs.end();
   if (saved && remap(mapVersion)) save();   // once: the trims follow their servos to the right legs
 }
@@ -190,6 +193,7 @@ inline void save() {
   prefs.putBool("autostart", autoStart);
   prefs.putBool("wallgait", wallGait);
   prefs.putUChar("footlead", footLead);
+  prefs.putUChar("crabback", crabBack);
   prefs.end();
 }
 

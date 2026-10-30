@@ -421,6 +421,7 @@ WHIP_LINES = {
 MIND_MOVE_TIMEOUT = 25.0   # s: the longest a /mind move (4 cycles) should take
 RUMBLE_WARN_CM, RUMBLE_STOP_CM = 40, 15   # the pad buzzes from here, full here (gamepad_drive.py's)
 TILT_RUMBLE_DEG = 20.0     # esp32.ino's TILT_LIMIT_DEG: he stands from here, and the pad shakes
+CRAB_BACK_MAX = 15         # ik_gait.h's: the crab offset slider's top
 
 
 def whip_body(link):
@@ -611,6 +612,8 @@ class ControllerLayout:
         self._gait_box = pygame.Rect(40, 508, 200, 30)
         self._tilt_btn = pygame.Rect(40, 548, 96, 30)
         self._sound_btn = pygame.Rect(144, 548, 96, 30)
+        self._crab_box = pygame.Rect(120, 582, 120, 22)   # the crab offset slider
+        self._crab_drag = None      # its value while it's being dragged
 
     def _check_mind(self):
         ok, why = mind.can_think()
@@ -719,6 +722,11 @@ class ControllerLayout:
             self.link.set_mode("follow")
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             self._click(event.pos)
+        elif event.type == pygame.MOUSEMOTION and self._crab_drag is not None:
+            self._crab_drag = self._crab_at(event.pos[0])
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1 and self._crab_drag is not None:
+            self.link.setting("crabBack", self._crab_drag, "/gait", crabback=self._crab_drag)
+            self._crab_drag = None
         elif event.type in (
             pygame.JOYDEVICEADDED,
             pygame.JOYDEVICEREMOVED,
@@ -1093,6 +1101,10 @@ class ControllerLayout:
         on = 0 if self._setting(key, 1) else 1
         self.link.setting(key, on, path, on=on)
 
+    def _crab_at(self, x):
+        box = self._crab_box
+        return round(max(0.0, min(1.0, (x - box.x) / box.w)) * CRAB_BACK_MAX)
+
     def _option_rect(self, i):
         # the dropdown opens upwards (the mind's panel is below)
         return pygame.Rect(self._gait_box.x, self._gait_box.y - (len(GAITS) - i) * 30, self._gait_box.w, 30)
@@ -1106,6 +1118,8 @@ class ControllerLayout:
             self.gait_open = False
         if self._gait_box.collidepoint(pos):
             self.gait_open = True
+        elif self._crab_box.collidepoint(pos) and "crabBack" in (self.link.status or {}):
+            self._crab_drag = self._crab_at(pos[0])
         elif self._tilt_btn.collidepoint(pos):
             self._toggle("tiltGuard", "/tilt")
         elif self._sound_btn.collidepoint(pos):
@@ -1139,6 +1153,13 @@ class ControllerLayout:
         tilt_on, sound_on = self._setting("tiltGuard", 1), self._setting("sound", 1)
         self._pill(self._tilt_btn, "TILT ON" if tilt_on else "TILT OFF", True, ACTIVE_COLOR if tilt_on else WARN_COLOR)
         self._pill(self._sound_btn, "SOUND" if sound_on else "MUTED", sound_on, ACCENT2)
+
+        if "crabBack" in status:   # back feet in while he crabs (the gaits firmware's)
+            crab = self._setting("crabBack", 5) if self._crab_drag is None else self._crab_drag
+            bar = self._crab_box
+            self.screen.blit(self.font_small.render(f"Crab {crab}°", True, MUTED_TEXT), (40, bar.y + 2))
+            pygame.draw.line(self.screen, OUTLINE_COLOR, (bar.x, bar.centery), (bar.right, bar.centery), 3)
+            pygame.draw.circle(self.screen, ACCENT2, (bar.x + bar.w * crab // CRAB_BACK_MAX, bar.centery), 7)
 
         note = gait[3] if known else "his firmware has one gait: flash esp32_gaits for more"
         self.screen.blit(self.font_tiny.render(note, True, MUTED_TEXT), (440, 578))

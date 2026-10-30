@@ -98,6 +98,7 @@ struct State {
   bool dancing;
   float startFrac = 0;   // STARTING: how much of the 5 s has gone (0..1)
   uint8_t gaitId = 0;    // the chosen gait: the legs' colour
+  char talkSym = 0;      // the Brainfuck symbol he's beeping now: the whole grid shows it
 };
 
 // Which leg each cell shows (row 0 = his head), or -1 for the middle
@@ -158,6 +159,20 @@ inline void update(const State& s, bool force = false) {
   lastShow = now;
 
   px.setBrightness(brightness);
+  if (s.talkSym) {   // talking: a colour for each symbol, '.' (a letter landing) white
+    uint32_t c;
+    switch (s.talkSym) {
+      case '+': c = px.Color(0, 200, 60); break;
+      case '-': c = px.Color(200, 20, 20); break;
+      case '>': c = px.Color(20, 90, 220); break;
+      case '<': c = px.Color(140, 40, 220); break;
+      case '[': case ']': c = px.Color(220, 150, 0); break;
+      default:  c = px.Color(255, 255, 255); break;
+    }
+    px.fill(c);
+    px.show();
+    return;
+  }
   const LookCfg& lc = cfg[s.look < LOOKS ? s.look : LOCKED];
   if (s.look == SHUTDOWN || lc.fx == FX_OFF) { px.clear(); px.show(); return; }
   if (lc.fx == FX_RAINBOW) {   // this look, as a rainbow running round the grid

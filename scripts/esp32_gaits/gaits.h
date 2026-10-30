@@ -67,6 +67,18 @@ inline float maxOffset(const Frame& a, const Frame& b) {
   return m;
 }
 
+// Home for a foot's next landing. Crabbing, the back feet land inDeg in towards the middle legs,
+// turned on their hips: they're mounted further back than the front ones to stop him falling on
+// his back end when he walks (the front servos can't go that far, images/whip00.png); sideways
+// that isn't needed. Set on the web page, saved (ik::crabBack).
+inline Pos stepHome(uint8_t leg, float inDeg) {
+  const Pos h = home().leg[leg];
+  if (leg != LB && leg != RB) return h;
+  const float a = (leg == LB ? -inDeg : inDeg) / RAD2DEG, c = cosf(a), s = sinf(a);
+  const float x = h.x - ANCHOR[leg][0], y = h.y - ANCHOR[leg][1];
+  return { ANCHOR[leg][0] + c * x - s * y, ANCHOR[leg][1] + s * x + c * y, h.z };
+}
+
 struct Gait {
   bool     running = false;
   uint8_t  id = GAIT_TRIPOD;
@@ -82,6 +94,7 @@ struct Gait {
   bool     air[LEGS];
   float    vx = 0, vy = 0, w = 0;   // body velocity now: mm, mm, rad per tick
   float    tx = 0, ty = 0, tw = 0;   // ... and where it's heading
+  float    crabDeg = 0;        // how far in the back feet land now (ik::crabBack, for his share of sideways), eased like the speed
   bool     homing = false;     // settle: the body has stopped, feet walking home
   uint16_t homeT = 0;
 
@@ -95,7 +108,7 @@ struct Gait {
     plant = antiSlip;
     // the lifts are a sixth of the cycle apart: 6 / air of them per swing, each PLANT_TICKS longer
     cycleTicks = (airT + (plant ? PLANT_TICKS : 0)) * 6 / GAIT_DEFS[id].air;
-    t = 0; vx = vy = w = tx = ty = tw = 0; homing = false;
+    t = 0; vx = vy = w = tx = ty = tw = crabDeg = 0; homing = false;
     const float z = homeZ();
     for (uint8_t i = 0; i < LEGS; i++) { foot[i] = { now.leg[i].x, now.leg[i].y, z }; air[i] = false; }
     for (uint8_t i = 0; i < LEGS; i++) last.leg[i] = foot[i];
@@ -129,7 +142,7 @@ struct Gait {
       x = toward(x, tx, vMax()); y = toward(y, ty, vyMax()); a = toward(a, tw, wMax());
       if (i >= inTicks) { X += x; Y += y; A += a; }
     }
-    const Pos h = home().leg[leg];
+    const Pos h = stepHome(leg, crabDeg);
     const float c = cosf(A / 2), s = sinf(A / 2);
     return { c * h.x - s * h.y + X / 2, s * h.x + c * h.y + Y / 2, h.z };
   }
@@ -146,11 +159,13 @@ struct Gait {
   const Frame& tick(float fwd, float left, float turn, bool settle) {
     if (settle) fwd = left = turn = 0;
     const float n = sqrtf(fwd * fwd + left * left) + fabsf(turn);   // walking and turning share the reach
+    const float sideways = n > 0 ? fabsf(left) / (fabsf(fwd) + fabsf(left) + fabsf(turn)) : 0;
     if (n > 1) { fwd /= n; left /= n; turn /= n; }
     tx = fwd * vMax(); ty = left * vyMax(); tw = turn * wMax();
     vx = toward(vx, tx, vMax());
     vy = toward(vy, ty, vyMax());
     w  = toward(w, tw, wMax());
+    crabDeg = toward(crabDeg, sideways * crabBack, CRAB_BACK_MAX);   // only moves where feet land: the back feet step in and out, never slide
 
     bool anyAir = false;
     for (uint8_t i = 0; i < LEGS; i++) anyAir |= air[i];

@@ -72,6 +72,11 @@ inline void update() {
   startNote();
 }
 
+// One bare tone, for talkTick() (hz 0: quiet). Leaves a tune that's playing to carry on.
+inline void tone(uint16_t hz) {
+  if (!muted) ledcWriteTone(PIN, hz);
+}
+
 // Play a whole tune and wait for it (shutdown: nothing else runs after).
 inline void playNow(const Note* tune) {
   play(tune);

@@ -68,7 +68,7 @@ class Whip:
         self.gait, self.height, self.speed = 0, 5, 5
         self.tilt_guard, self.sound, self.resting = True, True, False
         # the saved toggles on his web page's gait row (/gait?weave=1 ...), as he reports them in /status
-        self.toggles = {"weave": 0, "antiSlip": 0, "autoStart": 0, "footLead": 0, "wallGait": 0}
+        self.toggles = {"weave": 0, "antiSlip": 0, "autoStart": 0, "footLead": 0, "wallGait": 0, "crabBack": 5}
         self.calibrating = False
         self.calibrated = False
         self.body, self.body_k = (0.0,) * 6, 1.0
@@ -191,6 +191,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(200, f.read(), "image/jpeg")
         if path == "/pose":        # his 18 joint angles and body pose (the page's 3D view), from his IK
             return self.reply(200, pose_json(w))
+        if path == "/chirp":
+            if not 0 <= int(q.get("u", -1)) <= 16:
+                return self.reply(400, {"ok": False, "error": "use /chirp?u=0-16"})
+            log(f"chirps line {q['u']}")
+            return self.reply(200, {"ok": True})
         if path == "/near":
             return self.reply(200, {"robots": []})
         if path == "/unlock":
@@ -300,7 +305,8 @@ class Handler(BaseHTTPRequestHandler):
                     log(f"{k} -> {getattr(w, k)}")
             for k in w.toggles:
                 if k.lower() in q:
-                    w.toggles[k] = max(0, min(9, int(q[k.lower()]))) if k == "footLead" else int(q[k.lower()] != "0")
+                    top = {"footLead": 9, "crabBack": 15}.get(k)
+                    w.toggles[k] = max(0, min(top, int(q[k.lower()]))) if top else int(q[k.lower()] != "0")
                     log(f"{k} -> {w.toggles[k]}")
             return self.reply(200, w.status())
         if path == "/tilt":

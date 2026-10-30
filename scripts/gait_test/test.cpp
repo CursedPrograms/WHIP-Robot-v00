@@ -27,8 +27,8 @@ bool reach(const Frame& f) { float a[JOINTS]; for (int i = 0; i < LEGS; i++) if 
   for (int i = 0; i < LEGS; i++) { solve(i, f.leg[i], a); for (int j = 0; j < 3; j++) if (fabsf(a[j]) > 90) return false; } return true; }
 int main() {
   loadDefaults();
-  for (int slip = 0; slip <= 1; slip++) for (int g = 0; g < GAITS; g++) for (int hgt = 0; hgt <= 9; hgt++) {
-    height = hgt; antiSlip = slip;
+  for (int cb : {5, 0, (int)CRAB_BACK_MAX}) for (int slip = 0; slip <= 1; slip++) for (int g = 0; g < GAITS; g++) for (int hgt = 0; hgt <= 9; hgt++) {
+    height = hgt; antiSlip = slip; crabBack = cb;
     struct Cmd { float f, l, t; int cycles; } plan[] = { {1,0,0,4}, {-1,0,0,4}, {0,0,1,4}, {0,0,-1,4}, {0,1,0,3}, {0.7f,0,0.3f,3} };
     for (auto& c : plan) {
       Gait G; G.start(home(), g, 10);
@@ -59,6 +59,13 @@ int main() {
         prev = now;
       };
       for (int k = 0; k < c.cycles * G.cycleTicks; k++) step(c.f, c.l, c.t, false);
+      if (c.l != 0) {   // crabbing the back feet land turned in on their hips, the rest as ever
+        snprintf(buf, sizeof buf, "%s h%d crab in", GAIT_NAMES[g], hgt);
+        const Pos a = stepHome(LB, G.crabDeg), b = stepHome(RB, G.crabDeg);
+        check(buf, G.crabDeg == cb && (cb == 0 || (a.x > home().leg[LB].x && b.x > home().leg[RB].x)));
+        check("crab in mirrored", fabsf(a.x - b.x) < 1e-3 && fabsf(a.y + b.y) < 1e-3);
+        check("crab front feet stay", dist2(stepHome(LF, G.crabDeg), home().leg[LF]) < 1e-3);
+      }
       int settleTicks = 0;
       while (!G.settled() && settleTicks < 1000) { step(0, 0, 0, true); settleTicks++; }
       snprintf(buf, sizeof buf, "%s h%d settled", GAIT_NAMES[g], hgt); check(buf, G.settled());
@@ -68,8 +75,8 @@ int main() {
         snprintf(buf, sizeof buf, "tripod h%d anti-slip all down %d", hgt, allDown);
         check(buf, allDown >= (c.cycles - 1) * 2 * (int)PLANT_TICKS);
       }
-      if (hgt == 5) printf("%-11s%s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  balance %3.0f mm  stop %d ticks  all down %d\n",
-                           GAIT_NAMES[g], slip ? " AS" : "   ", c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, minBal, settleTicks, allDown);
+      if (hgt == 5 && (cb == 5 || c.l != 0)) printf("in %2d %-11s%s cmd(%4.1f,%3.1f,%4.1f) cycle %2d ticks  max jump %5.1f mm/tick  max from home %5.1f mm  balance %3.0f mm  stop %d ticks  all down %d\n",
+                           cb, GAIT_NAMES[g], slip ? " AS" : "   ", c.f, c.l, c.t, G.cycleTicks, maxJump, maxReach, minBal, settleTicks, allDown);
     }
   }
   // Body moves (as esp32_gaits.ino): lying down, the hello wave, the dance, at every height
