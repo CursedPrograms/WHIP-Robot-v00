@@ -1,5 +1,6 @@
 package com.synthwomb.whip
 
+import org.json.JSONObject
 import java.util.Locale
 
 // What WHIP takes: the same calls as RITA and his PC controller.
@@ -14,6 +15,14 @@ class Robot(private val http: Http) : RobotApi {
         http.get("/web?cmd=drive&f=${n(forward)}&l=${n(side)}&t=${n(turn)}")
     }
     override fun stop() { http.get("/web?cmd=stop") }
+    override fun tiles(s: JSONObject) = listOf(
+        "Wall" to Tiles.cm(s.opt("distance")),
+        "Pitch" to "${s.optDouble("pitch").toInt()}\u00b0",
+        "Roll" to "${s.optDouble("roll").toInt()}\u00b0",
+        "Gait" to s.optString("gait", "--"),
+        "Height" to s.optString("height", "--"),
+    )
+
     override val buttons = listOf(
         "OBSTACLE" to { http.get("/mode?m=obstacle"); Unit },
         "WEB" to { http.get("/mode?m=web"); Unit },
