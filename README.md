@@ -62,6 +62,8 @@
 
 **STAY CLOSE:** press STAY on [RITA](https://github.com/CursedPrograms/RITA), or STAY CLOSE on his page, and he keeps near RITA in your hand, stopping about a metre away. RITA's signal shows how far, not which way, so he tries a direction, keeps going if the signal gets stronger and turns if it doesn't. His sensor still turns him away from walls. He stops if RITA goes quiet. Tested in simulation only so far. `scripts/gait_test/stay_test.cpp` is its test.
 
+**Other languages:** `scripts/controllers` has this robot's controller in C#, F#, Rust, Go and Julia, all reading one `robot.json`: W A S D to drive, the mode buttons and the sensors. See its README for how to run each.
+
 ## Related Projects
 
 

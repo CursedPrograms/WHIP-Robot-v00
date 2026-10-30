@@ -1,0 +1,79 @@
+{
+ "name": "WHIP",
+ "port": 5005,
+ "host": "192.168.4.1",
+ "status": "/status",
+ "connect": [
+  "GET /unlock?pw=1234",
+  "GET /mode?m=web"
+ ],
+ "stop": "GET /web?cmd=stop",
+ "keys": {
+  "w": "GET /web?cmd=fwd",
+  "s": "GET /web?cmd=bwd",
+  "a": "GET /web?cmd=left",
+  "d": "GET /web?cmd=right",
+  "q": "GET /web?cmd=sleft",
+  "e": "GET /web?cmd=sright"
+ },
+ "buttons": [
+  [
+   "OBSTACLE",
+   "GET /mode?m=obstacle"
+  ],
+  [
+   "WEB",
+   "GET /mode?m=web"
+  ],
+  [
+   "FOLLOW",
+   "GET /mode?m=follow"
+  ],
+  [
+   "STAY CLOSE",
+   "GET /mode?m=stay"
+  ],
+  [
+   "HELLO",
+   "GET /act?do=hello"
+  ],
+  [
+   "DANCE",
+   "GET /act?do=dance"
+  ],
+  [
+   "REST",
+   "GET /act?do=rest"
+  ]
+ ],
+ "tiles": [
+  [
+   "Wall",
+   "distance",
+   " cm"
+  ],
+  [
+   "Pitch",
+   "pitch",
+   ""
+  ],
+  [
+   "Roll",
+   "roll",
+   ""
+  ],
+  [
+   "Gait",
+   "gait",
+   ""
+  ],
+  [
+   "Height",
+   "height",
+   ""
+  ]
+ ],
+ "background": "#080A12",
+ "text": "#F2E9EA",
+ "accent": "#D34859"
+}
