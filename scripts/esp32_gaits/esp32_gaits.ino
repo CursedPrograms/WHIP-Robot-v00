@@ -91,7 +91,8 @@
 #define DECODE_NEC              // must precede the IRremote include
 #define DECODE_SAMSUNG          // NORA's fleet link (see FLEET LINK below)
 #include "avatar.h"           // WHIP's avatar as a JPEG byte array (served at /avatar.jpg)
-#include "fleet_near.h"       // ESP-NOW "I'm here" beacons: which robots are nearby, from signal strength
+#include "fleet_near.h"
+#include "fleet_stay.h"     // STAY CLOSE: keeping near RITA       // ESP-NOW "I'm here" beacons: which robots are nearby, from signal strength
 #include "fleet_near_ble.h"   // ...and the same beacon over Bluetooth LE, so she and the Pi robots (KIDAs) hear each other
 #include <IRremote.hpp>         // IRremote 4.x -- supports ESP32
 #include "ik_gait.h"            // walking by inverse kinematics (Jakob Leander's hexapod, same chassis)
@@ -353,7 +354,7 @@ const unsigned long HELD_DOWN_MS = 2000;
 // State
 // ---------------------------------------------------------------------------
 enum SystemState   { SYS_ACTIVE, SYS_TILT_SAFE, SYS_SHUTDOWN, SYS_HELD };
-enum ControlMode   { CTRL_OBSTACLE, CTRL_IR, CTRL_WEB, CTRL_MIND, CTRL_FOLLOW };
+enum ControlMode   { CTRL_OBSTACLE, CTRL_IR, CTRL_WEB, CTRL_MIND, CTRL_FOLLOW, CTRL_STAY };
 enum MovementState { MOVE_STAND, MOVE_WALK, MOVE_BACKWARD, MOVE_TURN_LEFT, MOVE_TURN_RIGHT };
 
 SystemState   sysState    = SYS_ACTIVE;
@@ -591,7 +592,7 @@ void setup() {
 
 void loop() {
   // what she tells the other robots: walking by herself, driven by you, or standing
-  fleetNearSetState(controlMode == CTRL_OBSTACLE ? FLEET_DRIVING : currentMove == MOVE_STAND ? FLEET_PARKED : FLEET_USER);
+  fleetNearSetState(controlMode == CTRL_OBSTACLE || controlMode == CTRL_STAY ? FLEET_DRIVING : currentMove == MOVE_STAND ? FLEET_PARKED : FLEET_USER);
   fleetNearLoop();
   fleetNearBleLoop();
   abortMovement = false;
@@ -661,6 +662,8 @@ void loop() {
     runMindMode();
   } else if (controlMode == CTRL_FOLLOW) {
     runFollowMode();
+  } else if (controlMode == CTRL_STAY) {
+    runStayMode();
   } else {
     runWebMode();
   }
@@ -822,7 +825,7 @@ void outputsTick(bool force) {
   else if (controlMode == CTRL_IR)    st.look = leds::IR;
   else if (controlMode == CTRL_WEB)   st.look = leds::WEB;
   else if (controlMode == CTRL_MIND)  st.look = leds::MIND;
-  else if (controlMode == CTRL_FOLLOW) st.look = leds::FOLLOW;
+  else if (controlMode == CTRL_FOLLOW || controlMode == CTRL_STAY) st.look = leds::FOLLOW;
   else                                st.look = leds::OBSTACLE;
   st.walking = gaitNow.running;
   st.gait    = &gaitNow;
@@ -1481,6 +1484,22 @@ void runFollowMode() {
   followFwd = followSpeed(readDistanceCM());
   if (followFwd == 0) { requestMove(MOVE_STAND); return; }
   if (requestMove(MOVE_WALK)) gaitCycle(followFwd, NO_FWD, NO_FWD, false);   // followFwd is updated as he walks
+}
+
+// STAY CLOSE: near RITA, in your hand (fleet_stay.h)
+Stay stay;
+
+void runStayMode() {
+  float rssi = -100;
+  const bool heard = fleetNearHeard(STAY_PEER, STAY_LOST_MS, &rssi);
+  const long d = readDistanceCM();
+  const bool blocked = d > 0 && d < MIN_DISTANCE_CM;
+  switch (stayStep(stay, heard, rssi, blocked, millis())) {
+    case STAY_WALK:  if (requestMove(MOVE_WALK)) MoveForward();      break;
+    case STAY_LEFT:  if (requestMove(MOVE_TURN_LEFT)) TurnLeft();    break;
+    case STAY_RIGHT: if (requestMove(MOVE_TURN_RIGHT)) TurnRight();  break;
+    default:         requestMove(MOVE_STAND);
+  }
 }
 
 void setFollowMode() {
@@ -2147,6 +2166,11 @@ void handleModeCmd() {
     Serial2.println(F("CONTROL -> WEB"));
   } else if (m == "follow") {
     setFollowMode();
+  } else if (m == "stay") {
+    controlMode   = CTRL_STAY;
+    stayStart(stay);
+    abortMovement = true;
+    Serial2.println(F("CONTROL -> STAY CLOSE"));
   } else if (m == "mind") {
     if (!mindHostAlive()) { server.send(409, "text/plain", "no mind controller running"); return; }
     controlMode   = CTRL_MIND;
@@ -2527,6 +2551,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     <div class="mode-btn" id="modeIr"       onclick="setMode('ir')">IR REMOTE</div>
     <div class="mode-btn" id="modeWeb"      onclick="setMode('web')">WEB</div>
     <div class="mode-btn" id="modeFollow"   onclick="setMode('follow')" title="F: he keeps your hand 30 cm from his sonar">FOLLOW</div>
+    <div class="mode-btn" id="modeStay"     onclick="setMode('stay')" title="he keeps near RITA, in your hand">STAY CLOSE</div>
     <div class="mode-btn" id="modeMind"     onclick="setMode('mind')" style="display:none" title="the LLM on his PC controller drives him">MIND</div>
   </div>
 
@@ -2746,7 +2771,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       document.getElementById('modeIr').classList.toggle('active', m === 'ir');
       document.getElementById('modeWeb').classList.toggle('active', m === 'web');
       document.getElementById('modeMind').classList.toggle('active', m === 'mind');
-      document.getElementById('modeFollow').classList.toggle('active', m === 'follow');      document.querySelectorAll('.dpad .btn').forEach(function (b) {
+      document.getElementById('modeFollow').classList.toggle('active', m === 'follow');
+      document.getElementById('modeStay').classList.toggle('active', m === 'stay');      document.querySelectorAll('.dpad .btn').forEach(function (b) {
         b.classList.toggle('disabled', m !== 'web');
       });
     }
@@ -2758,7 +2784,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
 
     const MODE_NAMES  = ['OBSTACLE', 'IR', 'WEB', 'MIND', 'FOLLOW'];
-    const MODE_KEYS   = ['obstacle', 'ir', 'web', 'mind', 'follow'];
+    const MODE_KEYS   = ['obstacle', 'ir', 'web', 'mind', 'follow', 'stay'];
     const MOVE_NAMES  = ['STAND', 'WALK', 'BACKWARD', 'TURN L', 'TURN R'];
     const WIFI_NAMES  = ['JOINED', 'HOSTING'];
 

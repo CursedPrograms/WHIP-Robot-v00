@@ -172,7 +172,7 @@ BODY = ((74, 39), (0, 64), (-74, 39), (-74, -39), (0, -64), (74, -39))
 STRIDE = 45
 SETTING_RESEND = 0.6    # s: a setting he hasn't confirmed yet is sent again this often...
 SETTING_GIVE_UP = 6.0   # ...until his status says so, or this long has gone by
-MODES = ["obstacle", "ir", "web", "mind", "follow"]   # his controlMode numbers, in order
+MODES = ["obstacle", "ir", "web", "mind", "follow", "stay"]   # his controlMode numbers, in order
 FAKE_URL = "http://127.0.0.1:5005"                    # EMULATE: fake_whip.py on this PC
 
 
@@ -374,7 +374,7 @@ class WhipLink:
             self.status = None
 
 
-MODE_NAMES = ["OBSTACLE", "IR REMOTE", "WEB", "MIND", "FOLLOW"]
+MODE_NAMES = ["OBSTACLE", "IR REMOTE", "WEB", "MIND", "FOLLOW", "STAY CLOSE"]
 MOVE_NAMES = ["STAND", "WALK", "BACKWARD", "TURN LEFT", "TURN RIGHT"]
 
 # ---------------------------------------------------------------------------

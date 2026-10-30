@@ -38,7 +38,7 @@ ROOM_CM = 200                     # the pretend wall ahead, from where he starts
 WALK_CM_S = 8                     # how fast he walks at speed 5
 TURN_DEG_S = 30
 
-MODES = {"obstacle": 0, "ir": 1, "web": 2, "mind": 3, "follow": 4}
+MODES = {"obstacle": 0, "ir": 1, "web": 2, "mind": 3, "follow": 4, "stay": 5}
 MODE_NAMES = {v: k for k, v in MODES.items()}
 STAND, WALK, BACK, LEFT, RIGHT = range(5)
 WEB_MOVES = {"fwd": WALK, "bwd": BACK, "left": LEFT, "right": RIGHT, "sleft": WALK, "sright": WALK}

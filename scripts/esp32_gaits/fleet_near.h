@@ -210,6 +210,21 @@ static void fleetNearRecv(const esp_now_recv_info_t* info, const uint8_t* data, 
   fleetNearRecord(name, info->rx_ctrl ? info->rx_ctrl->rssi : -100, FLEET_VIA_ESPNOW, fleetStateFromWord(word), bf);
 }
 
+// Has `name` been heard in the last maxAgeMs? rssi gets its smoothed strength (STAY CLOSE)
+static bool fleetNearHeard(const char* name, unsigned long maxAgeMs, float* rssi) {
+  bool heard = false;
+  const unsigned long now = millis();
+  portENTER_CRITICAL(&fleetMux);
+  for (int i = 0; i < FLEET_NEAR_MAX; i++) {
+    if (fleetPeers[i].used && strcmp(fleetPeers[i].name, name) == 0 && now - fleetPeers[i].seenMs < maxAgeMs) {
+      *rssi = fleetPeers[i].rssi;
+      heard = true;
+    }
+  }
+  portEXIT_CRITICAL(&fleetMux);
+  return heard;
+}
+
 // ifx: WIFI_IF_AP when this board hosts the network (NORA), WIFI_IF_STA when it joined it.
 static bool fleetNearBegin(const char* selfName, wifi_interface_t ifx) {
   strncpy(fleetSelf, selfName, sizeof(fleetSelf) - 1);
@@ -271,7 +286,8 @@ static FleetAdvice fleetNearAdvice(char* who = nullptr) {
   int best = -1;
   portENTER_CRITICAL(&fleetMux);
   for (int i = 0; i < FLEET_NEAR_MAX; i++)
-    if (fleetPeers[i].used && now - fleetPeers[i].seenMs < FLEET_FRESH_MS && (best < 0 || fleetPeers[i].rssi > fleetPeers[best].rssi))
+    if (fleetPeers[i].used && strcmp(fleetPeers[i].name, "RITA") != 0   // she's in your hand: no robot to steer round
+        && now - fleetPeers[i].seenMs < FLEET_FRESH_MS && (best < 0 || fleetPeers[i].rssi > fleetPeers[best].rssi))
       best = i;
   FleetAdvice a = FLEET_CLEAR;
   if (best >= 0) {
