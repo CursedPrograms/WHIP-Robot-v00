@@ -169,3 +169,7 @@ scripts/controller_settings.json
 # what RTrobot's program said to the board (rtrobot_sniff.py)
 rtrobot_sniff.log
 rtrobot_capture.pcapng
+
+# Controllers, built and kept
+!builds/
+!builds/*.exe
