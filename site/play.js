@@ -220,7 +220,25 @@
     if (keys.has("e")) l -= 1;
     f += held.f + padStick.f; l += held.l + padStick.l; t += held.t + padStick.t;
     const c = v => Math.max(-1, Math.min(1, v));
+    if (auto && !resting && !f && !l && !t) return avoid();   // you can always take over: let go and he carries on
     return { f: c(f), l: c(l), t: c(t) };
+  }
+
+  // Obstacle mode, as on the real WHIP: he walks by himself and turns away from anything his
+  // ultrasonic sensor sees within MIN_DISTANCE_CM, towards the side with more room
+  const MIN_DISTANCE_CM = 35, CLEAR_CM = 55, NOSE = 150, CONE = 0.35, LOOK = 0.9;
+  let auto = false, turning = 0;
+  function avoid() {
+    const ahead = sonar(0);
+    if (turning && ahead > CLEAR_CM) turning = 0;
+    if (!turning && ahead < MIN_DISTANCE_CM) turning = sonar(LOOK) >= sonar(-LOOK) ? 1 : -1;
+    return turning ? { f: 0, l: 0, t: turning } : { f: 1, l: 0, t: 0 };
+  }
+  function setAuto(on) {
+    auto = on;
+    turning = 0;
+    say(auto ? "Obstacle mode: he walks by himself" : "Obstacle mode off");
+    $("autoBtn").classList.toggle("on", auto);
   }
 
   // The next move: a scripted one, a walking tick, settling to a stop, or standing still
@@ -255,7 +273,10 @@
     const c = Math.cos(poseTo.a), s = Math.sin(poseTo.a);
     const nx = poseTo.x + gait.vx * c - gait.vy * s, ny = poseTo.y + gait.vx * s + gait.vy * c;
     if (!hitsPillar(nx, ny)) { poseTo.x = nx; poseTo.y = ny; }
-    else if (!bumped) { bumped = true; say("Bump! A pillar in the way"); setTimeout(() => (bumped = false), 1500); }
+    else {
+      if (auto && !turning) turning = sonar(LOOK) >= sonar(-LOOK) ? 1 : -1;   // the sensor missed it: his leg didn't
+      if (!bumped) { bumped = true; say("Bump! A pillar in the way"); setTimeout(() => (bumped = false), 1500); }
+    }
     poseTo.a += gait.w;
   }
   let bumped = false;
@@ -267,6 +288,22 @@
   function hitsPillar(x, y) {
     if (Math.abs(x) > ARENA / 2 - BODY_R || Math.abs(y) > ARENA / 2 - BODY_R) return true;
     return PILLARS.some(([px, py]) => Math.hypot(x - px, y - py) < PILLAR_R + BODY_R);
+  }
+  // What his sensor reads, cm, looking `off` radians from straight ahead: its cone is three rays
+  function ray(x, y, dir) {
+    const c = Math.cos(dir), s = Math.sin(dir), edge = ARENA / 2;
+    let hit = Math.min(c ? ((c > 0 ? edge : -edge) - x) / c : Infinity, s ? ((s > 0 ? edge : -edge) - y) / s : Infinity);
+    PILLARS.forEach(([px, py]) => {
+      const along = (px - x) * c + (py - y) * s;
+      const miss = Math.hypot(px - x - along * c, py - y - along * s);
+      if (along > 0 && miss < PILLAR_R) hit = Math.min(hit, along - Math.sqrt(PILLAR_R * PILLAR_R - miss * miss));
+    });
+    return hit;
+  }
+  function sonar(off) {
+    const dir = poseTo.a + off;
+    const mm = Math.min(ray(poseTo.x, poseTo.y, dir), ray(poseTo.x, poseTo.y, dir + CONE), ray(poseTo.x, poseTo.y, dir - CONE));
+    return Math.max(0, (mm - NOSE) / 10);
   }
   let orbs = [], score = 0;
   function newOrb() {
@@ -365,7 +402,8 @@
     $("hudSpeed").textContent = speed;
     $("hudHeight").textContent = height;
     $("hudScore").textContent = score;
-    $("hudState").textContent = resting ? "resting" : acting ? acting : gait.running ? "walking" : "standing";
+    $("hudState").textContent = resting ? "resting" : acting ? acting : auto ? (turning ? "avoiding" : "obstacle") : gait.running ? "walking" : "standing";
+    $("hudSonar").textContent = Math.round(sonar(0)) + " cm";
     $("servos").textContent = servoText;
     document.querySelectorAll("[data-gait]").forEach(b => b.classList.toggle("on", +b.dataset.gait === wantGait));
   }
@@ -413,6 +451,7 @@
     else if (k === "h") act("hello");
     else if (k === "n") act("dance");
     else if (k === "r") act("rest");
+    else if (k === "o") setAuto(!auto);
     else if (k === "+" || k === "=") setSpeed(speed + 1);
     else if (k === "-") setSpeed(speed - 1);
     else if (k === "pageup" || k === "]") setHeight(height + 1);
@@ -433,6 +472,7 @@
   });
   document.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => act(b.dataset.act)));
   document.querySelectorAll("[data-gait]").forEach(b => b.addEventListener("click", () => setGait(+b.dataset.gait)));
+  $("autoBtn").addEventListener("click", () => setAuto(!auto));
   $("speedUp").addEventListener("click", () => setSpeed(speed + 1));
   $("speedDown").addEventListener("click", () => setSpeed(speed - 1));
   $("heightUp").addEventListener("click", () => setHeight(height + 1));
@@ -453,7 +493,7 @@
   window.addEventListener("resize", fit);
   fit();
 
-  // a gamepad: left stick walks and turns, right stick crabs; A hello, B dance, X rest, LB / RB gait
+  // a gamepad: left stick walks and turns, right stick crabs; A hello, B dance, X rest, Y obstacle, LB / RB gait
   const padWas = [];
   function pollGamepad() {
     const gp = navigator.getGamepads ? [...navigator.getGamepads()].find(Boolean) : null;
@@ -464,6 +504,7 @@
     if (press(0)) act("hello");
     if (press(1)) act("dance");
     if (press(2)) act("rest");
+    if (press(3)) setAuto(!auto);
     if (press(4)) setGait(wantGait - 1);
     if (press(5)) setGait(wantGait + 1);
     if (press(12)) setSpeed(speed + 1);
@@ -474,6 +515,6 @@
   // ---- go --------------------------------------------------------------------------------------
   render(home(), pose);
   say("W A S D to walk, Q / E to crab");
-  if (location.hash === "#demo") { held.f = 1; held.t = 0.3; }   // play.html#demo: he walks off by himself (screenshots)
+  if (location.hash === "#demo") setAuto(true);   // play.html#demo: he walks off by himself
   requestAnimationFrame(t => { moveStart = t; frameLoop(t); });
 })();

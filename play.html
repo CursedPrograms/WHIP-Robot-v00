@@ -54,6 +54,7 @@
           <span>doing</span><b id="hudState">standing</b>
           <span>speed</span><b id="hudSpeed">7</b>
           <span>height</span><b id="hudHeight">5</b>
+          <span>sonar</span><b id="hudSonar">--</b>
           <span>orbs</span><b class="score" id="hudScore">0</b>
         </div>
         <pre class="servos" id="servos" aria-hidden="true"></pre>
@@ -84,6 +85,7 @@
             <button class="pbtn half" data-act="dance">DANCE</button>
             <button class="pbtn half" data-act="rest">REST</button>
           </div>
+          <button class="pbtn wide" id="autoBtn">OBSTACLE: he walks himself</button>
         </div>
 
         <div class="box">
@@ -105,9 +107,9 @@
           <ul class="keys">
             <li><kbd>W</kbd><kbd>S</kbd> walk &middot; <kbd>A</kbd><kbd>D</kbd> turn</li>
             <li><kbd>Q</kbd><kbd>E</kbd> crab &middot; <kbd>G</kbd> / <kbd>1</kbd>-<kbd>6</kbd> gait</li>
-            <li><kbd>H</kbd> hello &middot; <kbd>N</kbd> dance &middot; <kbd>R</kbd> rest</li>
+            <li><kbd>H</kbd> hello &middot; <kbd>N</kbd> dance &middot; <kbd>R</kbd> rest &middot; <kbd>O</kbd> obstacle</li>
             <li><kbd>+</kbd><kbd>-</kbd> speed &middot; <kbd>[</kbd><kbd>]</kbd> height</li>
-            <li>Gamepad: left stick walks, right stick crabs, A / B / X hello / dance / rest, LB / RB gait</li>
+            <li>Gamepad: left stick walks, right stick crabs, A / B / X hello / dance / rest, Y obstacle, LB / RB gait</li>
           </ul>
         </div>
       </div>

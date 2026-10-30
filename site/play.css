@@ -147,3 +147,4 @@
 .keys { margin: 0; padding: 0; list-style: none; font: 12px/1.9 var(--mono); color: var(--sub); }
 .keys kbd { display: inline-block; min-width: 22px; padding: 0 5px; margin-right: 4px; border: 1px solid var(--border); border-radius: 4px; background: #12162a; color: var(--text); text-align: center; font: inherit; }
 .note { color: var(--sub); font-size: 14px; margin: 18px 0 0; }
+.pbtn.wide { width: 100%; margin-top: 8px; }

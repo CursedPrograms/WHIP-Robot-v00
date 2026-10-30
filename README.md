@@ -46,6 +46,8 @@
 
 **Windows controller:** [`builds/WHIP-Controller.exe`](builds/WHIP-Controller.exe) shows WHIP's own web page in a window, so it always matches the page. Source: `scripts/web_controller`.
 
+**Servo Studio:** [`builds/WHIP-Servo-Studio.exe`](builds/WHIP-Servo-Studio.exe) is Servo Studio with no Python to install. Keep it in `builds/`: it runs `scripts/servo_studio.py` from the repo, so it can't fall behind it. Rebuild with `scripts/build_servo_studio.bat`.
+
 ## Related Projects
 
 - [ARIA-Robot-v00](https://github.com/CursedPrograms/ARIA-Robot-v00)
@@ -79,7 +81,12 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 
 ### Core Features
 - [x] 18-DOF walking by inverse kinematics: six gaits (tripod, ripple, wave, quad, amble, metachronal), each checked to keep his centre inside his feet; forward, back, turning, crabbing sideways and analog stick driving, plus stand, rest and shut-down poses.
-- [x] **Play WHIP** in your browser ([play.html](https://cursedprograms.github.io/WHIP-Robot-v00/play.html)): his own gait engine and IK ported to JavaScript, drawn in CSS 3D. Walk, turn and crab him round an arena collecting orbs, all six gaits, hello, dance and rest, with the keyboard, a touch pad or a gamepad; it shows the joint pulses his servos would get.
+- [x] **Play WHIP** in your browser ([play.html](https://cursedprograms.github.io/WHIP-Robot-v00/play.html)): his own gait engine and IK ported to JavaScript, drawn in CSS 3D. Walk, turn and crab him round an arena collecting orbs, all six gaits, hello, dance and rest, with the keyboard, a touch pad or a gamepad; it shows the joint pulses his servos would get. **OBSTACLE** (key `O`) walks him by himself and turns him away from anything within 35 cm, as on the real WHIP, and it has his sonar reading; drive at any time to take over.
+
+<div align="center">
+  <img src="images/screenshots/play.gif" alt="Playing WHIP in the browser: he walks himself round the pillars in Obstacle mode" width="460"/>
+</div>
+
 - [x] Body IK: his body slides (x / y / z) and tilts (roll / pitch / yaw) over planted feet, fitted so every foot reaches: `/body`, the controller's BODY mode, the PS2 pad's BODY mode (R3), Servo Studio's 3D BODY.
 - [x] A PS2 pad on WHIP himself: its 9-pin receiver straight on four pins (`ps2.h`), the sticks steering his gaits.
 - [x] WHIP in 3D on his own web page (plain JavaScript, live from `/pose`), and in Servo Studio.
