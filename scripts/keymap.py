@@ -35,6 +35,9 @@ KEYMAP = [
         ("BODY", "body IK: his body slides and tilts over planted feet. Sticks; or W/S A/D slide, R/F up / down, Q/E twist, I/K pitch, J/L roll"),
         ("EMULATE", "a pretend WHIP on this PC, to try the controller with no robot (scripts/fake_whip.py)"),
         ("F1", "this window"),
+        ("F5", "record a macro; again to save it (scripts/macros/)"),
+        ("F6", "play or stop the chosen macro"),
+        ("F7", "choose the next macro"),
         ("Esc", "quit"),
     ]),
     ("Controller: gamepad or joystick (ARM's flight stick works too)", [

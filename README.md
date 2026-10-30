@@ -80,6 +80,7 @@
 WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser control page, and works out every joint by inverse kinematics, sending the angles to an RTrobot 32-channel servo controller that moves all the joints together. An MPU6050 watches for tipping and an HC-SR04 watches the way ahead.
 
 ### Core Features
+- [x] **Your own macros:** record what you do, name it and play it back, like ARM's. On his web page they're under MACROS, saved in that browser. In the Python controller **F5** records and saves, **F6** plays, **F7** picks the next, saved in `scripts/macros/`. Driving him or STOP ends one. They need the gaits firmware flashed for the web page.
 - [x] 18-DOF walking by inverse kinematics: six gaits (tripod, ripple, wave, quad, amble, metachronal), each checked to keep his centre inside his feet; forward, back, turning, crabbing sideways and analog stick driving, plus stand, rest and shut-down poses.
 - [x] **Play WHIP** in your browser ([play.html](https://cursedprograms.github.io/WHIP-Robot-v00/play.html)): his own gait engine and IK ported to JavaScript, drawn in CSS 3D. Walk, turn and crab him round an arena collecting orbs, all six gaits, hello, dance and rest, with the keyboard, a touch pad or a gamepad; it shows the joint pulses his servos would get. **OBSTACLE** (key `O`) walks him by himself and turns him away from anything within 35 cm, as on the real WHIP, and it has his sonar reading; drive at any time to take over.
 
@@ -293,6 +294,9 @@ Every key, gamepad button and remote button. The same list opens in its own wind
 | BODY | body IK: his body slides and tilts over planted feet. Sticks; or W/S A/D slide, R/F up / down, Q/E twist, I/K pitch, J/L roll |
 | EMULATE | a pretend WHIP on this PC, to try the controller with no robot (scripts/fake_whip.py) |
 | F1 | this window |
+| F5 | record a macro; again to save it (scripts/macros/) |
+| F6 | play or stop the chosen macro |
+| F7 | choose the next macro |
 | Esc | quit |
 
 **Controller: gamepad or joystick (ARM's flight stick works too)**

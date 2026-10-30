@@ -50,6 +50,7 @@ import math
 
 import keymap   # scripts/keymap.py: every key and button, in its own window (F1)
 import mind     # scripts/mind.py: his LLM mind (MIND mode), shared by every robot's controller
+import macros
 import serial_to_xml   # scripts/serial_to_xml.py: his servo serial -> RTrobot XML macros (the XML button)
 import controller_kit as kit   # scripts/controller_kit.py: the parts every robot's controller shares (Voice)
 
@@ -595,13 +596,27 @@ class ControllerLayout:
         self.voice = kit.Voice(WHIP_VOICE[0], WHIP_LINES, WHIP_VOICE[1], WHIP_VOICE[2])
         self.voice.on = self.settings.get("voice", True)
         self._heard = None   # his status as the voice last saw it
-        send = self.link.send
+        send, drive = self.link.send, self.link.drive
+        self.macro_rec = macros.Recorder()
+        self.macro_play = macros.Player(self._macro_call)
+        self._link_send, self._link_drive = send, drive
+        self.macro_names, self.macro_index = macros.names(), 0
 
         def send_and_say(path, **params):   # HELLO / DANCE speak as they're pressed
             if path == "/act" and params.get("do") in ("hello", "dance") and not self.mind.on:
                 self.voice.say(params["do"])
+            self.macro_rec.note(path, params, time.monotonic())
             send(path, **params)
+
+        def drive_or_macro(cmd, **params):
+            if self.macro_play.on:
+                if cmd == "stop":
+                    return                 # nobody's touching him: the macro's driving
+                self.macro_play.stop()     # driving him yourself ends it
+            self.macro_rec.note("/web", dict(cmd=cmd, **params), time.monotonic())
+            drive(cmd, **params)
         self.link.send = send_and_say
+        self.link.drive = drive_or_macro
         self.body_on, self.body = False, [0.0] * 6   # BODY mode (his body over planted feet)
         self._body_sent, self._body_at = None, 0.0
         self.fake = None    # EMULATE: the fake WHIP (fake_whip.py) running in here
@@ -685,6 +700,7 @@ class ControllerLayout:
         while running:
             for event in pygame.event.get():
                 running = self._handle(event) and running
+            self.macro_play.tick(time.monotonic())
 
             self._update_drive()
             self._sync_mind()
@@ -708,6 +724,12 @@ class ControllerLayout:
             return False
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_F1:
             keymap.open_window()
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_F5:
+            self._macro_record()
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_F6:
+            self._macro_toggle()
+        elif event.type == pygame.KEYDOWN and event.key == pygame.K_F7:
+            self._macro_next()
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_g:
             self._set_gait(self._setting("gait", 0) + 1)
         elif event.type == pygame.KEYDOWN and event.key in (pygame.K_z, pygame.K_x, pygame.K_c):
@@ -737,6 +759,7 @@ class ControllerLayout:
     # -- the button strip: every function on a click ---------------------
 
     def _stop(self):
+        self.macro_play.stop()
         """STOP: he stands, whatever he was doing. In OBSTACLE / FOLLOW he walks by himself, so a
         stop alone wouldn't hold him: WEB mode with nothing pressed is standing still."""
         if self.body_on:                   # and out of BODY mode, back to neutral
@@ -749,6 +772,40 @@ class ControllerLayout:
 
     def _note(self, text):
         self.xml_note, self._xml_note_at = text, time.monotonic()
+
+    # -- macros: your own, in scripts/macros/ (macros.py) ----
+    def _macro_call(self, path, params):
+        if path == "/web":
+            params = dict(params)
+            self._link_drive(params.pop("cmd"), **params)
+        else:
+            self._link_send(path, **params)
+
+    def _macro_record(self):
+        if not self.macro_rec.on:
+            self.macro_play.stop()
+            self.macro_rec.begin(time.monotonic())
+            return self._note("Recording a macro: F5 again to save it")
+        steps = self.macro_rec.end()
+        if steps:
+            name = macros.save(steps)
+            self.macro_names, self.macro_index = macros.names(), macros.names().index(name)
+            self._note(f"Saved {name}: {len(steps)} steps")
+
+    def _macro_next(self):
+        self.macro_names = macros.names()
+        if self.macro_names:
+            self.macro_index = (self.macro_index + 1) % len(self.macro_names)
+            self._note(f"Macro: {self.macro_names[self.macro_index]}")
+
+    def _macro_toggle(self):
+        if self.macro_play.on:
+            self.macro_play.stop()
+        elif self.macro_names and not self.macro_rec.on:
+            name = self.macro_names[self.macro_index % len(self.macro_names)]
+            self.link.set_mode("web")
+            self.macro_play.begin(macros.load(name), time.monotonic())
+            self._note(f"Playing {name}: drive or press STOP to end it")
 
     def _xml(self):
         """XML: EMULATE on -> gait_emulated.xml, every movement from his own IK code with the fake's

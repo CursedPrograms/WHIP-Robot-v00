@@ -2472,6 +2472,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     .turnR { grid-column: 3; grid-row: 2; }
     .right { grid-column: 3; grid-row: 3; }
     #status { font-size: 0.8rem; color: var(--text-dim); text-align: center; }
+    #macroBox { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 8px; font-size: 0.8rem; color: var(--text-dim); }
+    #macroBox .row { display: flex; gap: 8px; }
+    #macroBox .mode-btn { flex: 1; text-align: center; }
+    #macroBox select { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 2px solid var(--border); border-radius: var(--radius); padding: 6px; font-family: inherit; }
+    #macroRec.active { border-color: var(--red); color: var(--red); }
 
     #gaitBox { width: 100%; max-width: 340px; }
     #actRow { display: flex; gap: 8px; justify-content: center; }
@@ -2570,6 +2575,16 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
   <div id="status">mode: -- | move: -- | wifi: --</div>
 
+  <div id="macroBox">
+    MACROS: yours, saved in this browser
+    <div class="row">
+      <div class="mode-btn" id="macroRec" title="record what you do">REC</div>
+      <div class="mode-btn" id="macroPlay" title="play the chosen macro">PLAY</div>
+      <div class="mode-btn" id="macroDel" title="delete the chosen macro">DELETE</div>
+    </div>
+    <div class="row"><select id="macroList" aria-label="macro"></select></div>
+  </div>
+
   <a href="/calib" style="color:var(--accent);font-size:0.85rem">CALIBRATION</a>
   <div id="shutdownBtn" onclick="doShutdown()">SHUTDOWN</div>
 
@@ -2594,6 +2609,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
     // 403 from a driving endpoint means the server locked us out: pop the PIN.
     function driveFetch(url) {
+      macroNote(url);
       return fetch(url).then(function (r) { if (r.status === 403) showLock(); return r; })
                        .catch(function () {});
     }
@@ -2611,6 +2627,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
 
     function press(c, el) {
       if (curMode !== 'web') return;
+      macroStop();
       el.classList.add('pressed');
       sendCmd(c);
       if (repeatTimer) clearInterval(repeatTimer);
@@ -2640,9 +2657,83 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     bindHold('btnSR',    'sright');
 
     document.getElementById('btnStop').addEventListener('click', function () {
+      macroStop();
       release(null);
       sendCmd('stop');
     });
+
+    // Macros: what you do with its timing, the steps macros.py saves. A drive step is sent again and
+    // again while it plays, because he stands if it goes quiet. Any drive or STOP ends it.
+    const macroList = document.getElementById('macroList');
+    const macroRecBtn = document.getElementById('macroRec');
+    let macros = {}, recording = null, recordStart = 0, playing = null;
+    try { macros = JSON.parse(localStorage.getItem('whipMacros') || '{}'); } catch (e) {}
+    function macroShow() {
+      macroList.innerHTML = '';
+      Object.keys(macros).sort().forEach(function (n) {
+        const o = document.createElement('option');
+        o.textContent = n;
+        macroList.appendChild(o);
+      });
+    }
+    function macroSave() { localStorage.setItem('whipMacros', JSON.stringify(macros)); macroShow(); }
+    function macroNote(url) {
+      if (!recording || playing || !/^\/(web|act|mode|gait)\?/.test(url)) return;
+      const last = recording[recording.length - 1];
+      if (!last || last.path !== url) recording.push({ t: (performance.now() - recordStart) / 1000, path: url });
+    }
+    function macroStop() {
+      if (!playing) return;
+      clearInterval(playing.timer);
+      playing = null;
+      document.getElementById('macroPlay').classList.remove('active');
+      driveFetch('/web?cmd=stop');
+    }
+    function macroPlay() {
+      if (playing) { macroStop(); return; }
+      const steps = macros[macroList.value];
+      if (!steps || recording) return;
+      setMode('web');
+      const start = performance.now();
+      let i = 0, current = null, resent = 0;
+      playing = { timer: setInterval(function () {
+        const now = performance.now(), at = (now - start) / 1000;
+        while (i < steps.length && steps[i].t <= at) {
+          current = steps[i++].path;
+          driveFetch(current);
+          resent = now;
+        }
+        if (i >= steps.length) { macroStop(); return; }
+        if (current && current.indexOf('/web?') === 0 && current.indexOf('cmd=stop') < 0 && now - resent >= 200) {
+          driveFetch(current);
+          resent = now;
+        }
+      }, 50) };
+      document.getElementById('macroPlay').classList.add('active');
+    }
+    macroRecBtn.addEventListener('click', function () {
+      if (!recording) {
+        macroStop();
+        recording = [];
+        recordStart = performance.now();
+        macroRecBtn.classList.add('active');
+        macroRecBtn.textContent = 'SAVE';
+        return;
+      }
+      const steps = recording;
+      recording = null;
+      macroRecBtn.classList.remove('active');
+      macroRecBtn.textContent = 'REC';
+      if (!steps.length) return;
+      const name = prompt('Name this macro:', 'macro ' + (Object.keys(macros).length + 1));
+      if (name) { macros[name] = steps; macroSave(); macroList.value = name; }
+    });
+    document.getElementById('macroPlay').addEventListener('click', macroPlay);
+    document.getElementById('macroDel').addEventListener('click', function () {
+      if (macroList.value && confirm('Delete ' + macroList.value + '?')) { delete macros[macroList.value]; macroSave(); }
+    });
+    document.addEventListener('visibilitychange', function () { if (document.hidden) macroStop(); });
+    macroShow();
 
     function setMode(m) {
       driveFetch('/mode?m=' + m);
