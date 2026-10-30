@@ -1,27 +1,29 @@
 <p align="center"><img src="images/avatar_round.png" width="160" alt="WHIP"></p>
 
-[![Twitter: @NorowaretaGemu](https://img.shields.io/badge/X-@NorowaretaGemu-blue.svg?style=flat)](https://x.com/NorowaretaGemu)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-  
-<br>
+<h1 align="center">WHIP</h1>
+<h3 align="center">Walking Hexapod Intelligence Platform</h3>
+<p align="center"><i>A DREAM Robotics Agent</i></p>
+
+<div align="center">
+
+[![Twitter: @NorowaretaGemu](https://img.shields.io/badge/X-@NorowaretaGemu-blue.svg?style=flat)](https://x.com/NorowaretaGemu) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
 <div align="center">
   <a href="https://ko-fi.com/cursedentertainment">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" style="width: 20%;"/>
+    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="ko-fi" width="180"/>
   </a>
 </div>
+
 <div align="center">
   <img alt="C++" src="https://img.shields.io/badge/c++%20-%23323330.svg?&style=for-the-badge&logo=c%2B%2B&logoColor=white"/>
-</div>
-<div align="center">
   <img alt="Arduino" src="https://img.shields.io/badge/-Arduino-323330?style=for-the-badge&logo=arduino&logoColor=white"/>
   <img alt="ESP32" src="https://img.shields.io/badge/ESP32-%23323330.svg?&style=for-the-badge&logo=espressif&logoColor=white"/>
-</div>
-<div align="center">
   <img alt="Git" src="https://img.shields.io/badge/git%20-%23323330.svg?&style=for-the-badge&logo=git&logoColor=white"/>
 </div>
 
-# WHIP 
-## Walking Hexapod Intelligence Platform
+---
 
 - Robot Type: Hexapod
 
@@ -44,11 +46,22 @@
 
 ---
 
+---
+
+<div align="center">
+  <img src="images/whip00.png" alt="WHIP00 Robot" width="400"/>
+</div>
+
+---
+
 **Windows controller:** [`builds/WHIP-Controller.exe`](builds/WHIP-Controller.exe) shows WHIP's own web page in a window, so it always matches the page. Source: `scripts/web_controller`.
 
 **Servo Studio:** [`builds/WHIP-Servo-Studio.exe`](builds/WHIP-Servo-Studio.exe) is Servo Studio with no Python to install. Keep it in `builds/`: it runs `scripts/servo_studio.py` from the repo, so it can't fall behind it. Rebuild with `scripts/build_servo_studio.bat`.
 
+---
+
 ## Related Projects
+
 
 <table>
   <tr>
@@ -72,13 +85,7 @@
 
 ---
 
-<div align="center">
-  <img src="images/whip00.png" alt="WHIP00 Robot" width="400"/>
-</div>
-
----
-
-## 📖 Overview
+## Overview
 
 <details>
 <summary><b>Overview</b></summary>
@@ -164,8 +171,7 @@ WHIP is an 18-servo hexapod. An ESP32 runs the behaviour, WiFi and a browser con
 
 ---
 
-# Schematics
-## ⚡ Technical Pinouts
+## Pinouts
 
 <details>
 <summary><b>Power</b></summary>
@@ -240,7 +246,7 @@ The old default made him turn the wrong way and wave a back leg. A calibration s
 
 ---
 
-## 🌐 Connectivity & Controls
+## Controls
 
 <details>
 <summary><b>Connectivity & Controls</b></summary>
@@ -528,19 +534,8 @@ The firmware WHIP runs now (flashed 2026-10-24, and he walks better than on the 
 
 ---
 
-## 🔧 Build status
+## How to Run
 
-The gaits firmware is flashed and he walks. What's left:
-
-- [ ] Blue Loctite on the servo screws (metal threads only: threadlocker can crack plastic)
-- [ ] Bearing under the body, to take the load off the servo horns
-- [ ] Fit the RGB LED grid (GPIO 18) and the buzzer (GPIO 19), and check the grid isn't rotated or mirrored
-- [ ] Calibrate the servo offsets on `/calib`, after the mechanical work
-- [ ] Check on the robot: turns not swapped, IR 3-7, rest height, picked-up stop while walking, HELLO balance, showing up in RIFT
-
----
-
-## How to Run:
 <details>
 <summary><b>View How to Run</b></summary>
 
@@ -560,7 +555,19 @@ Every launcher comes in `.bat`, `.ps1` and `.sh` (Linux / macOS): `setup` (venv 
 
 ---
 
-## 📡 Who's nearby (ESP-NOW + Bluetooth LE)
+## Build status
+
+The gaits firmware is flashed and he walks. What's left:
+
+- [ ] Blue Loctite on the servo screws (metal threads only: threadlocker can crack plastic)
+- [ ] Bearing under the body, to take the load off the servo horns
+- [ ] Fit the RGB LED grid (GPIO 18) and the buzzer (GPIO 19), and check the grid isn't rotated or mirrored
+- [ ] Calibrate the servo offsets on `/calib`, after the mechanical work
+- [ ] Check on the robot: turns not swapped, IR 3-7, rest height, picked-up stop while walking, HELLO balance, showing up in RIFT
+
+---
+
+## Who's nearby (ESP-NOW + Bluetooth LE)
 
 Every robot sends a small **"I'm here"** beacon twice a second and listens for the others'. From the **signal strength** it knows roughly how close each one is, and from how that changes over time whether it's **coming closer, steady or leaving**:
 
@@ -614,21 +621,17 @@ Every UI, as it looks (all captured on EMULATE: no robot needed to try any of th
 
 ---
 
-<br>
+<div align="center">&copy; Cursed Entertainment 2026</div>
+
 <div align="center">
-© Cursed Entertainment 2026
+  <a href="https://cursed-entertainment.itch.io/">
+    <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png" alt="Cursed Entertainment" width="250"/>
+  </a>
 </div>
-<br>
+
 <div align="center">
-<a href="https://cursed-entertainment.itch.io/" target="_blank">
-    <img src="https://github.com/CursedPrograms/cursedentertainment/raw/main/images/logos/logo-wide-grey.png"
-        alt="CursedEntertainment Logo" style="width:250px;">
-</a>
-</div>
-<br>
-<div align="center">
-  <a href="https://github.com/SynthWomb" target="_blank">
-    <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png" alt="SynthWomb" style="width:200px;"/>
+  <a href="https://github.com/SynthWomb">
+    <img src="https://github.com/SynthWomb/synth.womb/blob/main/logos/synthwomb07.png?raw=true" alt="SynthWomb" width="200"/>
   </a>
 </div>
 
