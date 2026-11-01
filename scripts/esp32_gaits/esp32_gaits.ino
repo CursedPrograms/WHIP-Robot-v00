@@ -2684,6 +2684,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     document.getElementById('btnStop').addEventListener('click', function () {
       macroStop();
       release(null);
+      if (curMode !== 'web') setMode('web');   // he walks on by himself in the others: /web?cmd=stop can't reach that
       sendCmd('stop');
     });
 

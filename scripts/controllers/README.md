@@ -2,7 +2,7 @@
 
 Python and the Windows exe are WHIP's main controllers. These are the same small controller in five languages, all reading `robot.json`, which holds WHIP's commands, buttons and sensors. Change it there and they all change.
 
-Hold W A S D to drive, Space stops. Pass the address as the first argument, or type it in.
+Hold W / S to walk forward and back, A / D to turn, Q / E to crab (gaits firmware). Space or STOP stops it in any mode. These have no keys, click them in the window: OBSTACLE, WEB, FOLLOW, STAY CLOSE, HELLO, DANCE, REST. Pass the address as the first argument, or type it in.
 
 | Language | UI | Run |
 |---|---|---|

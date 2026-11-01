@@ -7,7 +7,7 @@
   "GET /unlock?pw=1234",
   "GET /mode?m=web"
  ],
- "stop": "GET /web?cmd=stop",
+ "stop": "GET /mode?m=web",
  "keys": {
   "w": "GET /web?cmd=fwd",
   "s": "GET /web?cmd=bwd",
