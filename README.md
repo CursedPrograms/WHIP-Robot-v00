@@ -641,6 +641,17 @@ Every UI, as it looks (all captured on EMULATE: no robot needed to try any of th
 
 ---
 
+## Bluetooth
+
+The fleet has **one Bluetooth protocol** (`fleet_bt`, master copy in [RIFT](https://github.com/CursedPrograms/RIFT)'s `Fleet/`): a controller sends exactly the web request it would send over WiFi, one per line (`>GET /status`, `>POST /command<TAB>{...}`), and the robot asks its own web server and answers `<code> <length>` and the body. So every command works the same both ways, including new ones, and so does every rule: the PIN, the locks, the robot's own stops.
+
+- **WHIP** shows up as a Bluetooth serial device named **WHIP** (`scripts/esp32_gaits/fleet_bt.h`); his BLE "nearby" beacon keeps running next to it.
+- **His controller**: `config.json` -> `Controller` -> `Link: bluetooth` and `BluetoothTarget` (the COM port his pairing made, or his address; `options.py` edits it), or `WHIP_BT=COM7`.
+- **The PS2 pad is his priority controller**: while it's driving him, WiFi and Bluetooth drive / mode commands answer 409 (STOP always goes through).
+- His `/status` has `wifi_rssi` (his signal) and `bluetooth` (a Bluetooth controller is on).
+
+**STAY CLOSE goes round things**: he slows near something and crabs round it toward open space, still facing RITA's signal; if that side doesn't clear it he tries the other, then backs off and turns (`fleet_stay.h`, tested in `scripts/gait_test/stay_test.cpp`: round a wall in 47 of 50 pretend rooms, no bumps).
+
 <!-- DREAM-ECOSYSTEM:START -->
 ## The DREAM Robotics ecosystem
 

@@ -8,6 +8,7 @@
       },
       "Scripts": {
 
-      }
+      },
+      "Controller": {"Link": "wifi", "BluetoothTarget": ""}
     }
   }

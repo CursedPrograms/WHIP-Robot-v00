@@ -46,6 +46,8 @@ import time
 import pygame
 import requests
 
+import fleet_bt   # his web API over Bluetooth serial (RIFT/Fleet master)
+
 import math
 
 import keymap   # scripts/keymap.py: every key and button, in its own window (F1)
@@ -186,6 +188,21 @@ def leg_at(gait, leg, phase):
     return STRIDE - 2 * STRIDE * (k - air) / (1 - air), 0.0
 
 
+def bluetooth_target():
+    """WiFi or Bluetooth (config.json Config/Controller: Link, BluetoothTarget; options.py edits it).
+    WHIP_BT=COM7 (or his address) overrides. The target: the COM port his pairing made (Windows),
+    /dev/rfcommN (Linux), or his Bluetooth address. "" = WiFi."""
+    env = os.environ.get("WHIP_BT", "").strip()
+    if env:
+        return env
+    try:
+        with open(os.path.join(os.path.dirname(HERE), "config.json"), encoding="utf-8") as f:
+            c = json.load(f)["Config"].get("Controller", {})
+    except (OSError, ValueError, KeyError):
+        return ""
+    return c.get("BluetoothTarget", "").strip() if c.get("Link", "wifi").lower() == "bluetooth" else ""
+
+
 def _get_json(session, url, timeout=DISCOVERY_TIMEOUT):
     try:
         r = session.get(url, timeout=timeout)
@@ -299,6 +316,20 @@ class WhipLink:
             time.sleep(TICK_INTERVAL)
 
     def _discover(self):
+        # Bluetooth (config.json's Link): his whole web API over Bluetooth serial, the same requests
+        # (fleet_bt.py). The session is all that changes; his PIN and his PS2 pad's priority hold.
+        bt = None if self.url_override else bluetooth_target()
+        if bt:
+            if not isinstance(self._session, fleet_bt.BtSession) or self._session.target != bt:
+                self._session = fleet_bt.BtSession(bt)
+            if _get_json(self._session, "bt://WHIP/status") is not None:
+                self.base_url = "bt://WHIP"
+                self.connected = True
+            return
+        if isinstance(self._session, fleet_bt.BtSession):   # back to WiFi
+            self._session.close()
+            self._session = requests.Session()
+
         # 0. EMULATE, or WHIP_URL set (fake_whip.py does): talk to that and nothing else.
         url = self.url_override or os.environ.get("WHIP_URL")
         if url:
@@ -349,7 +380,8 @@ class WhipLink:
         if not self.base_url:
             return None
         try:
-            r = requests.get(f"{self.base_url}{path}", params=params, timeout=3)
+            via = self._session if self.base_url.startswith("bt://") else requests   # one Bluetooth link, shared
+            r = via.get(f"{self.base_url}{path}", params=params, timeout=3)
             return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"text": r.text}
         except (requests.RequestException, ValueError):
             return None

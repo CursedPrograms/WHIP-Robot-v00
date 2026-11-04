@@ -1,0 +1,6 @@
+{
+  "Config/Controller/Link": [
+    "wifi",
+    "bluetooth"
+  ]
+}

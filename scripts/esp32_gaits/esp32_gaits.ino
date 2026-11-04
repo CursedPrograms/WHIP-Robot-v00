@@ -93,6 +93,7 @@
 #include "avatar.h"           // WHIP's avatar as a JPEG byte array (served at /avatar.jpg)
 #include "fleet_near.h"
 #include "fleet_stay.h"     // STAY CLOSE: keeping near RITA       // ESP-NOW "I'm here" beacons: which robots are nearby, from signal strength
+#include "fleet_bt.h"         // his whole web API over Bluetooth serial too, the same commands (RIFT/Fleet/esp32)
 #include "fleet_near_ble.h"   // ...and the same beacon over Bluetooth LE, so she and the Pi robots (KIDAs) hear each other
 #include <IRremote.hpp>         // IRremote 4.x -- supports ESP32
 #include "ik_gait.h"            // walking by inverse kinematics (Jakob Leander's hexapod, same chassis)
@@ -117,6 +118,7 @@ char talkSym = 0;   // the symbol he's beeping now (0: quiet)
 // The fleet's ladder (fleet TODO, section 2):
 //   RIFT > DREAM > NINA > TINA                                  the hub, the virtual bots
 //   > NORACTL > WHIPCTL > KIDA01CTL > KIDA00CTL > ARMCTL        the PC controllers, in their bots' order
+//   > RITA                                                       the handheld remote: hosts for the robots
 //   > NORA > WHIP > KIDA01 > KIDA00 > ARM > MILA                the real bots
 // WHIP joins the highest network he sees above him; with none he hosts "WHIP" (192.168.4.1, channel 1)
 // and the fleet list on :5000, so KIDA01, KIDA00, ARM and MILA find each other through him. Every
@@ -129,7 +131,7 @@ char talkSym = 0;   // the symbol he's beeping now (0: quiet)
 #include "secrets.example.h"
 #endif
 const char* const ABOVE_WHIP[] = { FLEET_SSID, "DREAM", "NINA", "TINA",
-                                   "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL", "NORA" };   // highest first
+                                   "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL", "RITA", "NORA" };   // highest first
 const int ABOVE_N = sizeof(ABOVE_WHIP) / sizeof(ABOVE_WHIP[0]);
 const char* AP_SSID       = "WHIP";
 const char* AP_PASSWORD   = NORA_PASSWORD;   // the fleet's fallback password, like every robot's own AP
@@ -161,7 +163,7 @@ WebServer server(5005);
 // would disturb her link / ESP-NOW): she scans when /radar is opened. Passive
 // -- she never connects to or touches a network that is not hers.
 const char* const FLEET_SSIDS[] = { "RIFT", "DREAM", "NINA", "TINA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL",
-                                    "ARMCTL", "NORA", "WHIP", "KIDA01", "KIDA00", "ARM", "MILA", "NIKA" };
+                                    "ARMCTL", "RITA", "NORA", "WHIP", "KIDA01", "KIDA00", "ARM", "MILA", "NIKA" };
 const unsigned long RADAR_MIN_GAP_MS = 10000;
 String radarJson = "{\"scanning\":false,\"nets\":[]}";
 unsigned long lastRadarScan = 0;
@@ -1492,13 +1494,20 @@ Stay stay;
 void runStayMode() {
   float rssi = -100;
   const bool heard = fleetNearHeard(STAY_PEER, STAY_LOST_MS, &rssi);
+  // his front sensor and his crab walk: he slows near things and sidesteps round them, still facing
+  // RITA's signal; he can't see to the sides, so a sidestep that doesn't clear it tries the other way
+  // and then backs off (fleet_stay.h)
   const long d = readDistanceCM();
-  const bool blocked = d > 0 && d < MIN_DISTANCE_CM;
-  switch (stayStep(stay, heard, rssi, blocked, millis())) {
-    case STAY_WALK:  if (requestMove(MOVE_WALK)) MoveForward();      break;
-    case STAY_LEFT:  if (requestMove(MOVE_TURN_LEFT)) TurnLeft();    break;
-    case STAY_RIGHT: if (requestMove(MOVE_TURN_RIGHT)) TurnRight();  break;
-    default:         requestMove(MOVE_STAND);
+  const StaySight sight = { d > 0 ? (float)d : -1.0f, -1.0f, -1.0f, true };
+  switch (stayStepSmart(stay, heard, rssi, sight, millis())) {
+    case STAY_WALK:
+    case STAY_CREEP:       if (requestMove(MOVE_WALK)) MoveForward();       break;
+    case STAY_LEFT:        if (requestMove(MOVE_TURN_LEFT)) TurnLeft();     break;
+    case STAY_RIGHT:       if (requestMove(MOVE_TURN_RIGHT)) TurnRight();   break;
+    case STAY_SLIDE_LEFT:  if (requestMove(MOVE_WALK)) StrafeLeft();        break;
+    case STAY_SLIDE_RIGHT: if (requestMove(MOVE_WALK)) StrafeRight();       break;
+    case STAY_BACK:        if (requestMove(MOVE_BACKWARD)) MoveBackward();  break;
+    default:               requestMove(MOVE_STAND);
   }
 }
 
@@ -2089,6 +2098,9 @@ void handleWebCmd() {
   if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
   if (!server.hasArg("cmd")) { server.send(400, "text/plain", "missing 'cmd'"); return; }
   String cmd = server.arg("cmd");
+  // The PS2 pad is his priority controller: while it's driving him, WiFi and Bluetooth (the same
+  // route, fleet_bt.h) can't steer him. STOP still gets through: stopping is always allowed.
+  if (ps2Driving && cmd != "stop") { server.send(409, "text/plain", "PS2 pad is driving"); return; }
 
   if      (cmd == "fwd")   { webActiveCmd = WEB_FORWARD;  webLastCmdMillis = millis(); }
   else if (cmd == "bwd")   { webActiveCmd = WEB_BACKWARD; webLastCmdMillis = millis(); }
@@ -2145,6 +2157,7 @@ void handleMindCmd() {
 
 void handleModeCmd() {
   if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
+  if (ps2Driving) { server.send(409, "text/plain", "PS2 pad is driving"); return; }   // the pad first
   if (!server.hasArg("m")) { server.send(400, "text/plain", "missing 'm'"); return; }
   String m = server.arg("m");
 
@@ -2223,6 +2236,8 @@ void handleStatus() {
   json += "\"centred\":"     + String(centred ? 1 : 0) + ",";
   json += "\"testGait\":"    + String(testGait ? 1 : 0) + ",";
   json += "\"weave\":"       + String(ik::weave ? 1 : 0) + ",";
+  json += "\"wifi_rssi\":"   + String(wifiMode == WIFI_JOINED ? WiFi.RSSI() : 0) + ",";   // his signal (0: he hosts)
+  json += "\"bluetooth\":"   + String(fleetBtConnected() ? 1 : 0) + ",";
   json += "\"antiSlip\":"    + String(ik::antiSlip ? 1 : 0) + ",";
   json += "\"autoStart\":"   + String(ik::autoStart ? 1 : 0) + ",";
   json += "\"footLead\":"    + String(ik::footLead) + ",";
@@ -2409,6 +2424,7 @@ void setupWebServer() {
   server.on("/favicon.ico", handleAvatar);
   server.begin();
   if (MDNS.begin("whip")) MDNS.addService("http", "tcp", 5005);   // whip.local, as MILA and NIKA have
+  fleetBtBegin("WHIP", 5005);   // Bluetooth serial "WHIP": every command here works over it too (fleet_bt.h)
   Serial2.println(F("Web control server started on port 5005."));
 }
 

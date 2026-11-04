@@ -98,6 +98,7 @@
 // The fleet's ladder (fleet TODO, section 2):
 //   RIFT > DREAM > NINA > TINA                                  the hub, the virtual bots
 //   > NORACTL > WHIPCTL > KIDA01CTL > KIDA00CTL > ARMCTL        the PC controllers, in their bots' order
+//   > RITA                                                       the handheld remote: hosts for the robots
 //   > NORA > WHIP > KIDA01 > KIDA00 > ARM > MILA                the real bots
 // WHIP joins the highest network he sees above him; with none he hosts "WHIP" (192.168.4.1, channel 1)
 // and the fleet list on :5000, so KIDA01, KIDA00, ARM and MILA find each other through him. Every
@@ -110,7 +111,7 @@
 #include "secrets.example.h"
 #endif
 const char* const ABOVE_WHIP[] = { FLEET_SSID, "DREAM", "NINA", "TINA",
-                                   "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL", "NORA" };   // highest first
+                                   "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL", "RITA", "NORA" };   // highest first
 const int ABOVE_N = sizeof(ABOVE_WHIP) / sizeof(ABOVE_WHIP[0]);
 const char* AP_SSID       = "WHIP";
 const char* AP_PASSWORD   = NORA_PASSWORD;   // the fleet's fallback password, like every robot's own AP
@@ -142,7 +143,7 @@ WebServer server(5005);
 // would disturb her link / ESP-NOW): she scans when /radar is opened. Passive
 // -- she never connects to or touches a network that is not hers.
 const char* const FLEET_SSIDS[] = { "RIFT", "DREAM", "NINA", "TINA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL",
-                                    "ARMCTL", "NORA", "WHIP", "KIDA01", "KIDA00", "ARM", "MILA", "NIKA" };
+                                    "ARMCTL", "RITA", "NORA", "WHIP", "KIDA01", "KIDA00", "ARM", "MILA", "NIKA" };
 const unsigned long RADAR_MIN_GAP_MS = 10000;
 String radarJson = "{\"scanning\":false,\"nets\":[]}";
 unsigned long lastRadarScan = 0;
