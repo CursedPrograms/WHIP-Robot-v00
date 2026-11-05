@@ -110,7 +110,7 @@
 #warning "No secrets.h: building with secrets.example.h's placeholders (copy it to secrets.h and fill it in)"
 #include "secrets.example.h"
 #endif
-const char* const ABOVE_WHIP[] = { FLEET_SSID, "DREAM", "NINA", "TINA",
+const char* const ABOVE_WHIP[] = { FLEET_SSID, "DREAM", "NINA", "TINA", "AURA",
                                    "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL", "ARMCTL", "RITA", "NORA" };   // highest first
 const int ABOVE_N = sizeof(ABOVE_WHIP) / sizeof(ABOVE_WHIP[0]);
 const char* AP_SSID       = "WHIP";
@@ -142,7 +142,7 @@ WebServer server(5005);
 // our own networks as an "imposter". On-demand only (a scan channel-hops and
 // would disturb her link / ESP-NOW): she scans when /radar is opened. Passive
 // -- she never connects to or touches a network that is not hers.
-const char* const FLEET_SSIDS[] = { "RIFT", "DREAM", "NINA", "TINA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL",
+const char* const FLEET_SSIDS[] = { "RIFT", "DREAM", "NINA", "TINA", "AURA", "NORACTL", "WHIPCTL", "KIDA01CTL", "KIDA00CTL",
                                     "ARMCTL", "RITA", "NORA", "WHIP", "KIDA01", "KIDA00", "ARM", "MILA", "NIKA" };
 const unsigned long RADAR_MIN_GAP_MS = 10000;
 String radarJson = "{\"scanning\":false,\"nets\":[]}";
