@@ -23,8 +23,8 @@
     <ul>
       <li><a href="#overview">Overview</a></li>
       <li><a href="#hardware">Hardware</a></li>
-      <li><a href="#controls">Controls</a></li>
       <li><a href="#quickstart">Quick start</a></li>
+      <li><a href="#controls">Controls</a></li>
       <li><a href="#near">Nearby</a></li>
       <li><a href="#screens">Screens</a></li>
       <li><a href="play.html">Play</a></li>
@@ -75,7 +75,6 @@
 </header>
 
 <main>
-
 <section id="overview">
   <div class="wrap">
     <h2>Overview</h2>
@@ -85,6 +84,7 @@
         <span class="k">Phone</span>
         <h4>An Android app</h4>
         <p>Hold the stick to walk, let go to stop. A second stick crabs him sideways.</p>
+        <p><a class="btn primary" href="https://github.com/CursedPrograms/WHIP-Robot-v00/raw/main/Android%20App/apk/WHIP-debug-2026-10-30.apk">Download the APK</a></p>
       </div>
       <div class="card">
         <span class="k">Balance</span>
@@ -231,6 +231,47 @@ All grounds tied together</pre>
   </div>
 </section>
 
+<section id="status">
+  <div class="wrap">
+    <h2>Build status</h2>
+    <h3 class="title">Walking, nearly finished</h3>
+    <p class="muted">The gaits firmware is flashed and he walks better than ever. Left to do:</p>
+    <ol class="steps">
+      <li>Blue Loctite on the servo screws (metal threads only).</li>
+      <li>A bearing under the body, to take the load off the servo horns.</li>
+      <li>Fit the RGB LED grid and the buzzer.</li>
+      <li>Calibrate the servo offsets on <code>/calib</code>.</li>
+    </ol>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2>Quick start</h2>
+    <h3 class="title">Get him walking</h3>
+    <ol class="steps">
+      <li>Flash <code>scripts/esp32_gaits</code> with <code>flash_gaits.bat</code> (the firmware he runs now) with the servo controller's wires disconnected, then reconnect them.</li>
+      <li>Feet off the ground, line the legs up on <code>http://&lt;WHIP's IP&gt;:5005/calib</code>: ZERO, trim each servo, SAVE.</li>
+      <li>Power WHIP. He stands, calibrates his gyro and walks off in Obstacle Avoidance mode 5&nbsp;s after power-on, while his WiFi joins in the background.</li>
+      <li>Open <code>http://&lt;WHIP's IP&gt;:5005/</code>, or run the Python controller.</li>
+    </ol>
+<pre><span class="p">$</span> python -m venv venv
+<span class="p">$</span> source venv/bin/activate
+<span class="p">$</span> pip install -r requirements.txt
+<span class="p">$</span> python scripts/controller.py</pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Fleet networks</td><td>RIFT, DREAM, NINA, TINA, the controllers, NORA (the fleet's password, <code>secrets.h</code>)</td></tr>
+          <tr><td>WHIP's own AP</td><td><code>WHIP</code> / the fleet's password</td></tr>
+          <tr><td>Control page / RIFT port</td><td><code>5005</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
 <section id="controls">
   <div class="wrap">
     <h2>Controls</h2>
@@ -272,47 +313,6 @@ All grounds tied together</pre>
     </div>
     <h3 class="sub">Driven by NORA</h3>
     <p class="muted"><a href="https://cursedprograms.github.io/NORA-Robot-v00/">NORA</a> can drive WHIP through her IR transmitter: Samsung-format IR at address <code>0x0DA3</code>, with the fleet link&rsquo;s commands <code>0x48</code>&ndash;<code>0x4F</code> (drive, stop, obstacle, manual, speed). Driving switches her into IR Remote mode, and each command runs as the matching remote button. She stands once the link has been quiet for 600 ms (frames can land mid-step). She has one gait speed, so <code>speed</code> is ignored. Link frames print as <code>LINK cmd=0x..</code>.</p>
-  </div>
-</section>
-
-<section id="status">
-  <div class="wrap">
-    <h2>Build status</h2>
-    <h3 class="title">Walking, nearly finished</h3>
-    <p class="muted">The gaits firmware is flashed and he walks better than ever. Left to do:</p>
-    <ol class="steps">
-      <li>Blue Loctite on the servo screws (metal threads only).</li>
-      <li>A bearing under the body, to take the load off the servo horns.</li>
-      <li>Fit the RGB LED grid and the buzzer.</li>
-      <li>Calibrate the servo offsets on <code>/calib</code>.</li>
-    </ol>
-  </div>
-</section>
-
-<section id="quickstart">
-  <div class="wrap">
-    <h2>Quick start</h2>
-    <h3 class="title">Get him walking</h3>
-    <ol class="steps">
-      <li>Flash <code>scripts/esp32_gaits</code> with <code>flash_gaits.bat</code> (the firmware he runs now) with the servo controller's wires disconnected, then reconnect them.</li>
-      <li>Feet off the ground, line the legs up on <code>http://&lt;WHIP's IP&gt;:5005/calib</code>: ZERO, trim each servo, SAVE.</li>
-      <li>Power WHIP. He stands, calibrates his gyro and walks off in Obstacle Avoidance mode 5&nbsp;s after power-on, while his WiFi joins in the background.</li>
-      <li>Open <code>http://&lt;WHIP's IP&gt;:5005/</code>, or run the Python controller.</li>
-    </ol>
-<pre><span class="p">$</span> python -m venv venv
-<span class="p">$</span> source venv/bin/activate
-<span class="p">$</span> pip install -r requirements.txt
-<span class="p">$</span> python scripts/controller.py</pre>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
-        <tbody>
-          <tr><td>Fleet networks</td><td>RIFT, DREAM, NINA, TINA, the controllers, NORA (the fleet's password, <code>secrets.h</code>)</td></tr>
-          <tr><td>WHIP's own AP</td><td><code>WHIP</code> / the fleet's password</td></tr>
-          <tr><td>Control page / RIFT port</td><td><code>5005</code></td></tr>
-        </tbody>
-      </table>
-    </div>
   </div>
 </section>
 
