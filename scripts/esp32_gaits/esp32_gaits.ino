@@ -105,6 +105,9 @@
 // TALKING: the fleet's Brainfuck phrases out loud (RIFT's conversations: /chirp?u=<n>), one tone per
 // symbol in his own lower voice, each symbol on his grid as it's beeped. Never blocks: it runs from
 // the same place as the buzzer, and he walks on while he talks. Muted, only the grid talks.
+// His two talk switches (/talkmute, RIFT's Fleet/talk_mute.py, saved): SOUND off, he still chats
+// but nothing's beeped or shown; CHAT off, he's out of the fleet's conversations.
+bool chatOff = false;
 const uint8_t TALK_VOICE_PCT = 80;
 char talkSym = 0;   // the symbol he's beeping now (0: quiet)
 #include "ps2.h"                // a PS2 pad's receiver on GPIO 25 / 26 / 27 / 32 (3.3 V): drives him directly
@@ -556,6 +559,7 @@ void setup() {
   while (millis() < CONTROLLER_BOOT_MS) delay(10);
 
   ik::load();
+  { Preferences p; p.begin("talk", true); talkMuted = p.getBool("muted", false); chatOff = p.getBool("chatoff", false); p.end(); }   // his talk switches
   if (ik::gait >= ik::GAITS) ik::gait = ik::GAIT_TRIPOD;   // a gait taken out since (jakob, 6 until 2026-10-28)
   ps2::begin();   // nothing plugged in: it just finds no pad
   ikNow = ik::home();
@@ -843,6 +847,7 @@ void outputsTick(bool force) {
 
 // One step of TALKING (top of the file)
 void talkTick() {
+  if (talkUtterance >= 0 && talkMuted) { talkUtterance = -1; talkSym = 0; buzzer::tone(0); return; }   // muted mid-phrase
   if (talkUtterance < 0 || (long)(millis() - talkNextMs) < 0) return;
   talkSym = talkSymbol(talkUtterance, talkPos++);
   if (!talkSym) { talkUtterance = -1; buzzer::tone(0); return; }
@@ -2231,6 +2236,8 @@ void handleStatus() {
   json += "\"gait\":"        + String(ik::gait) + ",";
   json += "\"tiltGuard\":"   + String(tiltGuard ? 1 : 0) + ",";
   json += "\"sound\":"       + String(buzzer::muted ? 0 : 1) + ",";
+  json += "\"talk_muted\":"  + String(talkMuted ? "true" : "false") + ",";
+  json += "\"chat_off\":"    + String(chatOff ? "true" : "false") + ",";
   json += "\"resting\":"     + String(resting ? 1 : 0) + ",";
   json += "\"ps2\":"         + String(ps2::pad.connected ? 1 : 0) + ",";
   json += "\"centred\":"     + String(centred ? 1 : 0) + ",";
@@ -2387,8 +2394,19 @@ void setupWebServer() {
       server.send(400, "application/json", "{\"ok\":false,\"error\":\"use /chirp?u=0-" + String(TALK_UTTERANCES - 1) + "\"}");
       return;
     }
+    if (chatOff) { server.send(409, "application/json", "{\"ok\":false,\"reason\":\"chat_off\"}"); return; }
+    if (talkMuted) { server.send(200, "application/json", "{\"ok\":true,\"silent\":true}"); return; }   // said, quietly
     talkStart(u);
     server.send(200, "application/json", u < 14 ? "{\"ok\":true,\"text\":\"" + String(TALK_TEXT[u]) + "\"}" : String("{\"ok\":true}"));
+  });
+  server.on("/talkmute", []() {                 // ?on= sound, ?chat_off= chat: 0|1|toggle (RIFT's switches too; saved). No PIN
+    if (server.hasArg("on") || server.hasArg("chat_off")) {
+      if (server.hasArg("on")) talkMuted = server.arg("on") == "toggle" ? !talkMuted : server.arg("on").toInt() != 0;
+      if (server.hasArg("chat_off")) chatOff = server.arg("chat_off") == "toggle" ? !chatOff : server.arg("chat_off").toInt() != 0;
+      Preferences p; p.begin("talk", false); p.putBool("muted", talkMuted); p.putBool("chatoff", chatOff); p.end();
+    }
+    server.send(200, "application/json", String("{\"talk_muted\":") + (talkMuted ? "true" : "false") +
+                ",\"chat_off\":" + (chatOff ? "true" : "false") + "}");
   });
   server.on("/act",      []() {                 // ?do=hello|dance|rest|wake: once, between moves
     if (!isController()) { server.send(403, "text/plain", "LOCKED"); return; }
@@ -2527,8 +2545,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
     }
     #gaitAnim { width: 100%; height: auto; display: block; }
     #gaitNote { font-size: 0.75rem; color: var(--text-dim); }
-    #tiltBtn, #soundBtn { padding: 6px 10px; }
-    #soundBtn.active { border-color: var(--accent); color: var(--accent); }
+    #tiltBtn, #soundBtn, #talkBtn, #chatBtn { padding: 6px 10px; }
+    #soundBtn.active, #talkBtn.active, #chatBtn.active { border-color: var(--accent); color: var(--accent); }
     #tiltBtn.active { border-color: var(--green); color: var(--green); background: rgba(var(--green-rgb), 0.12); }
     #tiltBtn.off { border-color: var(--orange); color: var(--orange); background: rgba(var(--orange-rgb), 0.12); }
 
@@ -2576,6 +2594,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       <label>Gait <select id="gaitSel" title="G: next gait, 1-6: tripod / ripple / wave / quad / amble / metachronal"></select></label>
       <div class="mode-btn active" id="tiltBtn" title="T: tilt safety on / off (on again at every boot)">TILT ON</div>
       <div class="mode-btn active" id="soundBtn" title="B: buzzer on / off (on again at every boot)">SOUND</div>
+      <div class="mode-btn active" id="talkBtn" title="TALK SOUND: his Brainfuck beeps when he chats with the fleet (off: he chats quietly; RIFT has the same switch; saved)">TALK SOUND</div>
+      <div class="mode-btn active" id="chatBtn" title="CHAT: in or out of the fleet&rsquo;s conversations (RIFT has the same switch; saved)">CHAT</div>
       <div class="mode-btn" id="weaveBtn" title="WEAVE: in obstacle mode he weaves left and right as he walks, so the sonar sees past his legs, and stops at 48 cm (off again at every boot)">WEAVE</div>
       <div class="mode-btn" id="antiSlipBtn" title="ANTI-SLIP: a foot that lands takes his weight a moment before the next ones lift (tripod: all six down), same stride, slower (saved)">ANTI-SLIP</div>
       <label title="FOOT LEAD: while a leg steps, its foot servo runs ahead of the thigh and gets there first. 0 = pure IK, 9 = the foot there at about half the step (saved)">Foot lead <select id="footLeadSel"></select></label>
@@ -2824,6 +2844,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
         if (j.speed !== undefined) speedNow = j.speed;
         if (j.tiltGuard !== undefined && !!j.tiltGuard !== tiltOn) showTilt(!!j.tiltGuard);
         if (j.sound !== undefined && !!j.sound !== soundOn) showSound(!!j.sound);
+        if (j.talk_muted !== undefined && (!j.talk_muted !== talkOn || !j.chat_off !== chatOn)) showTalk(j);
         if (j.testGait !== undefined && !!j.testGait !== testOn) showTest(!!j.testGait);
         if (j.weave !== undefined && !!j.weave !== weaveOn) showWeave(!!j.weave);
         if (j.level !== undefined) document.getElementById('levelBtn').classList.toggle('active', !!j.level);
@@ -2901,6 +2922,23 @@ static const char INDEX_HTML[] PROGMEM = R"rawhtml(
       driveFetch('/buzzer?on=' + (soundOn ? 1 : 0));
     }
     document.getElementById('soundBtn').addEventListener('click', toggleSound);
+
+    // his two talk switches (/talkmute): the beeps when he chats, and the chatting itself
+    let talkOn = true, chatOn = true;
+    function showTalk(d) {
+      talkOn = !d.talk_muted; chatOn = !d.chat_off;
+      const t = document.getElementById('talkBtn'), c = document.getElementById('chatBtn');
+      t.textContent = talkOn ? 'TALK SOUND' : 'TALK QUIET';
+      t.classList.toggle('active', talkOn);
+      c.textContent = chatOn ? 'CHAT' : 'CHAT OFF';
+      c.classList.toggle('active', chatOn);
+    }
+    document.getElementById('talkBtn').addEventListener('click', () => {
+      fetch('/talkmute?on=toggle').then(r => r.json()).then(showTalk).catch(() => {});
+    });
+    document.getElementById('chatBtn').addEventListener('click', () => {
+      fetch('/talkmute?chat_off=toggle').then(r => r.json()).then(showTalk).catch(() => {});
+    });
 
     document.getElementById('levelBtn').addEventListener('click', function () {
       const on = !this.classList.contains('active');
